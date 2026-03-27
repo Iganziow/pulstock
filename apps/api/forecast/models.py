@@ -45,6 +45,16 @@ class DailySales(models.Model):
         help_text="Probable quiebre de stock (qty_sold~0 con stock agotado)"
     )
 
+    # Importación de datos históricos sin afectar stock
+    forecast_only = models.BooleanField(
+        default=False,
+        help_text=(
+            "True = importado desde histórico externo (Excel/CSV). "
+            "El motor de forecast lo usa normalmente, pero aggregate_daily_sales "
+            "nunca lo sobreescribe y NO genera transacciones de stock."
+        ),
+    )
+
     class Meta:
         unique_together = [("tenant", "product", "warehouse", "date")]
         indexes = [

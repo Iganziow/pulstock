@@ -155,6 +155,14 @@ class Command(BaseCommand):
             qty_received = recv_map.get((product_id, warehouse_id), Decimal("0.000"))
             promo_data = promo_map.get((product_id, warehouse_id), {})
 
+            # Nunca sobreescribir registros importados como histórico externo
+            if DailySales.objects.filter(
+                tenant=tenant, product_id=product_id,
+                warehouse_id=warehouse_id, date=target_date,
+                forecast_only=True,
+            ).exists():
+                continue
+
             obj, was_created = DailySales.objects.update_or_create(
                 tenant=tenant,
                 product_id=product_id,
@@ -248,6 +256,12 @@ class Command(BaseCommand):
                 wh_id = row["warehouse_id"]
                 qty = row["total_qty"] or Decimal("0.000")
                 if qty <= 0:
+                    continue
+                if DailySales.objects.filter(
+                    tenant=tenant, product_id=pid,
+                    warehouse_id=wh_id, date=target_date,
+                    forecast_only=True,
+                ).exists():
                     continue
                 obj, was_created = DailySales.objects.update_or_create(
                     tenant=tenant,
