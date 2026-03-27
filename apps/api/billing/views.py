@@ -1,0 +1,944 @@
+"""
+billing/views.py
+================
+API REST del sistema de suscripciones.
+
+Endpoints:
+  GET  /api/billing/subscription/         → estado actual de la suscripción
+  POST /api/billing/subscription/upgrade/ → cambiar de plan
+  POST /api/billing/subscription/cancel/  → cancelar
+  POST /api/billing/subscription/reactivate/ → reactivar (tras pago manual)
+  GET  /api/billing/invoices/             → historial de facturas
+  GET  /api/billing/plans/                → planes disponibles (público)
+  POST /api/billing/webhook/flow/         → webhook de Flow.cl
+  POST /api/billing/payment-link/         → generar link de pago manual
+"""
+
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework import status
+
+from api.throttles import WebhookRateThrottle
+
+from .models import Plan, Subscription, Invoice
+from .services import (
+    change_plan,
+    cancel_subscription,
+    reactivate_subscription,
+    get_subscription_status_for_api,
+    activate_period,
+    register_payment_failure,
+)
+from .gateway import (
+    create_payment_link, get_payment_status,
+    register_flow_card, get_card_register_status, unregister_flow_card,
+)
+from .models import PaymentAttempt
+from core.permissions import HasTenant, IsOwner
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────
+# PLANES DISPONIBLES (público)
+# ─────────────────────────────────────────────────────────────
+class PlanListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        plans = Plan.objects.filter(is_active=True).order_by("price_clp")
+        return Response([
+            {
+                "key":          p.key,
+                "name":         p.name,
+                "price_clp":    p.price_clp,
+                "trial_days":   p.trial_days,
+                "max_products": p.max_products,
+                "max_stores":   p.max_stores,
+                "max_users":    p.max_users,
+                "max_registers":p.max_registers,
+                "has_forecast": p.has_forecast,
+                "has_abc":      p.has_abc,
+                "has_reports":  p.has_reports,
+                "has_transfers":p.has_transfers,
+            }
+            for p in plans
+        ])
+
+
+# ─────────────────────────────────────────────────────────────
+# ESTADO DE SUSCRIPCIÓN
+# ─────────────────────────────────────────────────────────────
+class SubscriptionView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        try:
+            sub = Subscription.objects.select_related("plan", "tenant").get(
+                tenant_id=request.user.tenant_id
+            )
+        except Subscription.DoesNotExist:
+            return Response(
+                {"detail": "Sin suscripción activa. Contacta soporte."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = get_subscription_status_for_api(sub)
+
+        # Agregar historial reciente de facturas
+        invoices = Invoice.objects.filter(subscription=sub).order_by("-created_at")[:6]
+        data["recent_invoices"] = [
+            {
+                "id":          inv.pk,
+                "status":      inv.status,
+                "amount_clp":  inv.amount_clp,
+                "period_start": inv.period_start.isoformat(),
+                "period_end":   inv.period_end.isoformat(),
+                "paid_at":     inv.paid_at.isoformat() if inv.paid_at else None,
+                "payment_url": inv.payment_url or None,
+                "created_at":  inv.created_at.isoformat(),
+            }
+            for inv in invoices
+        ]
+
+        return Response(data)
+
+
+# ─────────────────────────────────────────────────────────────
+# CAMBIAR PLAN (upgrade / downgrade)
+# ─────────────────────────────────────────────────────────────
+class ChangePlanView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        new_plan_key = request.data.get("plan")
+        if not new_plan_key:
+            return Response(
+                {"detail": "El campo 'plan' es requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_keys = list(Plan.objects.filter(is_active=True).values_list("key", flat=True))
+        if new_plan_key not in valid_keys:
+            return Response(
+                {"detail": f"Plan inválido. Opciones: {', '.join(valid_keys)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            sub = Subscription.objects.select_related("plan").get(
+                tenant_id=request.user.tenant_id
+            )
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        if sub.plan.key == new_plan_key:
+            return Response({"detail": "Ya estás en ese plan."}, status=status.HTTP_400_BAD_REQUEST)
+
+        sub = change_plan(sub, new_plan_key)
+
+        # Si el nuevo plan es de pago y no hay método guardado → generar link
+        response_data = get_subscription_status_for_api(sub)
+        if sub.plan.price_clp > 0 and sub.status == Subscription.Status.PAST_DUE:
+            invoice = Invoice.objects.filter(
+                subscription=sub, status=Invoice.Status.PENDING
+            ).first()
+            if invoice:
+                link_result = create_payment_link(sub, invoice)
+                response_data["payment_url"] = link_result.get("payment_url")
+
+        return Response(response_data)
+
+
+# ─────────────────────────────────────────────────────────────
+# CANCELAR SUSCRIPCIÓN
+# ─────────────────────────────────────────────────────────────
+class CancelSubscriptionView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.get(tenant_id=request.user.tenant_id)
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        if sub.status == Subscription.Status.CANCELLED:
+            return Response({"detail": "La suscripción ya está cancelada."})
+
+        reason = request.data.get("reason", "")
+        sub = cancel_subscription(sub, reason=reason)
+
+        return Response({
+            "ok": True,
+            "message": "Suscripción cancelada. Tu acceso continúa hasta el fin del período actual.",
+            "access_until": sub.current_period_end.isoformat() if sub.current_period_end else None,
+        })
+
+
+# ─────────────────────────────────────────────────────────────
+# REACTIVAR SUSCRIPCIÓN
+# ─────────────────────────────────────────────────────────────
+class ReactivateSubscriptionView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.select_related("plan").get(
+                tenant_id=request.user.tenant_id
+            )
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        if sub.status == Subscription.Status.ACTIVE:
+            return Response({"detail": "La suscripción ya está activa."})
+
+        # Si el plan es de pago, se necesita procesar un cobro
+        if sub.plan.price_clp > 0:
+            from .models import Invoice
+            from .services import create_invoice
+            from .gateway import charge_subscription
+
+            invoice = create_invoice(sub)
+            result  = charge_subscription(sub, invoice)
+
+            if result["success"]:
+                sub = reactivate_subscription(sub)
+                return Response({
+                    "ok": True,
+                    "message": "Suscripción reactivada exitosamente.",
+                    **get_subscription_status_for_api(sub),
+                })
+            else:
+                # Generar link de pago manual
+                link = create_payment_link(sub, invoice)
+                return Response({
+                    "ok": False,
+                    "message": "No pudimos procesar el pago automáticamente. Usa el link de pago.",
+                    "payment_url": link.get("payment_url"),
+                }, status=status.HTTP_402_PAYMENT_REQUIRED)
+        else:
+            sub = reactivate_subscription(sub)
+            return Response({"ok": True, **get_subscription_status_for_api(sub)})
+
+
+# ─────────────────────────────────────────────────────────────
+# GENERAR LINK DE PAGO MANUAL
+# ─────────────────────────────────────────────────────────────
+class PaymentLinkView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.select_related("plan").get(
+                tenant_id=request.user.tenant_id
+            )
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Buscar invoice pendiente o crear uno nuevo
+        invoice = Invoice.objects.filter(
+            subscription=sub,
+            status__in=[Invoice.Status.PENDING, Invoice.Status.FAILED],
+        ).order_by("-created_at").first()
+
+        if not invoice:
+            from .services import create_invoice
+            invoice = create_invoice(sub)
+
+        result = create_payment_link(sub, invoice)
+
+        if result.get("success"):
+            return Response({
+                "payment_url": result["payment_url"],
+                "amount_clp":  invoice.amount_clp,
+                "invoice_id":  invoice.pk,
+            })
+        else:
+            return Response(
+                {"detail": result.get("error", "No se pudo generar el link de pago.")},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+# ─────────────────────────────────────────────────────────────
+# CONFIRMAR PAGO (frontend envía token de retorno de Flow)
+# ─────────────────────────────────────────────────────────────
+class ConfirmPaymentView(APIView):
+    """
+    Endpoint de seguridad: el frontend llama con el token que Flow
+    pone en la URL de retorno (?token=XXX).
+
+    Flujo:
+    1. Llama a Flow GET /payment/getStatus con el token
+    2. Verifica que commerceOrder corresponde a una factura del tenant
+    3. Procesa el pago (idempotente: si el webhook ya procesó, no repite)
+
+    Esto complementa al webhook: si ngrok/tunnel cae, el pago igual
+    se confirma cuando el usuario vuelve al frontend.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def post(self, request):
+        token = (request.data.get("token") or "").strip()
+        if not token:
+            return Response(
+                {"detail": "Token requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── 1. Consultar estado real en Flow ──
+        payment_data = get_payment_status(token)
+
+        flow_status = payment_data.get("status")
+        commerce_order = payment_data.get("commerceOrder", "")
+
+        if flow_status == -1:
+            logger.error("ConfirmPayment: error getStatus token=%s", token[:20])
+            return Response(
+                {"detail": "Error consultando estado de pago."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # ── 2. Buscar factura y validar pertenencia al tenant ──
+        try:
+            invoice = Invoice.objects.select_related(
+                "subscription", "subscription__plan", "subscription__tenant"
+            ).get(pk=int(commerce_order))
+        except (Invoice.DoesNotExist, ValueError, TypeError):
+            logger.warning("ConfirmPayment: factura no encontrada order=%s", commerce_order)
+            return Response(
+                {"detail": "Factura no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Seguridad: verificar que la factura pertenece al tenant del usuario
+        if invoice.subscription.tenant_id != request.user.tenant_id:
+            logger.warning(
+                "ConfirmPayment: tenant mismatch user=%s invoice_tenant=%s",
+                request.user.tenant_id, invoice.subscription.tenant_id,
+            )
+            return Response(
+                {"detail": "Factura no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        sub = invoice.subscription
+
+        # ── 3. Procesar según estado ──
+        if flow_status == 2:
+            # PAGADO — idempotente
+            if invoice.status == Invoice.Status.PAID:
+                return Response({
+                    "ok": True,
+                    "status": "already_paid",
+                    "detail": "El pago ya fue procesado.",
+                })
+
+            invoice.gateway_tx_id = str(payment_data.get("flowOrder", ""))
+            invoice.save(update_fields=["gateway_tx_id"])
+
+            PaymentAttempt.objects.create(
+                invoice=invoice,
+                gateway="flow",
+                result=PaymentAttempt.Result.SUCCESS,
+                raw=payment_data,
+            )
+
+            activate_period(sub, invoice)
+            logger.info(
+                "ConfirmPayment: pago exitoso invoice=#%d tenant=%s",
+                invoice.pk, sub.tenant_id,
+            )
+            return Response({
+                "ok": True,
+                "status": "paid",
+                "detail": "Pago confirmado exitosamente.",
+            })
+
+        elif flow_status in (3, 4):
+            error = "Pago rechazado" if flow_status == 3 else "Pago anulado"
+            # Solo registrar fallo si no está ya marcada como fallida
+            if invoice.status not in (Invoice.Status.FAILED, Invoice.Status.PAID):
+                register_payment_failure(sub, invoice, error_msg=error, raw=payment_data)
+
+            return Response({
+                "ok": False,
+                "status": "rejected",
+                "detail": error,
+            })
+
+        else:
+            # Pendiente (1) u otro
+            return Response({
+                "ok": False,
+                "status": "pending",
+                "detail": "El pago aún está pendiente. Inténtalo en unos segundos.",
+            })
+
+
+# ─────────────────────────────────────────────────────────────
+# HISTORIAL DE FACTURAS
+# ─────────────────────────────────────────────────────────────
+class InvoiceListView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        try:
+            sub = Subscription.objects.get(tenant_id=request.user.tenant_id)
+        except Subscription.DoesNotExist:
+            return Response([])
+
+        invoices = Invoice.objects.filter(subscription=sub).order_by("-created_at")[:24]
+        return Response([
+            {
+                "id":           inv.pk,
+                "status":       inv.status,
+                "status_label": inv.get_status_display(),
+                "amount_clp":   inv.amount_clp,
+                "period_start": inv.period_start.isoformat(),
+                "period_end":   inv.period_end.isoformat(),
+                "gateway":      inv.gateway,
+                "paid_at":      inv.paid_at.isoformat() if inv.paid_at else None,
+                "payment_url":  inv.payment_url or None,
+                "created_at":   inv.created_at.isoformat(),
+                "attempts":     inv.attempts.count(),
+            }
+            for inv in invoices
+        ])
+
+
+# ─────────────────────────────────────────────────────────────
+# REGISTRO DE TARJETA (cobro automático)
+# ─────────────────────────────────────────────────────────────
+class RegisterCardView(APIView):
+    """Inicia el proceso de registro de tarjeta en Flow."""
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.select_related("plan", "tenant").get(
+                tenant_id=request.user.tenant_id
+            )
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        result = register_flow_card(sub)
+        if "error" in result:
+            return Response({"detail": result["error"]}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"register_url": result["url"]})
+
+    def get(self, request):
+        """Retorna info de tarjeta registrada."""
+        try:
+            sub = Subscription.objects.get(tenant_id=request.user.tenant_id)
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "has_card": bool(sub.card_last4),
+            "card_brand": sub.card_brand,
+            "card_last4": sub.card_last4,
+            "flow_customer_id": sub.flow_customer_id or None,
+        })
+
+
+class UnregisterCardView(APIView):
+    """Elimina la tarjeta registrada."""
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.get(tenant_id=request.user.tenant_id)
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        result = unregister_flow_card(sub)
+        if "error" in result:
+            return Response({"detail": result["error"]}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"ok": True, "detail": "Tarjeta eliminada."})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class FlowCardRegisterWebhookView(APIView):
+    """
+    Callback de Flow tras registro de tarjeta.
+    Flow envía POST con {token} a esta URL.
+    Verificamos con getRegisterStatus y guardamos datos de tarjeta.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("token") or request.POST.get("token", "")
+        if not token:
+            return Response({"detail": "Token requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = get_card_register_status(token)
+        reg_status = result.get("status")
+        customer_id = result.get("customerId", "")
+
+        if str(reg_status) == "1" and customer_id:
+            # Registro exitoso — guardar datos de tarjeta
+            try:
+                sub = Subscription.objects.get(flow_customer_id=customer_id)
+                sub.card_brand = result.get("creditCardType", "")
+                sub.card_last4 = result.get("last4CardDigits", "")
+                sub.save(update_fields=["card_brand", "card_last4"])
+                logger.info(
+                    "Card registered: tenant=%s brand=%s last4=%s",
+                    sub.tenant_id, sub.card_brand, sub.card_last4,
+                )
+            except Subscription.DoesNotExist:
+                logger.error("Card register: subscription not found for customer=%s", customer_id)
+
+        # Redirigir al usuario de vuelta al frontend
+        from django.conf import settings as django_settings
+        app_base = getattr(django_settings, "APP_BASE_URL", "http://localhost:3000")
+        from django.shortcuts import redirect
+        card_ok = str(reg_status) == "1"
+        return redirect(f"{app_base}/dashboard/settings?tab=plan&card={'ok' if card_ok else 'fail'}")
+
+
+# ─────────────────────────────────────────────────────────────
+# WEBHOOK FLOW.CL
+# ─────────────────────────────────────────────────────────────
+@method_decorator(csrf_exempt, name="dispatch")
+class FlowWebhookView(APIView):
+    """
+    Webhook que recibe notificaciones de pago de Flow.cl.
+
+    Protocolo Flow:
+    1. Flow envía POST con content-type application/x-www-form-urlencoded
+    2. El único parámetro es 'token' — un hash que identifica la transacción
+    3. Debemos llamar a GET /payment/getStatus con ese token para obtener
+       el resultado real del pago (NO confiar en datos del POST)
+    4. El getStatus retorna: status 1=pendiente, 2=pagado, 3=rechazado, 4=anulado
+    """
+    permission_classes = [AllowAny]
+    # No requiere autenticación: Flow lo llama desde sus servidores
+
+    throttle_classes = [WebhookRateThrottle]
+
+    def post(self, request):
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # ── 1. Extraer y validar token del POST ──
+        token = request.data.get("token") or request.POST.get("token", "")
+        if not token:
+            logger.warning("Flow webhook: sin token en POST data")
+            return Response(
+                {"detail": "Token requerido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── 2. Consultar estado real del pago en Flow ──
+        payment_data = get_payment_status(token)
+
+        flow_status = payment_data.get("status")
+        commerce_order = payment_data.get("commerceOrder", "")
+        flow_order = payment_data.get("flowOrder", "")
+
+        if flow_status == -1:
+            # Error consultando Flow
+            logger.error("Flow webhook: error getStatus token=%s: %s", token[:20], payment_data.get("error"))
+            return Response(
+                {"detail": "Error consultando estado de pago."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # ── 3. Buscar la factura (con lock para idempotencia) ──
+        from django.db import transaction as db_transaction
+        from .models import PaymentAttempt
+
+        with db_transaction.atomic():
+            try:
+                invoice = (
+                    Invoice.objects
+                    .select_for_update()
+                    .select_related(
+                        "subscription", "subscription__plan",
+                        "subscription__tenant",
+                    )
+                    .get(pk=int(commerce_order))
+                )
+            except (Invoice.DoesNotExist, ValueError, TypeError):
+                logger.error(
+                    "Flow webhook: factura no encontrada. commerceOrder=%s token=%s",
+                    commerce_order, token[:20],
+                )
+                return Response(
+                    {"detail": "Factura no encontrada."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            sub = invoice.subscription
+
+            # ── 4. Procesar según estado ──
+            if flow_status == 2:
+                # PAGADO
+                # Idempotencia: si ya está pagada no reprocesar (webhook duplicado)
+                if invoice.status == Invoice.Status.PAID:
+                    logger.info("Flow webhook: invoice #%d ya procesada (idempotente)", invoice.pk)
+                    return Response({"ok": True, "detail": "already processed"})
+
+                # Guardar tx_id de Flow en la factura
+                invoice.gateway_tx_id = str(flow_order)
+                invoice.save(update_fields=["gateway_tx_id"])
+
+                # Registrar intento exitoso
+                PaymentAttempt.objects.create(
+                    invoice=invoice,
+                    gateway="flow",
+                    result=PaymentAttempt.Result.SUCCESS,
+                    raw=payment_data,
+                )
+
+                # Activar período pagado
+                activate_period(sub, invoice)
+                logger.info(
+                    "Flow webhook: pago exitoso invoice=#%d tenant=%s flowOrder=%s",
+                    invoice.pk, sub.tenant_id, flow_order,
+                )
+
+            elif flow_status in (3, 4):
+                # RECHAZADO (3) o ANULADO (4)
+                error = "Pago rechazado por Flow" if flow_status == 3 else "Pago anulado"
+                register_payment_failure(sub, invoice, error_msg=error, raw=payment_data)
+                logger.warning(
+                    "Flow webhook: pago fallido invoice=#%d status=%d error=%s",
+                    invoice.pk, flow_status, error,
+                )
+
+            elif flow_status == 1:
+                # PENDIENTE — no hacer nada, esperar siguiente webhook
+                logger.info("Flow webhook: pago pendiente invoice=#%d", invoice.pk)
+
+        return Response({"ok": True})
+
+
+# ─────────────────────────────────────────────────────────────
+# CHECKOUT — Pago directo desde landing (público, sin auth)
+# ─────────────────────────────────────────────────────────────
+from api.throttles import RegisterRateThrottle, WebhookRateThrottle
+from .models import CheckoutSession
+from .gateway import create_checkout_payment_link
+
+
+class CheckoutCreateView(APIView):
+    """POST /api/billing/checkout/create/ — Inicia checkout pre-registro."""
+    permission_classes = [AllowAny]
+    throttle_classes = [RegisterRateThrottle]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip().lower()
+        plan_key = (request.data.get("plan_key") or "").strip().lower()
+
+        if not email or "@" not in email:
+            return Response({"detail": "Email inválido"}, status=400)
+
+        try:
+            plan = Plan.objects.get(key=plan_key, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({"detail": "Plan no encontrado"}, status=404)
+
+        if plan.price_clp <= 0:
+            return Response({"detail": "Este plan no requiere pago"}, status=400)
+
+        # Idempotencia: reusar sesión pending del mismo email+plan del mismo día
+        from datetime import timedelta as td
+        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        existing = CheckoutSession.objects.filter(
+            email=email, plan=plan,
+            status=CheckoutSession.STATUS_PENDING,
+            expires_at__gt=timezone.now(),
+            created_at__gte=today_start,
+        ).first()
+
+        if existing and existing.payment_url:
+            return Response({
+                "token": str(existing.token),
+                "payment_url": existing.payment_url,
+                "plan_name": plan.name,
+                "amount_clp": plan.price_clp,
+            })
+
+        # Crear nueva sesión
+        session = CheckoutSession.objects.create(
+            email=email,
+            plan=plan,
+            amount_clp=plan.price_clp,
+            expires_at=timezone.now() + td(hours=2),
+        )
+
+        result = create_checkout_payment_link(session)
+
+        if not result.get("success"):
+            session.delete()
+            return Response(
+                {"detail": result.get("error", "Error al crear el pago")},
+                status=502,
+            )
+
+        return Response({
+            "token": str(session.token),
+            "payment_url": result["payment_url"],
+            "plan_name": plan.name,
+            "amount_clp": plan.price_clp,
+        })
+
+
+class CheckoutStatusView(APIView):
+    """GET /api/billing/checkout/status/?token=UUID — Verifica estado del pago."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        token = request.query_params.get("token", "")
+        if not token:
+            return Response({"detail": "Token requerido"}, status=400)
+
+        try:
+            session = CheckoutSession.objects.select_related("plan").get(token=token)
+        except (CheckoutSession.DoesNotExist, ValueError):
+            return Response({"detail": "Sesión no encontrada"}, status=404)
+
+        # Auto-expire
+        if session.is_expired:
+            session.status = CheckoutSession.STATUS_EXPIRED
+            session.save(update_fields=["status"])
+
+        # Mask email: j***@domain.cl
+        parts = session.email.split("@")
+        masked = parts[0][0] + "***@" + parts[1] if len(parts) == 2 and parts[0] else session.email
+
+        return Response({
+            "status": session.status,
+            "plan_name": session.plan.name,
+            "plan_key": session.plan.key,
+            "email_masked": masked,
+            "amount_clp": session.amount_clp,
+        })
+
+
+class CheckoutCompleteView(APIView):
+    """POST /api/billing/checkout/complete/ — Crea cuenta tras pago confirmado."""
+    permission_classes = [AllowAny]
+    throttle_classes = [RegisterRateThrottle]
+
+    def post(self, request):
+        from django.db import transaction
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.utils.text import slugify
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from api.auth_views import _set_token_cookies
+        from core.models import Tenant, User, Warehouse
+        from stores.models import Store
+
+        token = (request.data.get("token") or "").strip()
+        password = request.data.get("password") or ""
+        full_name = (request.data.get("full_name") or "").strip()
+        business_name = (request.data.get("business_name") or "").strip()
+        business_type = (request.data.get("business_type") or "").strip()
+        store_name = (request.data.get("store_name") or "").strip() or "Mi Local"
+        warehouses = request.data.get("warehouses") or []
+
+        # Validate token & session
+        try:
+            session = CheckoutSession.objects.select_related("plan").get(token=token)
+        except (CheckoutSession.DoesNotExist, ValueError):
+            return Response({"detail": "Sesión no encontrada"}, status=404)
+
+        if session.status == CheckoutSession.STATUS_COMPLETED:
+            return Response({"detail": "Esta cuenta ya fue creada. Inicia sesión."}, status=409)
+        if session.status != CheckoutSession.STATUS_PAID:
+            return Response({"detail": "El pago no ha sido confirmado aún."}, status=402)
+
+        # Validate fields
+        errors = {}
+        if not password:
+            errors["password"] = "La contraseña es obligatoria."
+        else:
+            try:
+                validate_password(password)
+            except DjangoValidationError as e:
+                errors["password"] = " ".join(e.messages)
+        if not full_name:
+            errors["full_name"] = "Tu nombre es obligatorio."
+        if not business_name:
+            errors["business_name"] = "El nombre de tu negocio es obligatorio."
+
+        email = session.email
+        if User.objects.filter(email=email).exists():
+            errors["email"] = "Ya existe una cuenta con este email. Inicia sesión."
+
+        if errors:
+            return Response({"errors": errors}, status=400)
+
+        # Generate unique slug
+        base_slug = slugify(business_name)[:60] or "negocio"
+        slug = base_slug
+        counter = 1
+        while Tenant.objects.filter(slug=slug).exists():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        parts = full_name.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        try:
+            with transaction.atomic():
+                # 1. Tenant (skip auto-subscription)
+                tenant = Tenant(name=business_name, slug=slug, is_active=True)
+                tenant._skip_default_store = True
+                tenant._skip_subscription = True
+                tenant.save()
+
+                # 2. Store + Warehouse(s)
+                store = Store.objects.create(
+                    tenant=tenant, name=store_name,
+                    code=f"{slug}-1", is_active=True,
+                )
+                wh_name = warehouses[0] if warehouses else "Bodega Principal"
+                warehouse = Warehouse.objects.create(
+                    tenant=tenant, store=store,
+                    name=(wh_name or "").strip() or "Bodega Principal",
+                    is_active=True,
+                )
+                for extra_wh in warehouses[1:]:
+                    if (extra_wh or "").strip():
+                        Warehouse.objects.create(
+                            tenant=tenant, store=store,
+                            name=extra_wh.strip(), is_active=True,
+                        )
+
+                tenant.default_warehouse = warehouse
+                tenant.save(update_fields=["default_warehouse"])
+                store.default_warehouse = warehouse
+                store.save(update_fields=["default_warehouse"])
+
+                # 3. Seed units
+                try:
+                    from catalog.management.commands.seed_units import seed_units_for_tenant
+                    seed_units_for_tenant(tenant)
+                except Exception:
+                    pass
+
+                # 4. User
+                user = User.objects.create_user(
+                    username=email, email=email, password=password,
+                    first_name=first_name, last_name=last_name,
+                    tenant=tenant, active_store=store,
+                )
+                user.role = "owner"
+                user.save(update_fields=["role"])
+
+                # 5. Subscription (ACTIVE, no trial)
+                now = timezone.now()
+                sub = Subscription.objects.create(
+                    tenant=tenant,
+                    plan=session.plan,
+                    status=Subscription.Status.ACTIVE,
+                    current_period_start=now,
+                    current_period_end=now + timedelta(days=30),
+                )
+
+                # 6. Invoice (PAID)
+                invoice = Invoice.objects.create(
+                    subscription=sub,
+                    status=Invoice.Status.PAID,
+                    amount_clp=session.amount_clp,
+                    period_start=now.date(),
+                    period_end=(now + timedelta(days=30)).date(),
+                    gateway="flow",
+                    gateway_order_id=session.gateway_order_id,
+                    gateway_tx_id=session.gateway_tx_id,
+                    paid_at=now,
+                )
+
+                # 7. PaymentAttempt
+                PaymentAttempt.objects.create(
+                    invoice=invoice,
+                    result=PaymentAttempt.Result.SUCCESS,
+                    gateway="flow",
+                    raw={"checkout_session": str(session.token)},
+                )
+
+                # 8. Mark session completed
+                session.status = CheckoutSession.STATUS_COMPLETED
+                session.tenant = tenant
+                session.completed_at = now
+                session.save(update_fields=["status", "tenant", "completed_at"])
+
+            # JWT tokens
+            refresh = RefreshToken.for_user(user)
+            access_str = str(refresh.access_token)
+            refresh_str = str(refresh)
+
+            response = Response({
+                "detail": "Cuenta creada exitosamente.",
+                "user": {"id": user.id, "email": user.email, "full_name": full_name},
+                "tenant": {"id": tenant.id, "name": tenant.name, "slug": tenant.slug},
+                "store": {"id": store.id, "name": store.name},
+                "tokens": {"access": access_str},
+            }, status=201)
+            _set_token_cookies(response, access_str, refresh_str)
+            return response
+
+        except Exception:
+            logger.exception("Error en checkout complete")
+            return Response(
+                {"detail": "No se pudo crear la cuenta. Intenta de nuevo."},
+                status=500,
+            )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class FlowCheckoutWebhookView(APIView):
+    """POST /api/billing/webhook/flow-checkout/ — Webhook de Flow para pagos checkout."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("token") or request.POST.get("token", "")
+        if not token:
+            return Response({"detail": "Missing token"}, status=400)
+
+        payment_data = get_payment_status(token)
+        flow_status = payment_data.get("status")
+        commerce_order = str(payment_data.get("commerceOrder", ""))
+        flow_order = payment_data.get("flowOrder", "")
+
+        # Parse CS-{id} format
+        if not commerce_order.startswith("CS-"):
+            logger.warning("Checkout webhook: commerceOrder no empieza con CS-: %s", commerce_order)
+            return Response({"detail": "Invalid commerceOrder"}, status=400)
+
+        try:
+            session_id = int(commerce_order.replace("CS-", ""))
+            session = CheckoutSession.objects.get(pk=session_id)
+        except (ValueError, CheckoutSession.DoesNotExist):
+            logger.warning("Checkout webhook: session not found for %s", commerce_order)
+            return Response({"detail": "Session not found"}, status=404)
+
+        if flow_status == 2:
+            if session.status == CheckoutSession.STATUS_PENDING:
+                session.status = CheckoutSession.STATUS_PAID
+                session.gateway_tx_id = str(flow_order)
+                session.save(update_fields=["status", "gateway_tx_id"])
+                logger.info("Checkout webhook: session #%d marcada como PAID", session.pk)
+            # Idempotent — already paid is OK
+        elif flow_status in (3, 4):
+            if session.status == CheckoutSession.STATUS_PENDING:
+                session.status = CheckoutSession.STATUS_EXPIRED
+                session.save(update_fields=["status"])
+                logger.warning("Checkout webhook: pago rechazado session #%d", session.pk)
+
+        return Response({"ok": True})   

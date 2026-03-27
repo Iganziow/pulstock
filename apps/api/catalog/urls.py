@@ -1,0 +1,36 @@
+from django.urls import path
+from .views import (
+    CategoryListCreate,
+    ProductListCreate,
+    ProductDetail,
+    ProductSearch,
+    ProductLookup,
+    CategoryDetail,
+    ProductImport,
+    ProductImportSample,
+    RecipeImport,
+    RecipeImportSample,
+    CategoryTree,
+    ProductRecipeView,
+    UnitList,
+    PriceListView,
+    PriceBulkUpdateView,
+)
+
+urlpatterns = [
+    path("categories/", CategoryListCreate.as_view(), name="category-list-create"),
+    path("products/", ProductListCreate.as_view(), name="product-list-create"),
+    path("products/search/", ProductSearch.as_view(), name="product-search-compat"),
+    path("products/lookup/", ProductLookup.as_view(), name="product-lookup"),
+    path("products/<int:pk>/", ProductDetail.as_view(), name="product-detail"),
+    path("products/<int:pk>/recipe/", ProductRecipeView.as_view(), name="product-recipe"),
+    path("categories/<int:pk>/", CategoryDetail.as_view(), name="category-detail"),
+    path("products/import-csv/", ProductImport.as_view(), name="product-import-csv"),
+    path("products/import-sample/", ProductImportSample.as_view(), name="product-import-sample"),
+    path("recipes/import-csv/", RecipeImport.as_view(), name="recipe-import-csv"),
+    path("recipes/import-sample/", RecipeImportSample.as_view(), name="recipe-import-sample"),
+    path("categories/tree/", CategoryTree.as_view(), name="category-tree"),
+    path("units/", UnitList.as_view(), name="unit-list"),
+    path("products/prices/", PriceListView.as_view(), name="price-list"),
+    path("products/prices/bulk/", PriceBulkUpdateView.as_view(), name="price-bulk-update"),
+]
