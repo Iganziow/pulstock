@@ -408,11 +408,10 @@ def _flow_get_payment_status(token: str) -> dict:
       - status: 1=pendiente, 2=pagado, 3=rechazado, 4=anulado
       - subject, currency, amount, payer, optional, paymentData
     """
-    import re
-    # Validar formato básico: token no vacío, longitud razonable, alfanumérico
-    if not token or len(token) > 256 or not re.fullmatch(r"[a-zA-Z0-9_\-]{2,256}", token):
-        logger.warning("Flow getStatus: token con formato inválido: %s", token[:30])
-        return {"status": -1, "error": "Token con formato inválido"}
+    # Validar que el token no esté vacío ni sea excesivamente largo
+    if not token or len(token) > 512:
+        logger.warning("Flow getStatus: token inválido (len=%d)", len(token) if token else 0)
+        return {"status": -1, "error": "Token inválido"}
 
     try:
         result = _flow_api_call("GET", "/payment/getStatus", {"token": token})

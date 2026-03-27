@@ -554,6 +554,13 @@ class FlowWebhookView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        if not isinstance(flow_status, int):
+            logger.error("Flow webhook: flow_status inválido %r token=%s", flow_status, token[:20])
+            return Response(
+                {"detail": "Estado de pago inválido."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         # ── 3. Buscar la factura (con lock para idempotencia) ──
         from django.db import transaction as db_transaction
         from .models import PaymentAttempt
@@ -641,7 +648,11 @@ class CheckoutCreateView(APIView):
         email = (request.data.get("email") or "").strip().lower()
         plan_key = (request.data.get("plan_key") or "").strip().lower()
 
-        if not email or "@" not in email:
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as DjangoValError
+        try:
+            validate_email(email)
+        except DjangoValError:
             return Response({"detail": "Email inválido"}, status=400)
 
         try:
@@ -829,8 +840,8 @@ class CheckoutCompleteView(APIView):
                 try:
                     from catalog.management.commands.seed_units import seed_units_for_tenant
                     seed_units_for_tenant(tenant)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("seed_units falló para tenant=%s: %s", tenant.pk, e)
 
                 # 4. User
                 user = User.objects.create_user(

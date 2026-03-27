@@ -3,12 +3,15 @@ Sales service layer.
 
 Extracted from SaleCreate view so that table checkout can reuse the same logic.
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction, IntegrityError
 from django.db.models import F
 
 from core.models import Warehouse
+
+logger = logging.getLogger(__name__)
 from catalog.models import Product
 from catalog.models import Recipe
 from inventory.models import StockItem, StockMove
@@ -139,8 +142,8 @@ def create_sale(
             pid = pp.product_id
             if pid not in promo_map or effective < promo_map[pid][1]:
                 promo_map[pid] = (promo, effective)
-    except Exception:
-        pass  # Si promotions no existe o hay error, seguir sin promos
+    except Exception as e:
+        logger.warning("Error cargando promociones para venta (tenant=%s): %s", tenant_id, e)
 
     # ------------------------------------------------------------------
     # 3) Build agg — original sold products (for SaleLines / customer receipt)
@@ -252,10 +255,9 @@ def create_sale(
     # ------------------------------------------------------------------
     # 7) Assign sale_number (atomic counter — no race condition)
     # ------------------------------------------------------------------
-    counter, _ = TenantSaleCounter.objects.get_or_create(tenant_id=tenant_id)
-    TenantSaleCounter.objects.filter(tenant_id=tenant_id).select_for_update().update(
-        last_number=F("last_number") + 1
-    )
+    TenantSaleCounter.objects.get_or_create(tenant_id=tenant_id)
+    counter = TenantSaleCounter.objects.select_for_update().get(tenant_id=tenant_id)
+    TenantSaleCounter.objects.filter(pk=counter.pk).update(last_number=F("last_number") + 1)
     counter.refresh_from_db()
     next_sale_number = counter.last_number
 
@@ -289,8 +291,8 @@ def create_sale(
             ).first()
             if open_session:
                 sale_create_kwargs["cash_session"] = open_session
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error obteniendo sesión de caja (tenant=%s store=%s): %s", tenant_id, store_id, e)
 
     # ------------------------------------------------------------------
     # 8) Create Sale (deferred until after stock validation)
