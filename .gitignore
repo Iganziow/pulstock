@@ -4,6 +4,9 @@
 .env.production
 .env.*.local
 
+# Claude Code (local config, no subir)
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]
