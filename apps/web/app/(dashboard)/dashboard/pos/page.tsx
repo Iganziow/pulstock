@@ -1270,34 +1270,35 @@ export default function PosPage() {
               {/* Input(s) de monto */}
               {payRows.map((row, i) => {
                 const meta = PAY_METHODS.find(m => m.value === row.method)!;
+                const active = !!row.amount;
                 return (
-                  <div key={row.method} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div key={row.method}>
                     {payRows.length > 1 && (
-                      <div style={{ width:100, fontSize:12, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
-                        <span>{meta.icon}</span>{meta.label}
+                      <div style={{ fontSize:11, fontWeight:700, color:C.mute, marginBottom:4, display:"flex", justifyContent:"space-between" }}>
+                        <span>{meta.icon} {meta.label}</span>
+                        <button type="button" onClick={() => setPayRows(prev => prev.filter((_, j) => j !== i))}
+                          style={{ border:"none", background:"none", color:C.mute, cursor:"pointer", fontSize:12, padding:0 }}>✕ quitar</button>
                       </div>
                     )}
-                    <input
-                      value={row.amount}
-                      onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
-                      placeholder="$0"
-                      inputMode="decimal"
-                      style={{
-                        flex:1, height:48, padding:"0 14px",
-                        border:`2px solid ${row.amount ? C.accent : C.border}`,
-                        borderRadius:C.r, fontSize:20, fontWeight:800, textAlign:"right",
-                        background: row.amount ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
-                      }}
-                    />
-                    <button type="button" disabled={pendingAmount <= 0} title="Cobrar total"
-                      onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount)||0) + pendingAmount) } : r))}
-                      style={{ height:48, width:48, borderRadius:C.r, border:`2px solid ${pendingAmount>0?C.accent:C.border}`, background:pendingAmount>0?C.accentBg:C.bg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:pendingAmount<=0?0.3:1 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                    </button>
-                    {payRows.length > 1 && (
-                      <button type="button" onClick={() => setPayRows(prev => prev.filter((_, j) => j !== i))}
-                        style={{ height:48, width:36, border:"none", background:"none", color:C.mute, cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
-                    )}
+                    <div style={{ position:"relative" }}>
+                      <input
+                        value={row.amount}
+                        onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
+                        placeholder="$0"
+                        inputMode="decimal"
+                        style={{
+                          width:"100%", height:48, padding:"0 48px 0 14px", boxSizing:"border-box",
+                          border:`2px solid ${active ? C.accent : C.border}`,
+                          borderRadius:C.r, fontSize:20, fontWeight:800, textAlign:"right",
+                          background: active ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
+                        }}
+                      />
+                      <button type="button" disabled={pendingAmount <= 0} title="Cobrar total"
+                        onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount)||0) + pendingAmount) } : r))}
+                        style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", height:34, width:34, borderRadius:6, border:"none", background: pendingAmount>0 ? C.accent : C.border, color:"#fff", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:pendingAmount<=0?0.3:1 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
