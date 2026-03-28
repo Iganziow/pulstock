@@ -1244,19 +1244,13 @@ export default function PosPage() {
             </div>
 
             <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:12 }}>
-              {/* Method selector buttons */}
+              {/* Method selector — radio style, un método a la vez */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
                 {PAY_METHODS.map(m => {
-                  const active = payRows.some(r => r.method === m.value);
+                  const active = payRows.length === 1 && payRows[0].method === m.value;
                   return (
                     <button key={m.value} type="button"
-                      onClick={() => {
-                        if (active) {
-                          if (payRows.length > 1) setPayRows(prev => prev.filter(r => r.method !== m.value));
-                        } else {
-                          setPayRows(prev => [...prev, { method: m.value, amount: "" }]);
-                        }
-                      }}
+                      onClick={() => setPayRows([{ method: m.value, amount: "" }])}
                       style={{
                         display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
                         gap:4, padding:"10px 4px", borderRadius:C.r, cursor:"pointer", fontFamily:"inherit",
@@ -1265,42 +1259,63 @@ export default function PosPage() {
                         background: active ? C.accentBg : C.bg,
                         color: active ? C.accent : C.mid,
                       }}>
-                      <span style={{ fontSize:18 }}>{m.icon}</span>
+                      <span style={{ fontSize:20 }}>{m.icon}</span>
                       {m.label}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Amount inputs for selected methods */}
+              {/* Input de monto + flecha para completar */}
               {payRows.map((row, i) => {
                 const meta = PAY_METHODS.find(m => m.value === row.method);
                 return (
                   <div key={row.method} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <div style={{ width:100, fontSize:13, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:6 }}>
-                      <span>{meta?.icon}</span> {meta?.label}
+                    <div style={{ width:110, fontSize:13, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                      <span>{meta?.icon}</span>{meta?.label}
                     </div>
                     <input
                       value={row.amount}
                       onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
                       placeholder="$0"
                       inputMode="decimal"
-                      autoFocus={i === payRows.length - 1}
                       style={{
-                        flex:1, height:mob?44:40, padding:"0 12px",
+                        flex:1, height:44, padding:"0 14px",
                         border:`2px solid ${row.amount ? C.accent : C.border}`,
-                        borderRadius:C.r, fontSize:15, fontWeight:700, textAlign:"right",
-                        background: row.amount ? C.accentBg : C.bg, outline:"none",
+                        borderRadius:C.r, fontSize:18, fontWeight:800, textAlign:"right",
+                        background: row.amount ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
                       }}
                     />
-                    <button type="button" disabled={pendingAmount <= 0} title="Completar resto"
-                      onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount) || 0) + pendingAmount) } : r))}
-                      style={{ height:40, width:40, borderRadius:C.r, border:`1px solid ${C.border}`, background:C.bg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity: pendingAmount <= 0 ? 0.3 : 1 }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    <button type="button" disabled={pendingAmount <= 0} title="Cobrar total"
+                      onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount)||0) + pendingAmount) } : r))}
+                      style={{ height:44, width:44, borderRadius:C.r, border:`2px solid ${C.accent}`, background:C.accentBg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:pendingAmount<=0?0.3:1 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </button>
                   </div>
                 );
               })}
+
+              {/* Pago mixto */}
+              {payRows.length === 1 && (
+                <button type="button" onClick={() => {
+                  const used = new Set(payRows.map(r => r.method));
+                  const next = PAY_METHODS.find(m => !used.has(m.value));
+                  if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
+                }}
+                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"8px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
+                  + Dividir pago
+                </button>
+              )}
+              {payRows.length > 1 && PAY_METHODS.filter(m => !payRows.some(r => r.method === m.value)).length > 0 && (
+                <button type="button" onClick={() => {
+                  const used = new Set(payRows.map(r => r.method));
+                  const next = PAY_METHODS.find(m => !used.has(m.value));
+                  if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
+                }}
+                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"8px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
+                  + Agregar método
+                </button>
+              )}
 
               {/* Propina (tip) */}
               <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
