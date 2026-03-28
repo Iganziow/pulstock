@@ -20,12 +20,13 @@ function useIsMobile() {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Warehouse = { id: number; name: string; is_active: boolean };
-type StockRow = { product_id: number; sku: string | null; name: string; on_hand: string };
+type StockRow = { product_id: number; sku: string | null; name: string; on_hand: string; unit: string | null };
 type IssueLine = {
   product_id: number;
   name: string;
   sku: string | null;
   on_hand: string;
+  unit: string | null;
   qty: string;
   reason: string;
   note: string;
@@ -207,6 +208,7 @@ export default function SalidasPage() {
       name: row.name,
       sku: row.sku,
       on_hand: row.on_hand,
+      unit: row.unit ?? null,
       qty: "",
       reason: globalReason,
       note: "",
@@ -498,15 +500,20 @@ export default function SalidasPage() {
                         <StockBadge val={line.on_hand} />
 
                         {/* Qty */}
-                        {mob && <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, marginTop: 6 }}>CANTIDAD</div>}
+                        {mob && <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, marginTop: 6 }}>CANTIDAD{line.unit ? ` (${line.unit})` : ""}</div>}
                         <div>
-                          <input
-                            value={line.qty}
-                            onChange={e => updateLine(idx, { qty: sanitizePos(e.target.value) })}
-                            inputMode="decimal"
-                            placeholder="0"
-                            style={{ ...iS({ fontFamily: C.mono, height: 32, fontSize: 13 }), borderColor: err ? C.red : C.border }}
-                          />
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <input
+                              value={line.qty}
+                              onChange={e => updateLine(idx, { qty: sanitizePos(e.target.value) })}
+                              inputMode="decimal"
+                              placeholder="0"
+                              style={{ ...iS({ fontFamily: C.mono, height: 32, fontSize: 13 }), borderColor: err ? C.red : C.border }}
+                            />
+                            {line.unit && !mob && (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: C.mute, whiteSpace: "nowrap" }}>{line.unit}</span>
+                            )}
+                          </div>
                           {err && <div style={{ fontSize: 10, color: C.red, fontWeight: 600, marginTop: 2 }}>{err}</div>}
                         </div>
 

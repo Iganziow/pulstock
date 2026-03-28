@@ -582,6 +582,7 @@ class StockList(APIView):
                     "barcode": barcode,
                     "on_hand": str(p.on_hand),
                     "avg_cost": str(p.avg_cost),
+                    "unit": p.unit.abbreviation if getattr(p, "unit", None) else None,
                 })
             return results
 
