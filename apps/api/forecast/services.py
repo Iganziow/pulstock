@@ -990,6 +990,12 @@ def train_sparse_product(tenant, product, warehouse_id, today,
     save_forecasts(tenant, product, warehouse_id, fm,
                    result["forecasts"], result["confidence_base"], stock_items)
 
+    # Regenerate future forecasts from today using category profile params
+    _regen_from_existing(
+        tenant, product, warehouse_id, fm,
+        today, horizon, 21, series, stock_items,
+    )
+
 
 def _regen_from_existing(tenant, product, warehouse_id, fm,
                          today, horizon, window, series, stock_items,
