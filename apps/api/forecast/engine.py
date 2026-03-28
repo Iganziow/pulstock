@@ -1331,21 +1331,27 @@ def ensemble_forecast(candidates, demand_pattern=None):
 # HOLIDAY ADJUSTMENTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def apply_holiday_adjustments(forecasts, holidays):
+def apply_holiday_adjustments(forecasts, holidays, business_type=None):
     """
     Post-process forecasts by applying holiday demand multipliers.
-    Uses learned_multiplier when available (blended with configured).
+    Uses business_type-specific multiplier if available, then learned, then configured.
     """
     holiday_map = {}
     for h in holidays:
-        configured = float(h.demand_multiplier) if hasattr(h, 'demand_multiplier') else float(h.get('demand_multiplier', 1))
+        # 1. Try business_type-specific multiplier
+        biz_mults = getattr(h, 'business_multipliers', None) or (h.get('business_multipliers') if isinstance(h, dict) else None) or {}
+        if business_type and business_type in biz_mults:
+            configured = float(biz_mults[business_type])
+        else:
+            configured = float(h.demand_multiplier) if hasattr(h, 'demand_multiplier') else float(h.get('demand_multiplier', 1))
+
+        # 2. Blend with learned multiplier if available
         learned = None
         if hasattr(h, 'learned_multiplier') and h.learned_multiplier is not None:
             learned = float(h.learned_multiplier)
         elif isinstance(h, dict) and h.get('learned_multiplier') is not None:
             learned = float(h['learned_multiplier'])
 
-        # Blend: 60% learned + 40% configured
         if learned is not None:
             mult = 0.6 * learned + 0.4 * configured
         else:

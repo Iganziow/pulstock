@@ -344,6 +344,15 @@ class Holiday(models.Model):
         help_text="Forma de la rampa de demanda pre-evento"
     )
 
+    # Multiplicadores diferenciados por tipo de negocio
+    # JSON: {"retail": 1.5, "restaurant": 2.0, "hardware": 1.1, ...}
+    # Si el business_type del tenant está en este dict, usa ese valor en vez de demand_multiplier
+    business_multipliers = models.JSONField(
+        default=dict, blank=True,
+        help_text="Multiplicadores por tipo de negocio. Ej: {\"retail\": 1.5, \"restaurant\": 2.0}. "
+                  "Si vacío, usa demand_multiplier para todos.",
+    )
+
     is_recurring = models.BooleanField(default=True, help_text="Se repite cada año")
     learned_multiplier = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,

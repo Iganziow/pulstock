@@ -654,10 +654,11 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     if not daily_forecasts:
         return  # Guard: never delete existing forecasts without replacements
 
-    # Apply holiday multipliers before saving
+    # Apply holiday multipliers before saving (business_type-aware)
     holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
     if holidays:
-        apply_holiday_adjustments(daily_forecasts, holidays)
+        btype = getattr(tenant, "business_type", None) or None
+        apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
 
     # Apply confidence decay for stale models
     confidence_base = compute_confidence_decay(fm.trained_at, confidence_base)
