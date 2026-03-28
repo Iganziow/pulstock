@@ -1,8 +1,9 @@
 # api/middleware.py
 import uuid
 import logging
+import threading
 
-_request_id_local = logging.local()
+_request_id_local = threading.local()
 
 
 def get_current_request_id() -> str:
