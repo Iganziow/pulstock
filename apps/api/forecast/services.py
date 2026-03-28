@@ -877,6 +877,13 @@ def train_product_model(tenant, product, warehouse_id, today,
     save_forecasts(tenant, product, warehouse_id, fm,
                    best["forecasts"], best["confidence_base"], stock_items)
 
+    # Regenerate future forecasts starting from today (the above saves historical test period dates)
+    _regen_from_existing(
+        tenant, product, warehouse_id, fm,
+        today, horizon, window, cleaned, stock_items,
+        stockout_dates=stockout_dates,
+    )
+
 
 @transaction.atomic
 def train_sparse_product(tenant, product, warehouse_id, today,
