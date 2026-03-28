@@ -651,6 +651,9 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
 def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                    confidence_base, stock_items):
     """Delete old forecasts, apply holiday adjustments, and bulk-insert."""
+    if not daily_forecasts:
+        return  # Guard: never delete existing forecasts without replacements
+
     # Apply holiday multipliers before saving
     holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
     if holidays:
@@ -749,18 +752,10 @@ def train_product_model(tenant, product, warehouse_id, today,
         if promo_qty and promo_qty >= qty_sold and qty_sold > 0:
             stockout_dates.add(dt)
 
-    # Holiday dates — exclude from IQR so seasonal spikes survive
-    from forecast.models import Holiday
-    holiday_dates = set(
-        Holiday.objects.filter(
-            Q(tenant=tenant) | Q(tenant__isnull=True),
-            date__gte=raw_series[0][0],
-            date__lte=raw_series[-1][0],
-        ).values_list("date", flat=True)
-    )
-
-    # Clean series (impute stockout zeros, dampen outliers, preserve holidays)
-    cleaned = clean_series(raw_series, stockout_dates=stockout_dates, holiday_dates=holiday_dates)
+    # Clean series (impute stockout zeros, dampen outliers)
+    # Note: holidays NOT excluded from IQR — apply_holiday_adjustments handles holiday
+    # boost in save_forecasts() to avoid double-adjustment.
+    cleaned = clean_series(raw_series, stockout_dates=stockout_dates)
 
     # Demand pattern classification
     demand_pattern, adi, cv2 = classify_demand_pattern(raw_series)
@@ -778,6 +773,18 @@ def train_product_model(tenant, product, warehouse_id, today,
     if best["algorithm"] == "none" or not best["forecasts"]:
         stats["skipped"] += 1
         return
+
+    # Month-position (payday) adjustment for algorithms that don't use month_factors natively
+    # (HW, Theta, ETS, Croston — WMA/Adaptive already apply month_factors in generate_daily_forecasts)
+    if month_factors and best["algorithm"] not in ("moving_avg", "adaptive_ma") and best["forecasts"]:
+        from forecast.engine import _get_month_bucket
+        for fc in best["forecasts"]:
+            bucket = _get_month_bucket(fc["date"].day)
+            mf = Decimal(str(month_factors.get(bucket, 1.0)))
+            if mf != 1:
+                fc["qty_predicted"] = (fc["qty_predicted"] * mf).quantize(Decimal("0.001"))
+                fc["lower_bound"] = max(Decimal("0"), (fc["lower_bound"] * mf).quantize(Decimal("0.001")))
+                fc["upper_bound"] = (fc["upper_bound"] * mf).quantize(Decimal("0.001"))
 
     # Trend detection + adjustment
     trend = detect_trend(cleaned)
@@ -842,9 +849,13 @@ def train_product_model(tenant, product, warehouse_id, today,
             )
             return
 
-    # Compute confidence label
+    # Compute confidence label — CV² penalizes high-variability products
+    mape_for_conf = best["metrics"].get("mape", 999)
+    if cv2 > 1.0 and mape_for_conf < 998:
+        # Very high variability: inflate MAPE for confidence calculation
+        mape_for_conf = mape_for_conf * (1 + min(cv2 - 1.0, 1.0) * 0.3)
     conf_label, conf_reason = compute_confidence_label(
-        best["data_points"], best["metrics"].get("mape", 999), demand_pattern,
+        best["data_points"], mape_for_conf, demand_pattern,
     )
 
     # Compute mape_delta tracking

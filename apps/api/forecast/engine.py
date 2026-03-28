@@ -349,14 +349,19 @@ def croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
         horizon_days: days ahead to forecast
         use_sba: if True, apply Syntetos-Boylan Adjustment (debiased Croston)
     """
-    non_zero = [(d, float(q)) for d, *rest in daily_series
-                for q in [rest[0] if rest else 0] if float(q) > 0]
+    non_zero = []
+    for item in daily_series:
+        d, q = item[0], float(item[1])
+        w = item[2] if len(item) >= 3 else 1.0
+        if q > 0:
+            non_zero.append((d, q, float(w)))
 
     if len(non_zero) < 3:
         return None
 
     # Initialize with first 3 non-zero observations
-    sizes = [q for _, q in non_zero]
+    sizes = [q for _, q, *_ in non_zero]
+    weights = [w for _, _, w in non_zero]
     intervals = []
     for i in range(1, len(non_zero)):
         intervals.append((non_zero[i][0] - non_zero[i - 1][0]).days)
@@ -367,12 +372,14 @@ def croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
     z_hat = sum(sizes[:3]) / min(3, len(sizes))          # demand size estimate
     p_hat = sum(intervals[:3]) / min(3, len(intervals))  # interval estimate
 
-    # Smooth through the series
+    # Smooth through the series — weight-adjusted alpha (interpolated data has less influence)
     for i in range(1, len(non_zero)):
         interval = intervals[i - 1] if i - 1 < len(intervals) else p_hat
         size = sizes[i]
-        z_hat = alpha * size + (1 - alpha) * z_hat
-        p_hat = alpha * interval + (1 - alpha) * p_hat
+        w = weights[i]
+        effective_alpha = alpha * w  # Lower alpha for interpolated data (w=0.5)
+        z_hat = effective_alpha * size + (1 - effective_alpha) * z_hat
+        p_hat = effective_alpha * interval + (1 - effective_alpha) * p_hat
 
     # Daily demand rate
     daily_rate = z_hat / p_hat if p_hat > 0 else 0
@@ -1999,7 +2006,10 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if sa:
             candidates.append(sa)
 
-    # ── Candidate 1: Weighted Moving Average (>= 14 days, only if backtest passes) ──
+    # ── Candidate 1: Weighted Moving Average (14-20 days, or fallback if adaptive fails) ──
+    # When n >= 21, Adaptive MA supersedes WMA (same family, better tuning).
+    # WMA is still added as fallback if adaptive backtest fails later.
+    _ada_available = False  # set True below if adaptive MA passes backtest
     if n >= 14:
         ma_result = weighted_moving_average(daily_series, window=window)
         ma_metrics = backtest_moving_average(daily_series, test_days=test_days, window=window)
@@ -2053,6 +2063,9 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
             ada_result = adaptive_moving_average(daily_series, horizon_days=horizon, month_factors=month_factors)
             if ada_result is not None:
                 ada_result["metrics"] = ada_metrics
+                _ada_available = True
+                # Remove redundant WMA — adaptive MA is same family with better tuning
+                candidates = [c for c in candidates if c["algorithm"] != "moving_avg"]
                 candidates.append(ada_result)
 
     # ── Candidate 4: Holt-Winters (>= 28 days + statsmodels) ──
