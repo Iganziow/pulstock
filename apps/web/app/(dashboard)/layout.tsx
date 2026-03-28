@@ -227,7 +227,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ]);
         if (!m) return;
         if (me?.permissions) setPerms(me.permissions);
-        setUserRole(me?.role || "");
+        setUserRole((me?.role || "").toLowerCase());
         setUserName(me?.first_name || me?.username || "");
         setUserEmail(me?.email || "");
         setActiveStoreId(me?.active_store_id || null);
