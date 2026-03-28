@@ -743,4 +743,25 @@ class AdminForecastMetricsView(APIView):
                 "avg_pct_error": round(float(recent_accuracy["avg_error"] or 0), 2),
                 "total_predictions": recent_accuracy["total_predictions"],
             },
+            "training_logs": self._get_training_logs(),
         })
+
+    def _get_training_logs(self):
+        """Últimas 10 ejecuciones del pipeline de forecast."""
+        from forecast.models import ForecastTrainingLog
+        logs = ForecastTrainingLog.objects.order_by("-started_at")[:10]
+        return [
+            {
+                "command": log.command,
+                "status": log.status,
+                "started_at": log.started_at.isoformat(),
+                "duration_seconds": log.duration_seconds,
+                "models_trained": log.models_trained,
+                "models_improved": log.models_improved,
+                "models_failed": log.models_failed,
+                "avg_mape": log.avg_mape,
+                "error_message": log.error_message[:200] if log.error_message else "",
+                "algorithm_distribution": log.algorithm_distribution,
+            }
+            for log in logs
+        ]

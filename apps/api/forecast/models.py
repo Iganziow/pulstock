@@ -466,3 +466,57 @@ class SuggestionOutcome(models.Model):
             f"suggested={self.suggested_qty} purchased={self.purchased_qty} "
             f"predicted={self.predicted_days}d actual={self.actual_days_lasted}d"
         )
+
+
+# ======================================================
+# FORECAST TRAINING LOG — Audit trail for training runs
+# ======================================================
+class ForecastTrainingLog(models.Model):
+    """
+    Registra cada ejecución del entrenamiento de modelos.
+    Permite detectar fallos silenciosos y monitorear salud del pipeline.
+    """
+    STATUS_SUCCESS = "success"
+    STATUS_PARTIAL = "partial"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, "Exitoso"),
+        (STATUS_PARTIAL, "Parcial (con errores)"),
+        (STATUS_FAILED, "Fallido"),
+    ]
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="training_logs",
+        help_text="null = ejecución global (todos los tenants)",
+    )
+    command = models.CharField(max_length=50, help_text="train_forecast_models, track_accuracy, etc.")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField()
+    duration_seconds = models.FloatField(default=0)
+
+    # Resultados
+    models_trained = models.IntegerField(default=0)
+    models_improved = models.IntegerField(default=0)
+    models_kept = models.IntegerField(default=0)
+    models_skipped = models.IntegerField(default=0)
+    models_failed = models.IntegerField(default=0)
+
+    # Errores
+    error_message = models.TextField(blank=True, default="")
+    error_traceback = models.TextField(blank=True, default="")
+
+    # Métricas post-entrenamiento
+    avg_mape = models.FloatField(null=True, blank=True)
+    algorithm_distribution = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["tenant", "command", "-started_at"]),
+            models.Index(fields=["status", "-started_at"]),
+        ]
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"TrainingLog [{self.status}] {self.command} @ {self.started_at:%Y-%m-%d %H:%M}"

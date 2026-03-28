@@ -53,17 +53,21 @@ class Command(BaseCommand):
     }
 
     def handle(self, *args, **options):
+        import traceback
+        from django.utils import timezone as tz
+        from forecast.models import ForecastTrainingLog, ForecastModel
+
         today = date.today()
+        started_at = tz.now()
 
         tenants = Tenant.objects.all()
         if options["tenant"]:
             tenants = tenants.filter(id=options["tenant"])
 
         stats = {"trained": 0, "skipped": 0, "improved": 0, "kept": 0,
-                 "by_algo": {}}
+                 "by_algo": {}, "failed": 0, "errors": []}
 
         for tenant in tenants:
-            # Use business-type profile unless explicitly overridden via CLI
             profile = self.BUSINESS_PROFILES.get(
                 getattr(tenant, "business_type", "other") or "other",
                 self.BUSINESS_PROFILES["other"],
@@ -73,9 +77,49 @@ class Command(BaseCommand):
             window   = max(7, options["window"] if options["window"] != 21 else profile["window"])
             shrinkage_k = profile.get("shrinkage_k", 14)
             seasonal_prior = profile.get("seasonal_prior")
-            self._process_tenant(tenant, today, min_days, horizon, window,
-                                 options.get("product"), stats, shrinkage_k=shrinkage_k,
-                                 seasonal_prior=seasonal_prior)
+            try:
+                self._process_tenant(tenant, today, min_days, horizon, window,
+                                     options.get("product"), stats, shrinkage_k=shrinkage_k,
+                                     seasonal_prior=seasonal_prior)
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append(f"Tenant {tenant.id} ({tenant.name}): {e}")
+                self.stderr.write(self.style.ERROR(f"ERROR tenant {tenant.id}: {e}"))
+                traceback.print_exc()
+
+        finished_at = tz.now()
+        duration = (finished_at - started_at).total_seconds()
+
+        # Compute post-training avg MAPE
+        active = ForecastModel.objects.filter(is_active=True)
+        mapes = [m.metrics.get("mape", 999) for m in active if m.metrics and m.metrics.get("mape", 999) < 998]
+        avg_mape = sum(mapes) / len(mapes) if mapes else None
+
+        # Determine status
+        if stats["failed"] > 0 and stats["trained"] == 0:
+            status = ForecastTrainingLog.STATUS_FAILED
+        elif stats["failed"] > 0:
+            status = ForecastTrainingLog.STATUS_PARTIAL
+        else:
+            status = ForecastTrainingLog.STATUS_SUCCESS
+
+        # Save training log
+        ForecastTrainingLog.objects.create(
+            tenant_id=options.get("tenant"),
+            command="train_forecast_models",
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=round(duration, 1),
+            models_trained=stats["trained"],
+            models_improved=stats["improved"],
+            models_kept=stats["kept"],
+            models_skipped=stats["skipped"],
+            models_failed=stats["failed"],
+            error_message="\n".join(stats["errors"]) if stats["errors"] else "",
+            avg_mape=round(avg_mape, 2) if avg_mape else None,
+            algorithm_distribution=stats["by_algo"],
+        )
 
         algo_summary = ", ".join(f"{k}={v}" for k, v in stats["by_algo"].items())
         self.stdout.write(self.style.SUCCESS(
