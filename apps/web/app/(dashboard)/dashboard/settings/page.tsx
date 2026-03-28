@@ -147,7 +147,7 @@ export default function SettingsPage() {
   const [nuEmail, setNuEmail] = useState(""); const [nuRole, setNuRole] = useState("cashier");
   const [editUser, setEditUser] = useState<User | null>(null);
   const [euRole, setEuRole] = useState(""); const [euFirst, setEuFirst] = useState(""); const [euLast, setEuLast] = useState("");
-  const [euEmail, setEuEmail] = useState(""); const [euPw, setEuPw] = useState("");
+  const [euEmail, setEuEmail] = useState(""); const [euPw, setEuPw] = useState(""); const [euCurrentPw, setEuCurrentPw] = useState("");
 
   // Alertas: toggles state
   const [alertStates, setAlertStates] = useState<Record<string, boolean>>({
@@ -320,10 +320,10 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const body: any = { role: euRole, first_name: euFirst, last_name: euLast, email: euEmail };
-      if (euPw) body.password = euPw;
+      if (euPw) { body.password = euPw; if (editUser.id !== me?.id) body.current_password = euCurrentPw; }
       await apiFetch(`/core/users/${editUser.id}/`, { method: "PATCH", body: JSON.stringify(body) });
       const u = await apiFetch("/core/users/");
-      setUsers(u || []); setEditUser(null); setEuPw("");
+      setUsers(u || []); setEditUser(null); setEuPw(""); setEuCurrentPw("");
       flash("ok", "Usuario actualizado");
     } catch (e: any) { flash("err", e?.message || "Error actualizando"); }
     finally { setSaving(false); }
@@ -871,7 +871,7 @@ export default function SettingsPage() {
                       <span className="wh-tag" style={{ background: rc?.bg || "#F4F4F5", border: `1px solid ${rc?.bd || "#E4E4E7"}`, color: rc?.color || C.mute }}>
                         {rc?.label || u.role}
                       </span>
-                      <button onClick={() => { setEditUser(u); setEuRole(u.role); setEuFirst(u.first_name); setEuLast(u.last_name); setEuEmail(u.email); setEuPw(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.accent, fontWeight: 700 }}>
+                      <button onClick={() => { setEditUser(u); setEuRole(u.role); setEuFirst(u.first_name); setEuLast(u.last_name); setEuEmail(u.email); setEuPw(""); setEuCurrentPw(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.accent, fontWeight: 700 }}>
                         Editar
                       </button>
                       {u.id !== me?.id && (
@@ -890,6 +890,9 @@ export default function SettingsPage() {
                     </div>
                     <div style={FL}><Label>Email</Label><input type="email" value={euEmail} onChange={e => setEuEmail(e.target.value)} style={iS} /></div>
                     <div style={FL}><Label>Nueva contraseña</Label><input type="password" value={euPw} onChange={e => setEuPw(e.target.value)} style={iS} placeholder="Dejar vacío para no cambiar" /></div>
+                    {euPw && u.id !== me?.id && (
+                      <div style={FL}><Label req>Tu contraseña actual (para confirmar)</Label><input type="password" value={euCurrentPw} onChange={e => setEuCurrentPw(e.target.value)} style={iS} placeholder="Tu contraseña de administrador" autoComplete="current-password" /></div>
+                    )}
                     <div style={FL}>
                       <Label>Rol</Label>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -904,7 +907,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                      <Btn onClick={() => setEditUser(null)} variant="outline" color={C.mute} style={{ padding: "8px 16px", fontSize: 13 }}>Cancelar</Btn>
+                      <Btn onClick={() => { setEditUser(null); setEuCurrentPw(""); }} variant="outline" color={C.mute} style={{ padding: "8px 16px", fontSize: 13 }}>Cancelar</Btn>
                       <Btn onClick={saveEditUser} disabled={saving}>{saving ? <><Spinner /> Guardando</> : "Guardar"}</Btn>
                     </div>
                   </div>
