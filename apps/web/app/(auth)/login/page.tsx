@@ -124,10 +124,6 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const access = localStorage.getItem("access");
-    if (access) window.location.replace("/dashboard");
-  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
