@@ -688,7 +688,13 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
             confidence=confidence_base,
             generated_at=timezone.now(),
         ))
-    Forecast.objects.bulk_create(objs)
+    Forecast.objects.bulk_create(
+        objs,
+        update_conflicts=True,
+        unique_fields=["tenant", "product", "warehouse_id", "forecast_date"],
+        update_fields=["qty_predicted", "lower_bound", "upper_bound",
+                       "days_to_stockout", "confidence", "generated_at", "model"],
+    )
 
 
 @transaction.atomic
