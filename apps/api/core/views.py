@@ -42,7 +42,7 @@ class MeView(APIView):
         tenant, store = ensure_user_tenant_and_store(request.user)
 
         u = request.user
-        role = getattr(u, "role", "owner")
+        role = getattr(u, "role", "owner").lower()
         data = {
             "id": u.id,
             "username": u.username,
