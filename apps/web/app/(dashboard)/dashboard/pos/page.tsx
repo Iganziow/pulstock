@@ -1234,67 +1234,73 @@ export default function PosPage() {
             </div>
           </div>
 
-          {/* Payment methods (Mixto) */}
+          {/* Payment methods */}
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
             <div style={{ padding:"12px 18px", borderBottom:`1px solid ${C.border}`, background:C.bg, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em" }}>Pagos</div>
-              {pendingAmount > 0 && (
+              <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em" }}>Método de pago</div>
+              {pendingAmount > 0 && totalPaid > 0 && (
                 <div style={{ fontSize:11, fontWeight:700, color:C.amber }}>Resta: ${formatCLP(pendingAmount)}</div>
               )}
             </div>
-            
-            <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:10 }}>
+
+            <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:12 }}>
+              {/* Method selector buttons */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
+                {PAY_METHODS.map(m => {
+                  const active = payRows.some(r => r.method === m.value);
+                  return (
+                    <button key={m.value} type="button"
+                      onClick={() => {
+                        if (active) {
+                          if (payRows.length > 1) setPayRows(prev => prev.filter(r => r.method !== m.value));
+                        } else {
+                          setPayRows(prev => [...prev, { method: m.value, amount: "" }]);
+                        }
+                      }}
+                      style={{
+                        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+                        gap:4, padding:"10px 4px", borderRadius:C.r, cursor:"pointer", fontFamily:"inherit",
+                        fontSize:11, fontWeight:700, transition:"all 0.15s",
+                        border:`2px solid ${active ? C.accent : C.border}`,
+                        background: active ? C.accentBg : C.bg,
+                        color: active ? C.accent : C.mid,
+                      }}>
+                      <span style={{ fontSize:18 }}>{m.icon}</span>
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Amount inputs for selected methods */}
               {payRows.map((row, i) => {
-                const usedMethods = payRows.map((r, j) => j !== i ? r.method : null).filter(Boolean);
-                const available = PAY_METHODS.filter(m => !usedMethods.includes(m.value) || m.value === row.method);
                 const meta = PAY_METHODS.find(m => m.value === row.method);
                 return (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:mob?6:8 }}>
-                    <select
-                      value={row.method}
-                      onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, method: e.target.value } : r))}
-                      style={{ width:mob?110:130, height:mob?44:36, padding:"0 28px 0 10px", border:`1px solid ${C.border}`, borderRadius:C.r, fontSize:mob?12:13, fontWeight:600, color:C.mid, background:C.bg, cursor:"pointer" }}
-                    >
-                      {available.map(m => (
-                        <option key={m.value} value={m.value}>{m.icon} {m.label}</option>
-                      ))}
-                    </select>
+                  <div key={row.method} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:100, fontSize:13, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:6 }}>
+                      <span>{meta?.icon}</span> {meta?.label}
+                    </div>
                     <input
                       value={row.amount}
                       onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
                       placeholder="$0"
                       inputMode="decimal"
+                      autoFocus={i === payRows.length - 1}
                       style={{
-                        flex:1, height:mob?44:36, padding:"0 12px",
-                        border:`1px solid ${row.amount ? C.accent : C.border}`,
-                        borderRadius:C.r, fontSize:14, fontWeight:600, textAlign:"right",
-                        background: row.amount ? C.accentBg : C.bg,
+                        flex:1, height:mob?44:40, padding:"0 12px",
+                        border:`2px solid ${row.amount ? C.accent : C.border}`,
+                        borderRadius:C.r, fontSize:15, fontWeight:700, textAlign:"right",
+                        background: row.amount ? C.accentBg : C.bg, outline:"none",
                       }}
                     />
-                    <button type="button" className="xb" disabled={pendingAmount === 0} title="Completar resto"
+                    <button type="button" disabled={pendingAmount <= 0} title="Completar resto"
                       onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount) || 0) + pendingAmount) } : r))}
-                      style={{ background:"none", border:"none", padding:mob?10:4, color:C.accent, cursor:"pointer", minWidth:mob?44:undefined, minHeight:mob?44:undefined, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                      style={{ height:40, width:40, borderRadius:C.r, border:`1px solid ${C.border}`, background:C.bg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity: pendingAmount <= 0 ? 0.3 : 1 }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </button>
-                    {payRows.length > 1 && (
-                      <button type="button" onClick={() => setPayRows(prev => prev.filter((_, j) => j !== i))}
-                        style={{ background:"none", border:"none", padding:4, color:C.mute, cursor:"pointer", display:"flex" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    )}
                   </div>
                 );
               })}
-              {payRows.length < PAY_METHODS.length && (
-                <button type="button" onClick={() => {
-                  const used = new Set(payRows.map(r => r.method));
-                  const next = PAY_METHODS.find(m => !used.has(m.value));
-                  if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
-                }}
-                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:mob?"11px 0":"7px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit", minHeight:mob?44:undefined }}>
-                  + Agregar método de pago
-                </button>
-              )}
 
               {/* Propina (tip) */}
               <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
