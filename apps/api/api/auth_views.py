@@ -92,6 +92,7 @@ class CookieTokenObtainView(TokenObtainPairView):
             if user:
                 response.data["role"] = getattr(user, "role", "")
                 response.data["tenant_id"] = getattr(user, "tenant_id", None)
+                response.data["is_superuser"] = user.is_superuser
         return response
 
 
