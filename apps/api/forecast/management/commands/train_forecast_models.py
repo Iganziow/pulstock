@@ -32,10 +32,23 @@ class Command(BaseCommand):
         parser.add_argument("--horizon", type=int, default=14, help="Forecast horizon in days (default: 14)")
         parser.add_argument("--window", type=int, default=21, help="Moving average window (default: 21)")
 
+    # Parámetros ajustados por tipo de negocio
+    BUSINESS_PROFILES = {
+        # Retail/minimarket: ítems de alta rotación, ventana corta, respuesta rápida
+        "retail":      {"window": 14, "min_days": 14, "horizon": 30},
+        # Restaurant/cafetería: demanda muy estacional por día de semana, horizonte corto
+        "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21},
+        # Ferretería: ítems de baja rotación, proyectos, ventana larga
+        "hardware":    {"window": 30, "min_days": 21, "horizon": 60},
+        # Distribuidora: volumen alto, demanda regular, horizonte medio-largo
+        "wholesale":   {"window": 21, "min_days": 14, "horizon": 45},
+        # Farmacia: similar a retail pero con patrones de receta/estacionalidad
+        "pharmacy":    {"window": 14, "min_days": 14, "horizon": 30},
+        # Genérico
+        "other":       {"window": 21, "min_days": 14, "horizon": 30},
+    }
+
     def handle(self, *args, **options):
-        min_days = max(7, options["min_days"])
-        horizon = max(1, min(60, options["horizon"]))
-        window = max(7, options["window"])
         today = date.today()
 
         tenants = Tenant.objects.all()
@@ -46,6 +59,14 @@ class Command(BaseCommand):
                  "by_algo": {}}
 
         for tenant in tenants:
+            # Use business-type profile unless explicitly overridden via CLI
+            profile = self.BUSINESS_PROFILES.get(
+                getattr(tenant, "business_type", "other") or "other",
+                self.BUSINESS_PROFILES["other"],
+            )
+            min_days = max(7, options["min_days"] if options["min_days"] != 14 else profile["min_days"])
+            horizon  = max(1, min(90, options["horizon"] if options["horizon"] != 14 else profile["horizon"]))
+            window   = max(7, options["window"] if options["window"] != 21 else profile["window"])
             self._process_tenant(tenant, today, min_days, horizon, window,
                                  options.get("product"), stats)
 

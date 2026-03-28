@@ -67,13 +67,13 @@ def compute_confidence_label(data_points: int, mape: float, demand_pattern: str)
         cap = "high"
         parts.append(f"demanda {demand_pattern}")
 
-    if data_points >= 180 and mape < 15:
+    if data_points >= 180 and mape < 20:
         label = "very_high"
-    elif data_points >= 90 and mape < 25:
+    elif data_points >= 60 and mape < 35:
         label = "high"
-    elif data_points >= 30 and mape < 40:
+    elif data_points >= 21 and mape < 55:
         label = "medium"
-    elif data_points >= 14 or mape < 60:
+    elif data_points >= 7 or mape < 80:
         label = "low"
     else:
         label = "very_low"

@@ -1127,6 +1127,26 @@ def category_prior_forecast(daily_series, category_avg, category_dow_factors,
             "upper_bound": _q3(predicted + margin),
         })
 
+    # Compute real holdout MAPE when enough data exists (use first 70% to predict last 30%)
+    metrics = {"mae": 0, "mape": 0, "rmse": 0, "bias": 0}
+    if n >= 6:
+        split = max(3, int(n * 0.7))
+        train_series = daily_series[:split]
+        test_series = daily_series[split:]
+        train_avg = sum(float(item[1]) for item in train_series) / len(train_series)
+        train_shrinkage = len(train_series) / (len(train_series) + shrinkage_k)
+        train_blended = train_shrinkage * train_avg + (1 - train_shrinkage) * float(category_avg)
+        errors, pct_errors = [], []
+        for item in test_series:
+            actual = float(item[1])
+            predicted = train_blended * float(dow_factors.get(item[0].weekday(), dow_factors.get(str(item[0].weekday()), 1.0)))
+            err = abs(predicted - actual)
+            errors.append(err)
+            if actual > 0:
+                pct_errors.append(err / actual * 100)
+        metrics["mae"] = round(sum(errors) / len(errors), 4) if errors else 0
+        metrics["mape"] = round(sum(pct_errors) / len(pct_errors), 2) if pct_errors else 0
+
     return {
         "algorithm": "category_prior",
         "forecasts": forecasts,
@@ -1136,7 +1156,7 @@ def category_prior_forecast(daily_series, category_avg, category_dow_factors,
             "shrinkage": round(n / (n + shrinkage_k), 3) if n > 0 else 0,
             "product_data_days": n,
         },
-        "metrics": {"mae": 0, "mape": 0, "rmse": 0, "bias": 0},
+        "metrics": metrics,
         "data_points": n,
         "confidence_base": confidence,
     }

@@ -36,6 +36,22 @@ class Tenant(models.Model):
     receipt_show_logo = models.BooleanField(default=True)
     receipt_show_rut = models.BooleanField(default=True)
 
+    # ── Tipo de negocio ──
+    BUSINESS_TYPE_CHOICES = [
+        ("retail",      "Minimarket / Retail"),
+        ("restaurant",  "Restaurant / Cafetería"),
+        ("hardware",    "Ferretería / Materiales"),
+        ("wholesale",   "Distribuidora / Mayorista"),
+        ("pharmacy",    "Farmacia / Droguería"),
+        ("other",       "Otro"),
+    ]
+    business_type = models.CharField(
+        max_length=20,
+        choices=BUSINESS_TYPE_CHOICES,
+        default="retail",
+        help_text="Tipo de negocio — ajusta parámetros del modelo de forecast automáticamente",
+    )
+
     # ── Configuración general ──
     currency = models.CharField(max_length=3, default="CLP")
     timezone = models.CharField(max_length=50, default="America/Santiago")
