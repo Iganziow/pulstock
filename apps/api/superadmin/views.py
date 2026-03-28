@@ -188,6 +188,7 @@ class TenantListView(APIView):
                 "name": t.name,
                 "slug": t.slug,
                 "email": t.email,
+                "business_type": getattr(t, "business_type", "other") or "other",
                 "is_active": t.is_active,
                 "created_at": t.created_at.isoformat(),
                 "user_count": t.user_count,
@@ -271,6 +272,7 @@ class TenantDetailView(APIView):
             "phone": t.phone,
             "rut": t.rut,
             "legal_name": t.legal_name,
+            "business_type": getattr(t, "business_type", "other") or "other",
             "is_active": t.is_active,
             "created_at": t.created_at.isoformat(),
             "users": users,
@@ -295,6 +297,13 @@ class TenantDetailView(APIView):
         if "name" in request.data:
             t.name = request.data["name"]
             changed.append("name")
+
+        if "business_type" in request.data:
+            valid_types = [c[0] for c in Tenant.BUSINESS_TYPE_CHOICES]
+            bt = request.data["business_type"]
+            if bt in valid_types:
+                t.business_type = bt
+                changed.append("business_type")
 
         if changed:
             t.save(update_fields=changed)

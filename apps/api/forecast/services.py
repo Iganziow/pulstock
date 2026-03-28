@@ -708,20 +708,29 @@ def train_product_model(tenant, product, warehouse_id, today,
         tenant=tenant, product=product, warehouse_id=warehouse_id,
     ).order_by("date")
 
-    raw_data = list(ds_qs.values_list("date", "qty_sold", "promo_qty"))
+    # For restaurants: include waste (qty_lost) in effective demand
+    btype = getattr(tenant, "business_type", "other") or "other"
+    include_waste = btype in ("restaurant",)
+    if include_waste:
+        raw_data = list(ds_qs.values_list("date", "qty_sold", "promo_qty", "qty_lost"))
+    else:
+        raw_data = list(ds_qs.values_list("date", "qty_sold", "promo_qty"))
 
-    # Build series using organic demand (qty_sold - promo_qty)
+    # Build series using organic demand (qty_sold - promo_qty [+ qty_lost for restaurants])
     raw_series = []
     promo_dates = set()
-    for dt, qty_sold, promo_qty in raw_data:
+    for row in raw_data:
+        dt, qty_sold, promo_qty = row[0], row[1], row[2]
+        qty_lost = row[3] if include_waste and len(row) > 3 else Decimal("0")
         promo_qty = promo_qty or Decimal("0")
+        qty_lost = qty_lost or Decimal("0")
         if promo_qty > qty_sold:
             logger.warning(
                 "promo_qty (%s) > qty_sold (%s) on %s for product %s — clamping",
                 promo_qty, qty_sold, dt, product.id,
             )
             promo_qty = qty_sold
-        organic = qty_sold - promo_qty
+        organic = qty_sold - promo_qty + qty_lost  # waste counts as effective demand
         if promo_qty > 0:
             promo_dates.add(dt)
         raw_series.append((dt, max(organic, Decimal("0"))))
@@ -789,8 +798,15 @@ def train_product_model(tenant, product, warehouse_id, today,
         if correction:
             best["params"]["bias_correction"] = correction
 
-    # Monthly seasonality (180+ days) — try bimodal first (extreme seasonal products)
+    # Monthly seasonality (180+ days) — try bimodal first, then standard, then business prior
     monthly_season = compute_bimodal_seasonality(cleaned) or compute_monthly_seasonality(cleaned)
+    # Fallback: use business-type seasonal prior for hardware (construction seasonality)
+    if monthly_season is None:
+        from forecast.management.commands.train_forecast_models import Command as TrainCmd
+        btype = getattr(tenant, "business_type", "other") or "other"
+        profile = TrainCmd.BUSINESS_PROFILES.get(btype, {})
+        if profile.get("seasonal_prior"):
+            monthly_season = profile["seasonal_prior"]
     if monthly_season and best["forecasts"]:
         apply_monthly_seasonality(best["forecasts"], monthly_season)
         best["params"]["monthly_seasonality"] = monthly_season
@@ -1071,7 +1087,20 @@ def _safety_buffer(confidence_label: str) -> Decimal:
 
 def generate_suggestions(tenant, today, threshold, target_days):
     """Generate purchase suggestions for at-risk products. Returns (n_suggestions, n_lines)."""
-    from purchases.models import PurchaseLine
+    from purchases.models import PurchaseLine, Supplier
+
+    # Default lead time by business type
+    DEFAULT_LEAD_TIMES = {
+        "retail": 3, "restaurant": 2, "hardware": 30,
+        "wholesale": 45, "pharmacy": 5, "other": 7,
+    }
+    btype = getattr(tenant, "business_type", "other") or "other"
+    default_lead_time = DEFAULT_LEAD_TIMES.get(btype, 7)
+
+    # Build supplier lead_time lookup
+    supplier_lead_times = {
+        s.name: s for s in Supplier.objects.filter(tenant=tenant, is_active=True)
+    }
 
     active_models = ForecastModel.objects.filter(tenant=tenant, is_active=True)
     if not active_models.exists():
@@ -1083,8 +1112,9 @@ def generate_suggestions(tenant, today, threshold, target_days):
         for m in active_models.only("product_id", "warehouse_id", "confidence_label")
     }
 
-    # Max coverage window (fetch enough forecast data for all tiers)
-    max_target = 21
+    # Max coverage window — include lead time headroom
+    max_lead = max((s.lead_time_days for s in supplier_lead_times.values()), default=default_lead_time)
+    max_target = max(21, max_lead + 14)
 
     # Future demand — fetch for max window, we'll filter per-product later
     future_forecasts_raw = list(
@@ -1114,6 +1144,13 @@ def generate_suggestions(tenant, today, threshold, target_days):
     stock_items = {
         (si.warehouse_id, si.product_id): si
         for si in StockItem.objects.filter(tenant=tenant, product_id__in=product_ids)
+    }
+
+    # Product min_stock lookup (for pharmacy legal minimums)
+    from catalog.models import Product as CatalogProduct
+    product_min_stock = {
+        p.id: p.min_stock or Decimal("0")
+        for p in CatalogProduct.objects.filter(id__in=product_ids).only("id", "min_stock")
     }
 
     # Margin data for smart target_days
@@ -1187,11 +1224,25 @@ def generate_suggestions(tenant, today, threshold, target_days):
                 continue
             days_out = product_target
 
+        # Pharmacy: force suggestion if stock below legal minimum
+        p_min_stock = product_min_stock.get(pid, Decimal("0"))
+        if btype == "pharmacy" and p_min_stock > 0 and current_stock < p_min_stock:
+            days_out = min(days_out if days_out else 1, 1)  # Force CRITICAL
+
         if days_out > threshold:
             continue
 
-        # Base suggested quantity
-        base_qty = max(Decimal("0"), total_demand - current_stock)
+        # Lead time: find supplier for this product to get lead_time
+        product_supplier_name = _find_best_supplier(tenant, [pid])
+        supplier_obj = supplier_lead_times.get(product_supplier_name)
+        lead_time = supplier_obj.lead_time_days if supplier_obj else default_lead_time
+        moq = Decimal(str(supplier_obj.min_order_qty)) if supplier_obj and supplier_obj.min_order_qty else Decimal("0")
+
+        # Include demand during lead time in the order quantity
+        lead_time_demand = avg_daily * Decimal(str(lead_time))
+
+        # Base suggested quantity = target demand + lead time demand - current stock
+        base_qty = max(Decimal("0"), total_demand + lead_time_demand - current_stock)
         if base_qty <= 0:
             continue
 
@@ -1203,6 +1254,10 @@ def generate_suggestions(tenant, today, threshold, target_days):
         # Minimum 1 unit (never suggest fractional sub-unit orders)
         from math import ceil
         suggested_qty = max(Decimal("1"), Decimal(str(ceil(float(suggested_qty)))))
+
+        # MOQ enforcement
+        if moq > 0 and suggested_qty < moq:
+            suggested_qty = moq
 
         avg_daily = (total_demand / Decimal(str(product_target))).quantize(Decimal("0.001"))
 
@@ -1244,10 +1299,12 @@ def generate_suggestions(tenant, today, threshold, target_days):
             "reasoning": (
                 f"Stock actual: {current_stock}. "
                 f"Demanda {product_target}d: {total_demand.quantize(Decimal('0.001'))}. "
+                f"Lead time: {lead_time}d. "
                 f"Quiebre en ~{days_out} día(s). "
                 f"Margen {margin_label}, rotación {rotation_label} → cobertura {product_target} días. "
                 f"Pedir {suggested_qty.quantize(Decimal('0.001'))} unidades."
                 f"{buffer_note}"
+                f"{f' MOQ proveedor: {moq}.' if moq > 0 else ''}"
             ),
         })
 
@@ -1383,3 +1440,114 @@ def get_ingredient_forecast_boost(tenant_id, product_id, warehouse_ids):
     """
     demand = compute_ingredient_demand(tenant_id, warehouse_ids)
     return demand.get(product_id, 0)
+
+
+@transaction.atomic
+def train_ingredient_product(tenant, product, warehouse_id, today,
+                             horizon, stock_items, stats):
+    """
+    Train forecast for an ingredient using parent product forecasts (BOM-derived).
+    Instead of forecasting from sales history, derives demand from parent recipes:
+      ingredient_demand = SUM(parent_forecast * recipe_qty)
+    """
+    from forecast.engine import generate_daily_forecasts
+
+    # Get all recipes where this product is an ingredient
+    recipe_lines = list(
+        RecipeLine.objects.filter(
+            tenant=tenant, ingredient=product, recipe__is_active=True,
+        ).select_related("recipe").values("recipe__product_id", "qty")
+    )
+
+    if not recipe_lines:
+        stats["skipped"] += 1
+        return
+
+    # Get parent product forecasts (day-by-day for the next horizon days)
+    parent_ids = set(rl["recipe__product_id"] for rl in recipe_lines)
+    parent_forecasts = {}  # parent_id → [{date, qty_predicted}, ...]
+    for parent_id in parent_ids:
+        fcs = list(
+            Forecast.objects.filter(
+                tenant=tenant, product_id=parent_id, warehouse_id=warehouse_id,
+                forecast_date__gt=today,
+            ).order_by("forecast_date").values("forecast_date", "qty_predicted")[:horizon]
+        )
+        if fcs:
+            parent_forecasts[parent_id] = fcs
+
+    if not parent_forecasts:
+        # No parent forecasts available, fall back
+        stats["skipped"] += 1
+        return
+
+    # Build per-recipe qty multipliers
+    recipe_multipliers = {}  # parent_id → total_qty_per_unit
+    for rl in recipe_lines:
+        pid = rl["recipe__product_id"]
+        recipe_multipliers[pid] = recipe_multipliers.get(pid, Decimal("0")) + rl["qty"]
+
+    # Derive day-by-day ingredient demand from parent forecasts
+    daily_demand = {}  # date → Decimal qty
+    for parent_id, parent_fcs in parent_forecasts.items():
+        multiplier = recipe_multipliers.get(parent_id, Decimal("0"))
+        if multiplier <= 0:
+            continue
+        for fc in parent_fcs:
+            d = fc["forecast_date"]
+            parent_qty = fc["qty_predicted"]
+            daily_demand[d] = daily_demand.get(d, Decimal("0")) + parent_qty * multiplier
+
+    if not daily_demand:
+        stats["skipped"] += 1
+        return
+
+    # Build forecasts list
+    avg_daily = sum(daily_demand.values()) / len(daily_demand)
+    forecasts = []
+    for d in sorted(daily_demand.keys()):
+        qty = daily_demand[d]
+        margin = qty * Decimal("0.30")
+        forecasts.append({
+            "date": d,
+            "qty_predicted": qty.quantize(Decimal("0.001")),
+            "lower_bound": max(Decimal("0"), (qty - margin).quantize(Decimal("0.001"))),
+            "upper_bound": (qty + margin).quantize(Decimal("0.001")),
+        })
+
+    # Deactivate old model
+    ForecastModel.objects.filter(
+        tenant=tenant, product=product, warehouse_id=warehouse_id,
+        is_active=True,
+    ).update(is_active=False)
+
+    existing = ForecastModel.objects.filter(
+        tenant=tenant, product=product, warehouse_id=warehouse_id,
+    ).order_by("-version").first()
+    new_version = (existing.version + 1) if existing else 1
+
+    fm = ForecastModel.objects.create(
+        tenant=tenant,
+        product=product,
+        warehouse_id=warehouse_id,
+        algorithm="ingredient_derived",
+        version=new_version,
+        model_params={
+            "avg_daily": str(avg_daily.quantize(Decimal("0.001"))),
+            "parent_products": list(parent_ids),
+            "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
+        },
+        metrics={"mae": 0, "mape": 0, "rmse": 0, "bias": 0},
+        trained_at=timezone.now(),
+        data_points=len(daily_demand),
+        demand_pattern="smooth",
+        is_active=True,
+        confidence_label="medium",
+        confidence_reason="Derivado de receta — depende de forecast del producto padre",
+    )
+
+    stats["by_algo"]["ingredient_derived"] = stats["by_algo"].get("ingredient_derived", 0) + 1
+    stats["trained"] += 1
+
+    save_forecasts(tenant, product, warehouse_id, fm,
+                   forecasts, Decimal("65.00"), stock_items)

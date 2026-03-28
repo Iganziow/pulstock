@@ -18,6 +18,7 @@ from core.models import Tenant
 from catalog.models import Product
 from inventory.models import StockItem
 from forecast.models import DailySales
+from catalog.models import RecipeLine
 from forecast.services import train_product_model, train_sparse_product
 from forecast.models import CategoryDemandProfile
 
@@ -39,7 +40,10 @@ class Command(BaseCommand):
         # Restaurant/cafetería: demanda muy estacional por día de semana, horizonte corto
         "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21, "shrinkage_k": 7},
         # Ferretería: ítems de baja rotación, proyectos, ventana larga
-        "hardware":    {"window": 30, "min_days": 21, "horizon": 60, "shrinkage_k": 21},
+        # seasonal_prior: construcción Chile (Sep-Mar alto, Abr-Ago bajo)
+        "hardware":    {"window": 30, "min_days": 21, "horizon": 60, "shrinkage_k": 21,
+                        "seasonal_prior": {1:1.2, 2:1.1, 3:1.0, 4:0.8, 5:0.7, 6:0.6,
+                                           7:0.6, 8:0.7, 9:1.0, 10:1.3, 11:1.4, 12:1.3}},
         # Distribuidora: volumen alto, demanda regular, horizonte medio-largo
         "wholesale":   {"window": 21, "min_days": 14, "horizon": 45, "shrinkage_k": 14},
         # Farmacia: similar a retail pero con patrones de receta/estacionalidad
@@ -68,8 +72,10 @@ class Command(BaseCommand):
             horizon  = max(1, min(90, options["horizon"] if options["horizon"] != 14 else profile["horizon"]))
             window   = max(7, options["window"] if options["window"] != 21 else profile["window"])
             shrinkage_k = profile.get("shrinkage_k", 14)
+            seasonal_prior = profile.get("seasonal_prior")
             self._process_tenant(tenant, today, min_days, horizon, window,
-                                 options.get("product"), stats, shrinkage_k=shrinkage_k)
+                                 options.get("product"), stats, shrinkage_k=shrinkage_k,
+                                 seasonal_prior=seasonal_prior)
 
         algo_summary = ", ".join(f"{k}={v}" for k, v in stats["by_algo"].items())
         self.stdout.write(self.style.SUCCESS(
@@ -79,7 +85,7 @@ class Command(BaseCommand):
         ))
 
     def _process_tenant(self, tenant, today, min_days, horizon, window,
-                        product_id, stats, shrinkage_k=14):
+                        product_id, stats, shrinkage_k=14, seasonal_prior=None):
         # Clean up: deactivate forecast models for discontinued products
         from forecast.models import ForecastModel as FM
         deactivated = FM.objects.filter(
@@ -128,6 +134,15 @@ class Command(BaseCommand):
                 (row["warehouse_id"], row["n_days"])
             )
 
+        # Identify ingredient-only products (used in recipes, for BOM forecasting)
+        btype = getattr(tenant, "business_type", "other") or "other"
+        ingredient_ids = set()
+        if btype in ("restaurant",):
+            ingredient_ids = set(
+                RecipeLine.objects.filter(tenant=tenant, recipe__is_active=True)
+                .values_list("ingredient_id", flat=True).distinct()
+            )
+
         for product in products:
             wh_entries = product_wh_days.get(product.id, [])
             for wh_id, n_days in wh_entries:
@@ -137,6 +152,13 @@ class Command(BaseCommand):
                     train_product_model(
                         tenant, product, wh_id, today,
                         min_days, horizon, window, stock_items, stats,
+                    )
+                elif product.id in ingredient_ids:
+                    # Ingredient: derive forecast from parent recipes (BOM)
+                    from forecast.services import train_ingredient_product
+                    train_ingredient_product(
+                        tenant, product, wh_id, today,
+                        horizon, stock_items, stats,
                     )
                 else:
                     # Sparse data: use category prior
@@ -153,8 +175,15 @@ class Command(BaseCommand):
                 si = stock_items.get((wh_id, product.id))
                 if si and si.on_hand > 0:
                     trained_keys.add((product.id, wh_id))
-                    train_sparse_product(
-                        tenant, product, wh_id, today,
-                        horizon, stock_items, category_profiles, stats,
-                        shrinkage_k=shrinkage_k,
-                    )
+                    if product.id in ingredient_ids:
+                        from forecast.services import train_ingredient_product
+                        train_ingredient_product(
+                            tenant, product, wh_id, today,
+                            horizon, stock_items, stats,
+                        )
+                    else:
+                        train_sparse_product(
+                            tenant, product, wh_id, today,
+                            horizon, stock_items, category_profiles, stats,
+                            shrinkage_k=shrinkage_k,
+                        )

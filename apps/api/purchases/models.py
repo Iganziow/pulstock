@@ -154,6 +154,24 @@ class Supplier(models.Model):
 
     is_active = models.BooleanField(default=True)
 
+    # ── Lead time & ordering ──
+    lead_time_days = models.IntegerField(
+        default=3,
+        help_text="Días promedio de entrega desde que se hace el pedido",
+    )
+    min_order_qty = models.DecimalField(
+        max_digits=12, decimal_places=3, default=Decimal("0.000"),
+        help_text="Cantidad mínima de pedido (MOQ). 0 = sin mínimo",
+    )
+    min_order_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, default=Decimal("0.00"),
+        help_text="Monto mínimo de pedido en CLP. 0 = sin mínimo",
+    )
+    order_frequency_days = models.IntegerField(
+        default=7,
+        help_text="Frecuencia típica de pedido (cada cuántos días se pide)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
