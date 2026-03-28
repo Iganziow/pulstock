@@ -74,11 +74,16 @@ class ForecastModel(models.Model):
     ALGORITHM_CHOICES = [
         ("simple_avg", "Promedio Simple"),
         ("moving_avg", "Media Móvil Ponderada"),
+        ("adaptive_ma", "Media Móvil Adaptativa"),
         ("holt_winters", "Holt-Winters"),
+        ("hw_damped", "Holt-Winters Amortiguado"),
+        ("theta", "Método Theta"),
+        ("ets", "ETS (Suavizamiento Exponencial)"),
         ("category_prior", "Prior de Categoría"),
         ("croston", "Croston (Demanda Intermitente)"),
         ("croston_sba", "Croston SBA"),
         ("ensemble", "Ensemble"),
+        ("ingredient_derived", "Derivado de Receta"),
     ]
 
     DEMAND_PATTERN_CHOICES = [
@@ -316,6 +321,29 @@ class Holiday(models.Model):
         max_digits=5, decimal_places=2, default=Decimal("1.20"),
         help_text="Factor de demanda en días previos al feriado"
     )
+    # Extended holiday modeling — multi-day events + post-event demand dip
+    duration_days = models.IntegerField(
+        default=1,
+        help_text="Duración del evento en días (Fiestas Patrias=3, Navidad=1)"
+    )
+    post_days = models.IntegerField(
+        default=0,
+        help_text="Días posteriores con demanda alterada (post-event dip)"
+    )
+    post_multiplier = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("0.85"),
+        help_text="Factor post-evento (0.85 = -15% demanda tras el evento)"
+    )
+    RAMP_TYPE_CHOICES = [
+        ("instant", "Instantáneo"),
+        ("linear", "Gradual (rampa)"),
+        ("plateau", "Meseta"),
+    ]
+    ramp_type = models.CharField(
+        max_length=10, choices=RAMP_TYPE_CHOICES, default="instant",
+        help_text="Forma de la rampa de demanda pre-evento"
+    )
+
     is_recurring = models.BooleanField(default=True, help_text="Se repite cada año")
     learned_multiplier = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,

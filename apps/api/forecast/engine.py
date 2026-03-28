@@ -422,30 +422,42 @@ def croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
 
 
 def backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
-    """Walk-forward cross-validation for Croston with n_folds folds."""
+    """Walk-forward cross-validation for Croston with alpha grid search."""
     min_train = test_days + 7
     if len(daily_series) < min_train + test_days:
-        return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0}
+        return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0, "best_alpha": 0.15}
 
-    fold_metrics = []
-    total = len(daily_series)
-    for fold in range(n_folds):
-        test_end = total - fold * test_days
-        test_start = test_end - test_days
-        if test_start < min_train:
-            break
-        train = daily_series[:test_start]
-        test = daily_series[test_start:test_end]
-        result = croston_forecast(train, horizon_days=test_days, use_sba=use_sba)
-        if result is None:
+    best_metrics = None
+    best_alpha = 0.15
+
+    for alpha in [0.05, 0.10, 0.15, 0.20, 0.30]:
+        fold_metrics = []
+        total = len(daily_series)
+        for fold in range(n_folds):
+            test_end = total - fold * test_days
+            test_start = test_end - test_days
+            if test_start < min_train:
+                break
+            train = daily_series[:test_start]
+            test = daily_series[test_start:test_end]
+            result = croston_forecast(train, alpha=alpha, horizon_days=test_days, use_sba=use_sba)
+            if result is None:
+                continue
+            actuals = [float(item[1]) for item in test]
+            predictions = [float(f["qty_predicted"]) for f in result["forecasts"]]
+            fold_metrics.append(_compute_metrics(actuals, predictions))
+
+        if not fold_metrics:
             continue
-        actuals = [float(item[1]) for item in test]
-        predictions = [float(f["qty_predicted"]) for f in result["forecasts"]]
-        fold_metrics.append(_compute_metrics(actuals, predictions))
+        avg = _average_metrics(fold_metrics)
+        if best_metrics is None or avg["mae"] < best_metrics["mae"]:
+            best_metrics = avg
+            best_alpha = alpha
 
-    if not fold_metrics:
-        return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0}
-    return _average_metrics(fold_metrics)
+    if best_metrics is None:
+        return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0, "best_alpha": 0.15}
+    best_metrics["best_alpha"] = best_alpha
+    return best_metrics
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -619,6 +631,69 @@ def apply_monthly_seasonality(forecasts, monthly_factors):
             fc["qty_predicted"] = _q3(float(fc["qty_predicted"]) * factor)
             fc["lower_bound"] = _q3(max(0, float(fc["lower_bound"]) * factor))
             fc["upper_bound"] = _q3(float(fc["upper_bound"]) * factor)
+
+
+def compute_bimodal_seasonality(daily_series, min_days=120):
+    """
+    Detect bimodal seasonality (e.g. ice cream: summer=2.5x, winter=0.2x).
+    Groups months into warm (Oct-Mar) and cold (Apr-Sep) seasons for Chile.
+    Returns monthly factors dict or None if no significant bimodal pattern.
+    """
+    if len(daily_series) < min_days:
+        return None
+
+    # Chile seasons: warm Oct-Mar, cold Apr-Sep
+    warm_months = {10, 11, 12, 1, 2, 3}
+    cold_months = {4, 5, 6, 7, 8, 9}
+
+    warm_vals, cold_vals = [], []
+    monthly_values = {}
+    for item in daily_series:
+        d, qty = item[0], float(item[1])
+        monthly_values.setdefault(d.month, []).append(qty)
+        if d.month in warm_months:
+            warm_vals.append(qty)
+        else:
+            cold_vals.append(qty)
+
+    if not warm_vals or not cold_vals:
+        return None
+
+    # Need at least 4 distinct months with data
+    if len(monthly_values) < 4:
+        return None
+
+    warm_avg = sum(warm_vals) / len(warm_vals)
+    cold_avg = sum(cold_vals) / len(cold_vals)
+
+    if cold_avg <= 0 or warm_avg <= 0:
+        return None
+
+    # Detect significant bimodal pattern: one season 2x+ the other
+    ratio = max(warm_avg, cold_avg) / min(warm_avg, cold_avg)
+    if ratio < 2.0:
+        return None  # Not bimodal enough, fall back to standard monthly
+
+    overall_avg = sum(float(item[1]) for item in daily_series) / len(daily_series)
+    if overall_avg <= 0:
+        return None
+
+    factors = {}
+    for month in range(1, 13):
+        values = monthly_values.get(month, [])
+        if values:
+            month_avg = sum(values) / len(values)
+            # Allow extreme factors (0.1 to 4.0) for bimodal products
+            raw = month_avg / overall_avg
+            factors[month] = round(max(0.1, min(4.0, raw)), 3)
+        else:
+            # Interpolate: use season average
+            if month in warm_months:
+                factors[month] = round(warm_avg / overall_avg, 3)
+            else:
+                factors[month] = round(cold_avg / overall_avg, 3)
+
+    return factors
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -973,8 +1048,15 @@ def _compute_metrics(actuals, predictions):
 
     mae = sum(abs_errors) / n
     rmse = math.sqrt(sum(sq_errors) / n)
-    mape = sum(pct_errors) / len(pct_errors) if pct_errors else 0
     bias = sum(errors) / n
+
+    if pct_errors:
+        mape = sum(pct_errors) / len(pct_errors)
+    elif all(a == 0 for a in actuals):
+        # All actuals zero → MAPE not computable; mark as unevaluable
+        mape = 999
+    else:
+        mape = 0
 
     return {
         "mae": round(mae, 3),
@@ -1182,9 +1264,12 @@ def ensemble_forecast(candidates, demand_pattern=None):
     if len(viable) < 2:
         return None
 
-    weights = [1.0 / (c["metrics"][metric_key] + 1) for c in viable]
-    total_w = sum(weights)
-    weights = [w / total_w for w in weights]
+    # Softmax-style weighting: exp(-metric/temperature) for smoother distribution
+    metrics_vals = [c["metrics"][metric_key] for c in viable]
+    temperature = max(1, sum(metrics_vals) / len(metrics_vals))  # mean as temperature
+    raw_weights = [math.exp(-m / temperature) for m in metrics_vals]
+    total_w = sum(raw_weights)
+    weights = [w / total_w for w in raw_weights]
 
     horizon = min(len(c["forecasts"]) for c in viable)
     if horizon == 0:
@@ -1269,11 +1354,35 @@ def apply_holiday_adjustments(forecasts, holidays):
         if h_date is None:
             continue
 
-        holiday_map[h_date] = mult
+        # Duration days: apply main multiplier to event + extra days
+        duration = int(getattr(h, 'duration_days', None) or (h.get('duration_days', 1) if isinstance(h, dict) else 1))
+        for d in range(duration):
+            event_date = h_date + timedelta(days=d)
+            holiday_map[event_date] = mult
+
+        # Pre-event days: gradual ramp or flat
+        ramp = getattr(h, 'ramp_type', None) or (h.get('ramp_type', 'instant') if isinstance(h, dict) else 'instant')
         for d in range(1, pre_days + 1):
             pre_date = h_date - timedelta(days=d)
             if pre_date not in holiday_map:
-                holiday_map[pre_date] = pre_mult
+                if ramp == "linear":
+                    # Linear ramp: closer to event = stronger multiplier
+                    pct = 1.0 - (d / (pre_days + 1))
+                    ramped = 1.0 + (pre_mult - 1.0) * pct
+                    holiday_map[pre_date] = ramped
+                else:
+                    holiday_map[pre_date] = pre_mult
+
+        # Post-event days: demand dip
+        post_d = int(getattr(h, 'post_days', None) or (h.get('post_days', 0) if isinstance(h, dict) else 0))
+        post_mult = float(getattr(h, 'post_multiplier', None) or (h.get('post_multiplier', 0.85) if isinstance(h, dict) else 0.85))
+        if post_d > 0:
+            for d in range(1, post_d + 1):
+                post_date = h_date + timedelta(days=duration - 1 + d)
+                if post_date not in holiday_map:
+                    # Gradual recovery from dip
+                    recovery = post_mult + (1.0 - post_mult) * (d / (post_d + 1))
+                    holiday_map[post_date] = recovery
 
     for fc in forecasts:
         fc_date = fc["date"]
@@ -1992,7 +2101,8 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         for use_sba in (False, True):
             cr_metrics = backtest_croston(daily_series, test_days=test_days, use_sba=use_sba)
             if cr_metrics["mae"] < 998:
-                cr_result = croston_forecast(daily_series, horizon_days=horizon, use_sba=use_sba)
+                cr_alpha = cr_metrics.pop("best_alpha", 0.15)
+                cr_result = croston_forecast(daily_series, alpha=cr_alpha, horizon_days=horizon, use_sba=use_sba)
                 if cr_result is not None:
                     cr_result["metrics"] = cr_metrics
                     # Apply bootstrapped intervals for better confidence bounds

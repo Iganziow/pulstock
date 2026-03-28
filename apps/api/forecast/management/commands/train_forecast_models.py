@@ -35,17 +35,17 @@ class Command(BaseCommand):
     # Parámetros ajustados por tipo de negocio
     BUSINESS_PROFILES = {
         # Retail/minimarket: ítems de alta rotación, ventana corta, respuesta rápida
-        "retail":      {"window": 14, "min_days": 14, "horizon": 30},
+        "retail":      {"window": 14, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
         # Restaurant/cafetería: demanda muy estacional por día de semana, horizonte corto
-        "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21},
+        "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21, "shrinkage_k": 7},
         # Ferretería: ítems de baja rotación, proyectos, ventana larga
-        "hardware":    {"window": 30, "min_days": 21, "horizon": 60},
+        "hardware":    {"window": 30, "min_days": 21, "horizon": 60, "shrinkage_k": 21},
         # Distribuidora: volumen alto, demanda regular, horizonte medio-largo
-        "wholesale":   {"window": 21, "min_days": 14, "horizon": 45},
+        "wholesale":   {"window": 21, "min_days": 14, "horizon": 45, "shrinkage_k": 14},
         # Farmacia: similar a retail pero con patrones de receta/estacionalidad
-        "pharmacy":    {"window": 14, "min_days": 14, "horizon": 30},
+        "pharmacy":    {"window": 14, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
         # Genérico
-        "other":       {"window": 21, "min_days": 14, "horizon": 30},
+        "other":       {"window": 21, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
     }
 
     def handle(self, *args, **options):
@@ -67,8 +67,9 @@ class Command(BaseCommand):
             min_days = max(7, options["min_days"] if options["min_days"] != 14 else profile["min_days"])
             horizon  = max(1, min(90, options["horizon"] if options["horizon"] != 14 else profile["horizon"]))
             window   = max(7, options["window"] if options["window"] != 21 else profile["window"])
+            shrinkage_k = profile.get("shrinkage_k", 14)
             self._process_tenant(tenant, today, min_days, horizon, window,
-                                 options.get("product"), stats)
+                                 options.get("product"), stats, shrinkage_k=shrinkage_k)
 
         algo_summary = ", ".join(f"{k}={v}" for k, v in stats["by_algo"].items())
         self.stdout.write(self.style.SUCCESS(
@@ -78,7 +79,18 @@ class Command(BaseCommand):
         ))
 
     def _process_tenant(self, tenant, today, min_days, horizon, window,
-                        product_id, stats):
+                        product_id, stats, shrinkage_k=14):
+        # Clean up: deactivate forecast models for discontinued products
+        from forecast.models import ForecastModel as FM
+        deactivated = FM.objects.filter(
+            tenant=tenant, product__is_active=False, is_active=True
+        ).update(is_active=False)
+        if deactivated:
+            from forecast.models import Forecast
+            Forecast.objects.filter(
+                tenant=tenant, model__product__is_active=False, forecast_date__gt=today
+            ).delete()
+
         products = Product.objects.filter(tenant=tenant, is_active=True)
         if product_id:
             products = products.filter(id=product_id)
@@ -131,6 +143,7 @@ class Command(BaseCommand):
                     train_sparse_product(
                         tenant, product, wh_id, today,
                         horizon, stock_items, category_profiles, stats,
+                        shrinkage_k=shrinkage_k,
                     )
 
             # Products with stock but NO DailySales at all
@@ -143,4 +156,5 @@ class Command(BaseCommand):
                     train_sparse_product(
                         tenant, product, wh_id, today,
                         horizon, stock_items, category_profiles, stats,
+                        shrinkage_k=shrinkage_k,
                     )

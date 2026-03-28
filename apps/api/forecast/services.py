@@ -30,7 +30,7 @@ from forecast.engine import (
     compute_month_position_factors, detect_trend,
     apply_trend_adjustment, apply_bias_correction,
     apply_empirical_intervals, detect_price_change_impact,
-    compute_monthly_seasonality, apply_monthly_seasonality,
+    compute_monthly_seasonality, compute_bimodal_seasonality, apply_monthly_seasonality,
     compute_yoy_growth, apply_yoy_adjustment,
     compute_confidence_decay,
 )
@@ -789,8 +789,8 @@ def train_product_model(tenant, product, warehouse_id, today,
         if correction:
             best["params"]["bias_correction"] = correction
 
-    # Monthly seasonality (180+ days)
-    monthly_season = compute_monthly_seasonality(cleaned)
+    # Monthly seasonality (180+ days) — try bimodal first (extreme seasonal products)
+    monthly_season = compute_bimodal_seasonality(cleaned) or compute_monthly_seasonality(cleaned)
     if monthly_season and best["forecasts"]:
         apply_monthly_seasonality(best["forecasts"], monthly_season)
         best["params"]["monthly_seasonality"] = monthly_season
@@ -887,7 +887,8 @@ def train_product_model(tenant, product, warehouse_id, today,
 
 @transaction.atomic
 def train_sparse_product(tenant, product, warehouse_id, today,
-                         horizon, stock_items, category_profiles, stats):
+                         horizon, stock_items, category_profiles, stats,
+                         shrinkage_k=14):
     """Train a category-prior model for a product with < min_days of data."""
     series = list(
         DailySales.objects.filter(
@@ -934,7 +935,7 @@ def train_sparse_product(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
-    result = category_prior_forecast(series, cat_avg, cat_dow, horizon_days=horizon)
+    result = category_prior_forecast(series, cat_avg, cat_dow, horizon_days=horizon, shrinkage_k=shrinkage_k)
 
     if not result["forecasts"]:
         stats["skipped"] += 1
