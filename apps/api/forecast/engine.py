@@ -129,7 +129,7 @@ def classify_demand_pattern(daily_series):
         - "lumpy": infrequent with variable sizes (ADI >= 1.32, CV² >= 0.49)
         - "insufficient": not enough non-zero observations
     """
-    non_zero = [(d, float(q)) for d, q in daily_series if float(q) > 0]
+    non_zero = [(d, float(q)) for d, q, *_ in daily_series if float(q) > 0]
     if len(non_zero) < 3:
         return "insufficient", 0, 0
 
@@ -1666,7 +1666,7 @@ def croston_bootstrap_intervals(daily_series, base_forecast, n_boot=200, confide
 
     Returns adjusted forecasts with bootstrapped lower/upper bounds.
     """
-    non_zero = [(d, float(q)) for d, q in daily_series if float(q) > 0]
+    non_zero = [(d, float(q)) for d, q, *_ in daily_series if float(q) > 0]
     if len(non_zero) < 5 or not base_forecast:
         return base_forecast
 
