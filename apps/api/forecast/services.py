@@ -744,7 +744,8 @@ def train_product_model(tenant, product, warehouse_id, today,
         ds_qs.filter(is_stockout=True).values_list("date", flat=True)
     )
     # Days where ALL sales were promotional → treat as stockout for interpolation
-    for dt, qty_sold, promo_qty in raw_data:
+    for row in raw_data:
+        dt, qty_sold, promo_qty = row[0], row[1], row[2]
         if promo_qty and promo_qty >= qty_sold and qty_sold > 0:
             stockout_dates.add(dt)
 
@@ -1232,6 +1233,9 @@ def generate_suggestions(tenant, today, threshold, target_days):
         if days_out > threshold:
             continue
 
+        # Average daily demand for this product
+        avg_daily = (total_demand / Decimal(str(product_target))).quantize(Decimal("0.001")) if product_target > 0 else Decimal("0")
+
         # Lead time: find supplier for this product to get lead_time
         product_supplier_name = _find_best_supplier(tenant, [pid])
         supplier_obj = supplier_lead_times.get(product_supplier_name)
@@ -1258,8 +1262,6 @@ def generate_suggestions(tenant, today, threshold, target_days):
         # MOQ enforcement
         if moq > 0 and suggested_qty < moq:
             suggested_qty = moq
-
-        avg_daily = (total_demand / Decimal(str(product_target))).quantize(Decimal("0.001"))
 
         # Adjust priority thresholds: low-confidence models alert earlier
         critical_threshold = 5 if is_low_confidence else 3
