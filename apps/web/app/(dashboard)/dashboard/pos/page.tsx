@@ -1243,18 +1243,19 @@ export default function PosPage() {
               )}
             </div>
 
-            <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:12 }}>
-              {/* Method selector — radio style, un método a la vez */}
+            <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:10 }}>
+              {/* Botones radio — siempre uno activo */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
                 {PAY_METHODS.map(m => {
-                  const active = payRows.length === 1 && payRows[0].method === m.value;
+                  const isSingle = payRows.length === 1;
+                  const active = isSingle && payRows[0].method === m.value;
                   return (
                     <button key={m.value} type="button"
-                      onClick={() => setPayRows([{ method: m.value, amount: "" }])}
+                      onClick={() => setPayRows([{ method: m.value, amount: payRows.length === 1 ? payRows[0].amount : "" }])}
                       style={{
                         display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-                        gap:4, padding:"10px 4px", borderRadius:C.r, cursor:"pointer", fontFamily:"inherit",
-                        fontSize:11, fontWeight:700, transition:"all 0.15s",
+                        gap:3, padding:"10px 4px", borderRadius:C.r, cursor:"pointer", fontFamily:"inherit",
+                        fontSize:11, fontWeight:700,
                         border:`2px solid ${active ? C.accent : C.border}`,
                         background: active ? C.accentBg : C.bg,
                         color: active ? C.accent : C.mid,
@@ -1266,54 +1267,50 @@ export default function PosPage() {
                 })}
               </div>
 
-              {/* Input de monto + flecha para completar */}
+              {/* Input(s) de monto */}
               {payRows.map((row, i) => {
-                const meta = PAY_METHODS.find(m => m.value === row.method);
+                const meta = PAY_METHODS.find(m => m.value === row.method)!;
                 return (
                   <div key={row.method} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <div style={{ width:110, fontSize:13, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                      <span>{meta?.icon}</span>{meta?.label}
-                    </div>
+                    {payRows.length > 1 && (
+                      <div style={{ width:100, fontSize:12, fontWeight:600, color:C.mid, display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
+                        <span>{meta.icon}</span>{meta.label}
+                      </div>
+                    )}
                     <input
                       value={row.amount}
                       onChange={e => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))}
                       placeholder="$0"
                       inputMode="decimal"
                       style={{
-                        flex:1, height:44, padding:"0 14px",
+                        flex:1, height:48, padding:"0 14px",
                         border:`2px solid ${row.amount ? C.accent : C.border}`,
-                        borderRadius:C.r, fontSize:18, fontWeight:800, textAlign:"right",
+                        borderRadius:C.r, fontSize:20, fontWeight:800, textAlign:"right",
                         background: row.amount ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
                       }}
                     />
                     <button type="button" disabled={pendingAmount <= 0} title="Cobrar total"
                       onClick={() => setPayRows(prev => prev.map((r, j) => j === i ? { ...r, amount: String((Number(r.amount)||0) + pendingAmount) } : r))}
-                      style={{ height:44, width:44, borderRadius:C.r, border:`2px solid ${C.accent}`, background:C.accentBg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:pendingAmount<=0?0.3:1 }}>
+                      style={{ height:48, width:48, borderRadius:C.r, border:`2px solid ${pendingAmount>0?C.accent:C.border}`, background:pendingAmount>0?C.accentBg:C.bg, color:C.accent, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:pendingAmount<=0?0.3:1 }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </button>
+                    {payRows.length > 1 && (
+                      <button type="button" onClick={() => setPayRows(prev => prev.filter((_, j) => j !== i))}
+                        style={{ height:48, width:36, border:"none", background:"none", color:C.mute, cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                    )}
                   </div>
                 );
               })}
 
-              {/* Pago mixto */}
-              {payRows.length === 1 && (
+              {/* Dividir pago */}
+              {payRows.length < PAY_METHODS.length && (
                 <button type="button" onClick={() => {
                   const used = new Set(payRows.map(r => r.method));
                   const next = PAY_METHODS.find(m => !used.has(m.value));
                   if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
                 }}
-                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"8px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
-                  + Dividir pago
-                </button>
-              )}
-              {payRows.length > 1 && PAY_METHODS.filter(m => !payRows.some(r => r.method === m.value)).length > 0 && (
-                <button type="button" onClick={() => {
-                  const used = new Set(payRows.map(r => r.method));
-                  const next = PAY_METHODS.find(m => !used.has(m.value));
-                  if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
-                }}
-                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"8px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
-                  + Agregar método
+                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"7px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
+                  {payRows.length === 1 ? "+ Dividir pago" : "+ Agregar método"}
                 </button>
               )}
 
