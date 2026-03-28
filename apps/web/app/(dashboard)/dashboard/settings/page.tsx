@@ -338,6 +338,15 @@ export default function SettingsPage() {
     } catch (e: any) { flash("err", e?.message || "Error"); }
   };
 
+  const deleteUser = async (u: User) => {
+    if (!confirm(`¿Eliminar permanentemente a ${u.first_name || u.username}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await apiFetch(`/core/users/${u.id}/`, { method: "DELETE" });
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+      flash("ok", "Usuario eliminado");
+    } catch (e: any) { flash("err", e?.message || "Error eliminando"); }
+  };
+
   const startEditUser = (u: User) => {
     setEditUser(u); setEuRole(u.role); setEuFirst(u.first_name);
     setEuLast(u.last_name); setEuEmail(u.email); setEuPw("");
@@ -877,6 +886,11 @@ export default function SettingsPage() {
                       {u.id !== me?.id && (
                         <button onClick={() => toggleUserActive(u)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: u.is_active ? C.red : C.green, fontWeight: 700 }}>
                           {u.is_active ? "Desactivar" : "Reactivar"}
+                        </button>
+                      )}
+                      {u.id !== me?.id && !u.is_active && (
+                        <button onClick={() => deleteUser(u)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: C.red, fontWeight: 700 }}>
+                          Eliminar
                         </button>
                       )}
                     </div>

@@ -504,10 +504,9 @@ class TenantUserDetailView(APIView):
         if target.id == request.user.id:
             return Response({"detail": "No puedes eliminar tu propia cuenta."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Soft delete — deactivate instead of hard delete
-        target.is_active = False
-        target.save(update_fields=["is_active"])
-        return Response({"ok": True, "deactivated": target.username})
+        username = target.username
+        target.delete()
+        return Response({"ok": True, "deleted": username})
 
 
 class AlertPreferenceView(APIView):
