@@ -211,6 +211,96 @@ class TenantListView(APIView):
             "total_pages": (total + page_size - 1) // page_size,
         })
 
+    def post(self, request):
+        """Crear tenant desde superadmin con owner, store y warehouse."""
+        from django.utils.text import slugify
+        from stores.models import Store
+        from core.models import Warehouse
+
+        data = request.data
+        name = (data.get("name") or "").strip()
+        if not name:
+            return Response({"detail": "Nombre del negocio es requerido."}, status=400)
+
+        slug = slugify(name)
+        # Ensure unique slug
+        base_slug = slug
+        counter = 1
+        while Tenant.objects.filter(slug=slug).exists():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        tenant = Tenant.objects.create(
+            name=name,
+            slug=slug,
+            business_type=data.get("business_type", "retail"),
+            email=data.get("email", ""),
+            phone=data.get("phone", ""),
+            rut=data.get("rut", ""),
+            legal_name=data.get("legal_name", ""),
+            giro=data.get("giro", ""),
+            address=data.get("address", ""),
+            city=data.get("city", ""),
+            comuna=data.get("comuna", ""),
+        )
+
+        # Create default store + warehouse
+        store_name = data.get("store_name", "Local Principal")
+        store = Store.objects.create(tenant=tenant, name=store_name, is_active=True)
+        warehouse = Warehouse.objects.create(
+            tenant=tenant, store=store,
+            name=data.get("warehouse_name", "Bodega Principal"),
+        )
+        tenant.default_warehouse = warehouse
+        tenant.save(update_fields=["default_warehouse"])
+
+        # Create owner user if email+password provided
+        owner_data = {}
+        owner_email = data.get("owner_email", "").strip()
+        owner_password = data.get("owner_password", "").strip()
+        if owner_email and owner_password:
+            if User.objects.filter(username=owner_email).exists():
+                return Response({"detail": f"El usuario {owner_email} ya existe."}, status=400)
+            owner = User.objects.create_user(
+                username=owner_email,
+                email=owner_email,
+                password=owner_password,
+                first_name=data.get("owner_first_name", ""),
+                last_name=data.get("owner_last_name", ""),
+                tenant=tenant,
+                role="owner",
+                active_store=store,
+            )
+            owner_data = {"id": owner.id, "email": owner.email}
+
+        # Create subscription if plan specified
+        sub_data = None
+        plan_key = data.get("plan_key")
+        if plan_key:
+            try:
+                plan = Plan.objects.get(key=plan_key, is_active=True)
+                sub, _ = Subscription.objects.get_or_create(
+                    tenant=tenant,
+                    defaults={
+                        "plan": plan,
+                        "status": data.get("sub_status", "active"),
+                    },
+                )
+                sub_data = {"plan": plan.name, "status": sub.status}
+            except Plan.DoesNotExist:
+                pass
+
+        logger.info("Superadmin %s created tenant %d (%s)", request.user.email, tenant.id, name)
+
+        return Response({
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "business_type": tenant.business_type,
+            "owner": owner_data,
+            "subscription": sub_data,
+        }, status=201)
+
 
 class TenantDetailView(APIView):
     permission_classes = PERMS
@@ -286,17 +376,21 @@ class TenantDetailView(APIView):
         })
 
     def patch(self, request, tenant_id):
-        """Modificar tenant (activar/desactivar, etc.)."""
+        """Modificar tenant — soporta todos los campos editables."""
         t = get_object_or_404(Tenant, pk=tenant_id)
         changed = []
+
+        # Campos de texto simples
+        text_fields = ["name", "email", "phone", "rut", "legal_name", "giro",
+                       "address", "city", "comuna", "website", "logo_url", "primary_color"]
+        for field in text_fields:
+            if field in request.data:
+                setattr(t, field, request.data[field])
+                changed.append(field)
 
         if "is_active" in request.data:
             t.is_active = bool(request.data["is_active"])
             changed.append("is_active")
-
-        if "name" in request.data:
-            t.name = request.data["name"]
-            changed.append("name")
 
         if "business_type" in request.data:
             valid_types = [c[0] for c in Tenant.BUSINESS_TYPE_CHOICES]
@@ -393,8 +487,35 @@ class TenantDetailView(APIView):
 # SUBSCRIPTION MANAGEMENT
 # ─────────────────────────────────────────────────────────────
 class AdminSubscriptionView(APIView):
-    """Cambiar plan o estado de suscripción de un tenant."""
+    """Cambiar plan o estado de suscripción de un tenant. POST para crear si no existe."""
     permission_classes = PERMS
+
+    def post(self, request, tenant_id):
+        """Crear suscripción para tenant que no la tiene."""
+        tenant = get_object_or_404(Tenant, pk=tenant_id)
+        if Subscription.objects.filter(tenant=tenant).exists():
+            return Response({"detail": "Este tenant ya tiene suscripción."}, status=400)
+
+        plan_key = request.data.get("plan_key", "inicio")
+        try:
+            plan = Plan.objects.get(key=plan_key, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({"detail": f"Plan '{plan_key}' no encontrado."}, status=400)
+
+        status = request.data.get("status", "active")
+        sub = Subscription.objects.create(
+            tenant=tenant,
+            plan=plan,
+            status=status,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+        )
+        logger.info("Superadmin %s created subscription for tenant %d: %s/%s",
+                     request.user.email, tenant_id, plan_key, status)
+        return Response({
+            "ok": True, "status": sub.status, "plan": plan.name,
+            "current_period_end": sub.current_period_end.isoformat(),
+        }, status=201)
 
     def patch(self, request, tenant_id):
         sub = get_object_or_404(Subscription.objects.select_related("plan"), tenant_id=tenant_id)
@@ -765,3 +886,135 @@ class AdminForecastMetricsView(APIView):
             }
             for log in logs
         ]
+
+
+# ─────────────────────────────────────────────────────────────
+# HOLIDAYS MANAGEMENT (Global)
+# ─────────────────────────────────────────────────────────────
+class AdminHolidayListView(APIView):
+    """CRUD de holidays globales (tenant=null) y por tenant."""
+    permission_classes = PERMS
+
+    def get(self, request):
+        from forecast.models import Holiday
+        qs = Holiday.objects.all().order_by("date")
+        scope = request.query_params.get("scope")
+        if scope == "national":
+            qs = qs.filter(tenant__isnull=True)
+        elif scope == "custom":
+            qs = qs.filter(tenant__isnull=False)
+
+        tenant_id = request.query_params.get("tenant_id")
+        if tenant_id:
+            qs = qs.filter(Q(tenant_id=tenant_id) | Q(tenant__isnull=True))
+
+        return Response([
+            {
+                "id": h.id,
+                "name": h.name,
+                "date": str(h.date),
+                "scope": h.scope,
+                "tenant_id": h.tenant_id,
+                "demand_multiplier": str(h.demand_multiplier),
+                "pre_days": h.pre_days,
+                "pre_multiplier": str(h.pre_multiplier),
+                "duration_days": h.duration_days,
+                "post_days": h.post_days,
+                "post_multiplier": str(h.post_multiplier),
+                "ramp_type": h.ramp_type,
+                "is_recurring": h.is_recurring,
+                "learned_multiplier": str(h.learned_multiplier) if h.learned_multiplier else None,
+            }
+            for h in qs
+        ])
+
+    def post(self, request):
+        from forecast.models import Holiday
+        from decimal import Decimal
+        data = request.data
+        name = (data.get("name") or "").strip()
+        date_str = data.get("date", "")
+        if not name or not date_str:
+            return Response({"detail": "Nombre y fecha son requeridos."}, status=400)
+
+        from datetime import date as date_cls
+        try:
+            h_date = date_cls.fromisoformat(date_str)
+        except ValueError:
+            return Response({"detail": "Fecha inválida. Formato: YYYY-MM-DD"}, status=400)
+
+        h = Holiday.objects.create(
+            tenant_id=data.get("tenant_id"),  # null = national
+            name=name,
+            date=h_date,
+            scope=data.get("scope", "NATIONAL"),
+            demand_multiplier=Decimal(str(data.get("demand_multiplier", "1.50"))),
+            pre_days=int(data.get("pre_days", 1)),
+            pre_multiplier=Decimal(str(data.get("pre_multiplier", "1.20"))),
+            duration_days=int(data.get("duration_days", 1)),
+            post_days=int(data.get("post_days", 0)),
+            post_multiplier=Decimal(str(data.get("post_multiplier", "0.85"))),
+            ramp_type=data.get("ramp_type", "instant"),
+            is_recurring=data.get("is_recurring", True),
+        )
+        return Response({"ok": True, "id": h.id, "name": h.name}, status=201)
+
+
+class AdminHolidayDetailView(APIView):
+    permission_classes = PERMS
+
+    def patch(self, request, holiday_id):
+        from forecast.models import Holiday
+        from decimal import Decimal
+        h = get_object_or_404(Holiday, pk=holiday_id)
+        changed = []
+        for field in ["name", "scope", "ramp_type"]:
+            if field in request.data:
+                setattr(h, field, request.data[field])
+                changed.append(field)
+        for field in ["pre_days", "duration_days", "post_days"]:
+            if field in request.data:
+                setattr(h, field, int(request.data[field]))
+                changed.append(field)
+        for field in ["demand_multiplier", "pre_multiplier", "post_multiplier"]:
+            if field in request.data:
+                setattr(h, field, Decimal(str(request.data[field])))
+                changed.append(field)
+        if "date" in request.data:
+            from datetime import date as date_cls
+            h.date = date_cls.fromisoformat(request.data["date"])
+            changed.append("date")
+        if "is_recurring" in request.data:
+            h.is_recurring = bool(request.data["is_recurring"])
+            changed.append("is_recurring")
+        if changed:
+            h.save(update_fields=changed)
+        return Response({"ok": True, "id": h.id})
+
+    def delete(self, request, holiday_id):
+        from forecast.models import Holiday
+        h = get_object_or_404(Holiday, pk=holiday_id)
+        h.delete()
+        return Response({"ok": True})
+
+
+# ─────────────────────────────────────────────────────────────
+# INVOICE MANUAL PAYMENT
+# ─────────────────────────────────────────────────────────────
+class AdminInvoicePayView(APIView):
+    """Marcar factura como pagada manualmente."""
+    permission_classes = PERMS
+
+    def post(self, request, invoice_id):
+        invoice = get_object_or_404(Invoice, pk=invoice_id)
+        if invoice.status == "paid":
+            return Response({"detail": "Esta factura ya está pagada."}, status=400)
+
+        invoice.status = "paid"
+        invoice.paid_at = timezone.now()
+        invoice.gateway = "manual"
+        invoice.save(update_fields=["status", "paid_at", "gateway"])
+
+        logger.info("Superadmin %s marked invoice %d as paid (manual)",
+                     request.user.email, invoice_id)
+        return Response({"ok": True, "id": invoice.id, "status": "paid"})

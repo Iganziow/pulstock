@@ -10,7 +10,10 @@ from .views import (
     AdminUserToggleView,
     AdminUserDeleteView,
     AdminInvoiceListView,
+    AdminInvoicePayView,
     AdminForecastMetricsView,
+    AdminHolidayListView,
+    AdminHolidayDetailView,
 )
 
 urlpatterns = [
@@ -31,6 +34,11 @@ urlpatterns = [
 
     # Invoices
     path("invoices/",               AdminInvoiceListView.as_view()),
+    path("invoices/<int:invoice_id>/pay/", AdminInvoicePayView.as_view()),
+
+    # Holidays
+    path("holidays/",              AdminHolidayListView.as_view()),
+    path("holidays/<int:holiday_id>/", AdminHolidayDetailView.as_view()),
 
     # Forecast
     path("forecast/",              AdminForecastMetricsView.as_view()),
