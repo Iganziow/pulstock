@@ -10,9 +10,10 @@ const C = {
 };
 
 const ALGO_LABELS: Record<string, string> = {
-  ensemble: "Ensemble", holt_winters: "Holt-Winters", moving_avg: "Media Móvil",
-  simple_avg: "Media Simple", category_prior: "Prior Categoría",
-  croston: "Croston", croston_sba: "Croston SBA",
+  ensemble: "Ensemble", holt_winters: "Holt-Winters", hw_damped: "HW Amortiguado",
+  moving_avg: "Media Móvil", adaptive_ma: "MA Adaptativa", theta: "Theta",
+  ets: "ETS", simple_avg: "Media Simple", category_prior: "Prior Categoría",
+  croston: "Croston", croston_sba: "Croston SBA", ingredient_derived: "Derivado Receta",
 };
 const CONF_LABELS: Record<string, string> = {
   very_high: "Muy alta", high: "Alta", medium: "Media", low: "Baja", very_low: "Muy baja",
@@ -22,6 +23,19 @@ const CONF_COLORS: Record<string, string> = {
 };
 const PATTERN_LABELS: Record<string, string> = {
   smooth: "Suave", intermittent: "Intermitente", lumpy: "Irregular", insufficient: "Insuficiente",
+};
+
+type TrainingLog = {
+  command: string;
+  status: "success" | "partial" | "failed";
+  started_at: string;
+  duration_seconds: number;
+  models_trained: number;
+  models_improved: number;
+  models_failed: number;
+  avg_mape: number | null;
+  error_message: string;
+  algorithm_distribution: Record<string, number>;
 };
 
 type ForecastData = {
@@ -34,6 +48,7 @@ type ForecastData = {
   model_health: { improved: number; worsened: number; unchanged: number };
   accuracy_trend: { date: string; avg_error: number; predictions: number }[];
   recent_7d: { avg_pct_error: number; total_predictions: number };
+  training_logs?: TrainingLog[];
 };
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -301,6 +316,71 @@ export default function ForecastMetricsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Training Logs */}
+      {data.training_logs && data.training_logs.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", marginTop: 24 }}>
+          <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, fontSize: 14, fontWeight: 700 }}>
+            Historial de entrenamiento
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
+                {["Fecha", "Estado", "Modelos", "Mejorados", "Fallidos", "MAPE", "Tiempo", "Algoritmos"].map((h) => (
+                  <th key={h} style={{
+                    padding: "10px 12px", textAlign: "left", color: C.mute,
+                    fontWeight: 600, fontSize: 11, textTransform: "uppercase",
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.training_logs.map((log, i) => {
+                const statusColor = log.status === "success" ? C.green : log.status === "partial" ? C.yellow : C.red;
+                const statusLabel = log.status === "success" ? "Exitoso" : log.status === "partial" ? "Parcial" : "Fallido";
+                const dt = new Date(log.started_at);
+                const dateStr = `${dt.getDate().toString().padStart(2, "0")}/${(dt.getMonth() + 1).toString().padStart(2, "0")} ${dt.getHours().toString().padStart(2, "0")}:${dt.getMinutes().toString().padStart(2, "0")}`;
+                const algoStr = Object.entries(log.algorithm_distribution || {})
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([k, v]) => `${ALGO_LABELS[k] || k}: ${v}`)
+                  .join(", ");
+                const mapeColor = log.avg_mape == null ? C.mute : log.avg_mape <= 25 ? C.green : log.avg_mape <= 40 ? C.yellow : C.red;
+
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                    <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 12 }}>{dateStr}</td>
+                    <td style={{ padding: "10px 12px" }}>
+                      <span style={{
+                        padding: "2px 8px", borderRadius: 12, fontSize: 11, fontWeight: 700,
+                        background: statusColor + "20", color: statusColor,
+                      }}>{statusLabel}</span>
+                    </td>
+                    <td style={{ padding: "10px 12px", fontWeight: 600 }}>{log.models_trained}</td>
+                    <td style={{ padding: "10px 12px", color: log.models_improved > 0 ? C.green : C.mute }}>{log.models_improved}</td>
+                    <td style={{ padding: "10px 12px", color: log.models_failed > 0 ? C.red : C.mute }}>{log.models_failed}</td>
+                    <td style={{ padding: "10px 12px", fontWeight: 700, color: mapeColor }}>
+                      {log.avg_mape != null ? `${log.avg_mape}%` : "—"}
+                    </td>
+                    <td style={{ padding: "10px 12px", color: C.mute, fontSize: 12 }}>{log.duration_seconds}s</td>
+                    <td style={{ padding: "10px 12px", color: C.mute, fontSize: 11 }}>{algoStr || "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {data.training_logs.some(l => l.error_message) && (
+            <div style={{ padding: "12px 22px", borderTop: `1px solid ${C.border}`, background: C.red + "10" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.red, marginBottom: 6 }}>Errores recientes:</div>
+              {data.training_logs.filter(l => l.error_message).map((l, i) => (
+                <div key={i} style={{ fontSize: 11, color: C.mute, marginBottom: 4, fontFamily: "monospace" }}>
+                  {new Date(l.started_at).toLocaleDateString()}: {l.error_message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
