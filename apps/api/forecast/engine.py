@@ -1890,17 +1890,18 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if sa:
             candidates.append(sa)
 
-    # ── Candidate 1: Weighted Moving Average (always, >= 14 days) ──
+    # ── Candidate 1: Weighted Moving Average (>= 14 days, only if backtest passes) ──
     if n >= 14:
         ma_result = weighted_moving_average(daily_series, window=window)
         ma_metrics = backtest_moving_average(daily_series, test_days=test_days, window=window)
-        ma_forecasts = generate_daily_forecasts(
-            ma_result["avg_daily"], ma_result["day_of_week_factors"],
-            today, horizon, month_factors=month_factors,
-        )
+        if ma_metrics["mae"] < 998:
+          ma_forecasts = generate_daily_forecasts(
+              ma_result["avg_daily"], ma_result["day_of_week_factors"],
+              today, horizon, month_factors=month_factors,
+          )
 
-        # Apply empirical intervals if we have enough backtest data
-        if ma_metrics["mape"] > 0:
+          # Apply empirical intervals if we have enough backtest data
+          if ma_metrics["mape"] > 0:
             train = daily_series[:-test_days]
             test = daily_series[-test_days:]
             ma_train = weighted_moving_average(train, window=window)
@@ -1913,19 +1914,19 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
             if intervals:
                 apply_empirical_intervals(ma_forecasts, intervals)
 
-        candidates.append({
-            "algorithm": "moving_avg",
-            "forecasts": ma_forecasts,
-            "params": {
-                "avg_daily": str(ma_result["avg_daily"]),
-                "dow_factors": {str(k): v for k, v in ma_result["day_of_week_factors"].items()},
-                "window": window,
-                "month_factors": month_factors,
-            },
-            "metrics": ma_metrics,
-            "data_points": n,
-            "confidence_base": Decimal("70.00"),
-        })
+          candidates.append({
+              "algorithm": "moving_avg",
+              "forecasts": ma_forecasts,
+              "params": {
+                  "avg_daily": str(ma_result["avg_daily"]),
+                  "dow_factors": {str(k): v for k, v in ma_result["day_of_week_factors"].items()},
+                  "window": window,
+                  "month_factors": month_factors,
+              },
+              "metrics": ma_metrics,
+              "data_points": n,
+              "confidence_base": Decimal("70.00"),
+          })
 
     # ── Candidate 2: Theta Method (>= 14 days) ──
     if n >= 14:
