@@ -23,15 +23,17 @@ from forecast.models import Holiday
 FIXED_HOLIDAYS = [
     # ── Feriados nacionales fuertes ──
     # biz_mult: multiplicadores por tipo de negocio {retail, restaurant, hardware, wholesale, pharmacy}
+    # ── 1 ENERO (irrenunciable — casi todo cerrado) ──
     {"month": 1, "day": 1, "name": "Año Nuevo",
-     "mult": "1.30", "pre_days": 3, "pre_mult": "1.40",
-     "duration": 1, "post_days": 3, "post_mult": "0.75", "ramp": "linear",
-     "biz_mult": {"retail": 1.40, "restaurant": 0.60, "hardware": 0.50, "wholesale": 0.70, "pharmacy": 0.80}},
+     "mult": "0.20", "pre_days": 3, "pre_mult": "1.50",
+     "duration": 1, "post_days": 2, "post_mult": "1.20", "ramp": "linear",
+     "biz_mult": {"retail": 0.15, "restaurant": 0.10, "hardware": 0.05, "wholesale": 0.05, "pharmacy": 0.40}},
 
+    # ── 1 MAYO (irrenunciable) ──
     {"month": 5, "day": 1, "name": "Día del Trabajo",
-     "mult": "1.20", "pre_days": 1, "pre_mult": "1.10",
+     "mult": "0.20", "pre_days": 1, "pre_mult": "1.20",
      "duration": 1, "post_days": 0, "post_mult": "1.00", "ramp": "instant",
-     "biz_mult": {"retail": 1.30, "restaurant": 0.70, "hardware": 0.60, "wholesale": 0.80, "pharmacy": 0.90}},
+     "biz_mult": {"retail": 0.15, "restaurant": 0.10, "hardware": 0.05, "wholesale": 0.05, "pharmacy": 0.40}},
 
     {"month": 5, "day": 21, "name": "Glorias Navales",
      "mult": "1.15", "pre_days": 1, "pre_mult": "1.10",
@@ -58,11 +60,19 @@ FIXED_HOLIDAYS = [
      "duration": 1, "post_days": 0, "post_mult": "1.00", "ramp": "instant",
      "biz_mult": {"restaurant": 0.80}},
 
-    # ── FIESTAS PATRIAS (evento más importante del año) ──
+    # ── FIESTAS PATRIAS (feriado irrenunciable — mayoría cierra) ──
+    # La demanda se concentra ANTES (pre_days). El día mismo es bajo o 0.
+    # pre_mult alto porque la gente compra para el feriado (asados, bebidas, etc.)
     {"month": 9, "day": 18, "name": "Fiestas Patrias",
-     "mult": "2.00", "pre_days": 7, "pre_mult": "1.50",
-     "duration": 3, "post_days": 5, "post_mult": "0.70", "ramp": "linear",
-     "biz_mult": {"retail": 2.50, "restaurant": 2.50, "hardware": 0.50, "wholesale": 1.80, "pharmacy": 1.30}},
+     "mult": "0.30", "pre_days": 7, "pre_mult": "1.80",
+     "duration": 3, "post_days": 3, "post_mult": "1.30", "ramp": "linear",
+     "biz_mult": {
+         "retail": 0.20,       # Minimarket: casi todos cerrados, los que abren venden poco
+         "restaurant": 0.10,   # Cerrado (irrenunciable)
+         "hardware": 0.05,     # Cerrado
+         "wholesale": 0.10,    # Cerrado
+         "pharmacy": 0.40,     # Turno, demanda baja pero abierta
+     }},
 
     {"month": 10, "day": 12, "name": "Encuentro de Dos Mundos",
      "mult": "1.10", "pre_days": 1, "pre_mult": "1.05",
@@ -84,11 +94,11 @@ FIXED_HOLIDAYS = [
      "duration": 1, "post_days": 0, "post_mult": "1.00", "ramp": "instant",
      "biz_mult": {"restaurant": 0.80}},
 
-    # ── NAVIDAD (segundo evento más importante) ──
+    # ── NAVIDAD (irrenunciable — cerrado, demanda pre-navidad altísima) ──
     {"month": 12, "day": 25, "name": "Navidad",
-     "mult": "1.80", "pre_days": 14, "pre_mult": "1.50",
-     "duration": 2, "post_days": 5, "post_mult": "0.65", "ramp": "linear",
-     "biz_mult": {"retail": 2.50, "restaurant": 1.80, "hardware": 1.50, "wholesale": 2.00, "pharmacy": 1.40}},
+     "mult": "0.15", "pre_days": 14, "pre_mult": "1.80",
+     "duration": 1, "post_days": 3, "post_mult": "0.70", "ramp": "linear",
+     "biz_mult": {"retail": 0.10, "restaurant": 0.10, "hardware": 0.05, "wholesale": 0.05, "pharmacy": 0.35}},
 
     # ── Nochevieja ──
     {"month": 12, "day": 31, "name": "Nochevieja",
@@ -192,8 +202,8 @@ class Command(BaseCommand):
             holy_saturday = easter - timedelta(days=1)
 
             for d, name, mult in [
-                (good_friday, "Viernes Santo", "0.60"),      # Demanda BAJA (no laboral)
-                (holy_saturday, "Sábado Santo", "0.70"),     # Demanda baja
+                (good_friday, "Viernes Santo", "0.25"),      # Feriado irrenunciable — casi todo cerrado
+                (holy_saturday, "Sábado Santo", "0.40"),     # No irrenunciable pero muchos cierran
             ]:
                 _, was_created = Holiday.objects.update_or_create(
                     tenant=None,
