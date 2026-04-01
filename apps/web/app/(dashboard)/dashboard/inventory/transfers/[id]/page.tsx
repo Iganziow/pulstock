@@ -51,7 +51,11 @@ export default function TransferDetailPage(){
     if(!id)return;
     setLoading(true);setErr(null);
     try{const d=(await apiFetch(`/inventory/transfers/${id}/`)) as TransferDetail;setData(d);}
-    catch(e:any){setErr(e?.message??"No se pudo cargar la transferencia");setData(null);}
+    catch(e:any){
+      const msg=e?.message??"";
+      const friendly=msg.includes("matches the given query")?"No se encontró la transferencia.":(msg||"No se pudo cargar la transferencia");
+      setErr(friendly);setData(null);
+    }
     finally{setLoading(false);}
   }
 

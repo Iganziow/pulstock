@@ -114,7 +114,11 @@ export default function SaleDetailPage() {
     try {
       const data = (await apiFetch(`/sales/sales/${id}/`)) as Sale;
       setSale(data);
-    } catch (e:any) { setErr(e?.message ?? "No se pudo cargar el detalle"); setSale(null); }
+    } catch (e:any) {
+      const msg = e?.message ?? "";
+      const friendly = msg.includes("matches the given query") ? "No se encontró la venta solicitada." : (msg || "No se pudo cargar el detalle");
+      setErr(friendly); setSale(null);
+    }
     finally { setLoading(false); }
   }
 

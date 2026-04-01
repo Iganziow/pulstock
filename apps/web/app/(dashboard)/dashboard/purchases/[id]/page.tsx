@@ -88,7 +88,9 @@ export default function PurchaseDetailPage(){
       setPurchase(data);
     }catch(e:any){
       if(e?.name==="AbortError")return;
-      setErr(e?.message??"No se pudo cargar el detalle");setPurchase(null);
+      const msg=e?.message??"";
+      const friendly=msg.includes("matches the given query")?"No se encontró la orden de compra.":(msg||"No se pudo cargar el detalle");
+      setErr(friendly);setPurchase(null);
     }finally{setLoading(false);}
   }
 

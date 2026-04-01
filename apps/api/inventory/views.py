@@ -551,7 +551,7 @@ class StockList(APIView):
         qs = (
             Product.objects
             .filter(tenant_id=t_id)
-            .select_related("category")
+            .select_related("category", "unit_obj")
             .prefetch_related("barcodes")
             .annotate(
                 on_hand=Coalesce(Subquery(si_on_hand_qs), Value(Decimal("0.000"))),
@@ -582,7 +582,7 @@ class StockList(APIView):
                     "barcode": barcode,
                     "on_hand": str(p.on_hand),
                     "avg_cost": str(p.avg_cost),
-                    "unit": p.unit.abbreviation if getattr(p, "unit", None) else None,
+                    "unit": p.unit_obj.code if p.unit_obj else (p.unit or "UN"),
                 })
             return results
 
