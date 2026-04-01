@@ -59,12 +59,25 @@ class PromotionListCreateView(APIView):
         ser.is_valid(raise_exception=True)
         d = ser.validated_data
 
-        # Validar que los productos pertenecen al tenant
-        product_ids = d.pop("product_ids")
+        product_items = d.pop("product_items", [])
+        product_ids = d.pop("product_ids", [])
+
+        # Build items list — product_items takes priority over product_ids
+        items_to_create = []
+        if product_items:
+            for item in product_items:
+                pid = int(item.get("product_id", 0))
+                override = item.get("override_discount_value")
+                if pid:
+                    items_to_create.append({"product_id": pid, "override": override})
+        elif product_ids:
+            items_to_create = [{"product_id": pid, "override": None} for pid in product_ids]
+
+        pids = [i["product_id"] for i in items_to_create]
         products = Product.objects.filter(
-            tenant_id=tenant_id(request), id__in=product_ids, is_active=True,
+            tenant_id=tenant_id(request), id__in=pids, is_active=True,
         )
-        if products.count() != len(product_ids):
+        if products.count() != len(set(pids)):
             return Response(
                 {"detail": "Algunos productos no existen o no están activos."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -75,10 +88,16 @@ class PromotionListCreateView(APIView):
             created_by=request.user,
             **d,
         )
-        PromotionProduct.objects.bulk_create([
-            PromotionProduct(promotion=promo, product_id=pid)
-            for pid in product_ids
-        ])
+        pp_objs = []
+        for item in items_to_create:
+            kwargs = {"promotion": promo, "product_id": item["product_id"]}
+            if item["override"] is not None:
+                try:
+                    kwargs["override_discount_value"] = Decimal(str(item["override"]))
+                except Exception:
+                    pass
+            pp_objs.append(PromotionProduct(**kwargs))
+        PromotionProduct.objects.bulk_create(pp_objs)
 
         return Response(
             PromotionDetailSerializer(promo).data,
@@ -132,9 +151,35 @@ class PromotionDetailView(APIView):
 
         promo.save()
 
-        # Si envían product_ids, validar que pertenecen al tenant
+        # Handle product updates — product_items (with overrides) or product_ids (simple)
+        product_items = request.data.get("product_items")
         product_ids = request.data.get("product_ids")
-        if product_ids is not None:
+
+        if product_items is not None:
+            t_id = tenant_id(request)
+            items_to_create = []
+            for item in product_items:
+                pid = int(item.get("product_id", 0))
+                override = item.get("override_discount_value")
+                if pid:
+                    items_to_create.append({"product_id": pid, "override": override})
+            pids = [i["product_id"] for i in items_to_create]
+            valid = Product.objects.filter(tenant_id=t_id, id__in=pids, is_active=True)
+            if valid.count() != len(set(pids)):
+                return Response({"detail": "Algunos productos no existen o no están activos."}, status=400)
+            promo.items.all().delete()
+            pp_objs = []
+            for item in items_to_create:
+                kwargs = {"promotion": promo, "product_id": item["product_id"]}
+                if item["override"] is not None:
+                    try:
+                        from decimal import Decimal as D
+                        kwargs["override_discount_value"] = D(str(item["override"]))
+                    except Exception:
+                        pass
+                pp_objs.append(PromotionProduct(**kwargs))
+            PromotionProduct.objects.bulk_create(pp_objs)
+        elif product_ids is not None:
             t_id = tenant_id(request)
             valid = Product.objects.filter(
                 tenant_id=t_id, id__in=product_ids, is_active=True,
@@ -205,3 +250,60 @@ class ActivePromotionsForProductsView(APIView):
                 }
 
         return Response({"results": list(best.values())})
+
+
+# ── Conflict detection ───────────────────────────────────────────────────
+
+class PromotionConflictCheckView(APIView):
+    """POST /api/promotions/check-conflicts/
+    Body: { product_ids, start_date, end_date, exclude_promotion_id? }
+    Returns conflicting promotions for the given products and date range.
+    """
+    permission_classes = PERMS
+
+    def post(self, request):
+        product_ids = request.data.get("product_ids", [])
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
+        exclude_id = request.data.get("exclude_promotion_id")
+
+        if not product_ids or not start_date or not end_date:
+            return Response({"conflicts": []})
+
+        from django.utils.dateparse import parse_datetime
+        sd = parse_datetime(str(start_date))
+        ed = parse_datetime(str(end_date))
+        if not sd or not ed:
+            return Response({"conflicts": []})
+
+        t_id = tenant_id(request)
+
+        # Find overlapping active promotions
+        pp_qs = PromotionProduct.objects.filter(
+            product_id__in=product_ids,
+            promotion__tenant_id=t_id,
+            promotion__is_active=True,
+            promotion__start_date__lt=ed,  # overlap condition
+            promotion__end_date__gt=sd,
+        ).select_related("promotion", "product")
+
+        if exclude_id:
+            pp_qs = pp_qs.exclude(promotion_id=int(exclude_id))
+
+        conflicts = []
+        seen = set()
+        for pp in pp_qs:
+            key = (pp.product_id, pp.promotion_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            conflicts.append({
+                "product_id": pp.product_id,
+                "product_name": pp.product.name,
+                "conflicting_promotion_id": pp.promotion_id,
+                "conflicting_promotion_name": pp.promotion.name,
+                "conflicting_start": pp.promotion.start_date.isoformat(),
+                "conflicting_end": pp.promotion.end_date.isoformat(),
+            })
+
+        return Response({"conflicts": conflicts})

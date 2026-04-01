@@ -15,6 +15,7 @@ from .views import (
     UnitList,
     PriceListView,
     PriceBulkUpdateView,
+    PriceExportView,
 )
 
 urlpatterns = [
@@ -33,4 +34,5 @@ urlpatterns = [
     path("units/", UnitList.as_view(), name="unit-list"),
     path("products/prices/", PriceListView.as_view(), name="price-list"),
     path("products/prices/bulk/", PriceBulkUpdateView.as_view(), name="price-bulk-update"),
+    path("products/prices/export/", PriceExportView.as_view(), name="price-export"),
 ]

@@ -37,13 +37,17 @@ class PromotionListSerializer(serializers.ModelSerializer):
 class PromotionDetailSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True)
     items = PromotionProductSerializer(many=True, read_only=True)
+    product_ids = serializers.SerializerMethodField()
+
+    def get_product_ids(self, obj):
+        return list(obj.items.values_list("product_id", flat=True))
 
     class Meta:
         model = Promotion
         fields = [
             "id", "name", "discount_type", "discount_value",
             "start_date", "end_date", "is_active", "status",
-            "items", "created_at",
+            "items", "product_ids", "created_at",
         ]
 
 
@@ -53,7 +57,8 @@ class PromotionCreateSerializer(serializers.Serializer):
     discount_value = serializers.DecimalField(max_digits=12, decimal_places=2)
     start_date = serializers.DateTimeField()
     end_date = serializers.DateTimeField()
-    product_ids = serializers.ListField(child=serializers.IntegerField(), min_length=1, max_length=500)
+    product_ids = serializers.ListField(child=serializers.IntegerField(), min_length=0, max_length=500, required=False, default=list)
+    product_items = serializers.ListField(child=serializers.DictField(), required=False, max_length=500, default=list)
 
     def validate(self, data):
         if data["end_date"] <= data["start_date"]:
@@ -63,6 +68,11 @@ class PromotionCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"discount_value": "El porcentaje debe estar entre 0 y 100."})
         elif data["discount_value"] <= 0:
             raise serializers.ValidationError({"discount_value": "El precio fijo debe ser mayor a 0."})
+        # At least one product from either source
+        has_items = bool(data.get("product_items"))
+        has_ids = bool(data.get("product_ids"))
+        if not has_items and not has_ids:
+            raise serializers.ValidationError({"product_ids": "Debes seleccionar al menos un producto."})
         return data
 
 

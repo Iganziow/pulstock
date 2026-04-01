@@ -1364,3 +1364,66 @@ class PriceBulkUpdateView(APIView):
             return Response({"updated": count})
 
         return Response({"detail": "Envía 'updates' o 'rule'."}, status=400)
+
+
+class PriceExportView(APIView):
+    """GET /catalog/products/prices/export/ — Exportar precios a Excel."""
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+
+        tid = tenant_id(request)
+        qs = Product.objects.filter(tenant_id=tid, is_active=True).select_related("category").order_by("name")
+
+        q = (request.query_params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+
+        cat_id = (request.query_params.get("category_id") or "").strip()
+        if cat_id.isdigit():
+            qs = qs.filter(category_id=int(cat_id))
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Precios"
+
+        headers = ["SKU", "Nombre", "Categoría", "Costo", "Precio", "Margen %"]
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        for row_idx, p in enumerate(qs, 2):
+            cost = float(p.cost) if hasattr(p, "cost") else 0
+            price = float(p.price)
+            margin = ((price - cost) / price * 100) if price else 0
+            ws.cell(row=row_idx, column=1, value=p.sku or "")
+            ws.cell(row=row_idx, column=2, value=p.name)
+            ws.cell(row=row_idx, column=3, value=p.category.name if p.category else "")
+            ws.cell(row=row_idx, column=4, value=cost)
+            ws.cell(row=row_idx, column=5, value=price)
+            ws.cell(row=row_idx, column=6, value=round(margin, 1))
+
+        # Auto-width
+        for col in ws.columns:
+            max_len = max(len(str(c.value or "")) for c in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="precios_pulstock.xlsx"'
+        return response
