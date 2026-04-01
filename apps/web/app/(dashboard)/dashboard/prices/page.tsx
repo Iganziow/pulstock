@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getAccessToken } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 
@@ -117,6 +117,12 @@ export default function PricesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
+  // Confirmation modals
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkPreview, setBulkPreview] = useState<Array<{ id: number; name: string; oldPrice: number; newPrice: number; oldMargin: number | null; newMargin: number | null }>>([]);
+  const [exporting, setExporting] = useState(false);
+
   const flash = (type: "ok" | "err", text: string) => {
     setMsg({ type, text });
     setTimeout(() => setMsg(null), 4500);
@@ -199,7 +205,13 @@ export default function PricesPage() {
 
   // ─── Save individual changes ──────────────────────────────────────────────
 
+  function requestSaveConfirm() {
+    if (changedCount === 0) return;
+    setShowSaveConfirm(true);
+  }
+
   async function saveChanges() {
+    setShowSaveConfirm(false);
     if (changedCount === 0) return;
     setSaving(true);
     try {
@@ -223,7 +235,7 @@ export default function PricesPage() {
 
   // ─── Apply bulk rule ──────────────────────────────────────────────────────
 
-  async function applyBulk() {
+  function requestBulkConfirm() {
     if (selected.size === 0) {
       flash("err", "Selecciona al menos un producto");
       return;
@@ -233,6 +245,34 @@ export default function PricesPage() {
       flash("err", "Ingresa un valor mayor a 0");
       return;
     }
+    // Build preview
+    const preview = rows.filter(r => selected.has(r.id)).map(r => {
+      const oldPrice = Number(r.price);
+      let newPrice: number;
+      if (bulkType === "pct") {
+        const factor = bulkDir === "increase" ? (1 + val / 100) : (1 - val / 100);
+        newPrice = Math.round(oldPrice * factor);
+      } else {
+        newPrice = bulkDir === "increase" ? oldPrice + val : oldPrice - val;
+      }
+      if (newPrice < 0) newPrice = 0;
+      const cost = Number(r.cost);
+      return {
+        id: r.id,
+        name: r.name,
+        oldPrice,
+        newPrice,
+        oldMargin: calcMargin(r.cost, r.price),
+        newMargin: newPrice > 0 ? ((newPrice - cost) / newPrice) * 100 : null,
+      };
+    });
+    setBulkPreview(preview);
+    setShowBulkConfirm(true);
+  }
+
+  async function applyBulk() {
+    setShowBulkConfirm(false);
+    const val = Number(bulkValue);
     setApplyingBulk(true);
     try {
       await apiFetch("/catalog/products/prices/bulk/", {
@@ -251,6 +291,37 @@ export default function PricesPage() {
       flash("err", extractErr(e, "Error aplicando ajuste masivo"));
     } finally {
       setApplyingBulk(false);
+    }
+  }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  async function exportPrices() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("q", search.trim());
+      if (catFilter) params.set("category_id", String(catFilter));
+      const qs = params.toString();
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+      const token = getAccessToken();
+      const res = await fetch(`${apiUrl}/catalog/products/prices/export/?${qs}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Error exportando");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "precios_pulstock.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      flash("ok", "Archivo exportado");
+    } catch (e: any) {
+      flash("err", extractErr(e, "Error exportando precios"));
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -480,18 +551,112 @@ export default function PricesPage() {
             style={{ width: 80, height: 30, padding: "0 8px", border: `1px solid ${C.border}`, borderRadius: C.r, fontSize: 12, fontFamily: C.mono, textAlign: "right", background: C.surface }}
           />
 
-          <Btn size="sm" variant="primary" disabled={applyingBulk || selected.size === 0} onClick={applyBulk}>
+          <Btn size="sm" variant="primary" disabled={applyingBulk || selected.size === 0} onClick={requestBulkConfirm}>
             {applyingBulk ? <Spinner size={12} /> : null}
             Aplicar a seleccionados ({selected.size})
           </Btn>
         </div>
 
-        {/* Right: Save changes */}
-        <Btn variant="success" disabled={saving || changedCount === 0} onClick={saveChanges}>
-          {saving ? <Spinner size={14} /> : null}
-          Guardar {changedCount} cambio(s)
-        </Btn>
+        {/* Right: Export + Save changes */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn variant="secondary" disabled={exporting || loading} onClick={exportPrices} size="sm">
+            {exporting ? <Spinner size={12} /> : null}
+            Exportar
+          </Btn>
+          <Btn variant="success" disabled={saving || changedCount === 0} onClick={requestSaveConfirm}>
+            {saving ? <Spinner size={14} /> : null}
+            Guardar {changedCount} cambio(s)
+          </Btn>
+        </div>
       </div>
+
+      {/* ── Save Confirmation Modal ──────────────────────────────────────── */}
+      {showSaveConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveConfirm(false)}>
+          <div style={{ background: C.surface, borderRadius: C.rMd, width: 520, maxWidth: "95vw", maxHeight: "80vh", overflow: "auto", boxShadow: C.shLg, padding: 24 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700 }}>Confirmar cambios de precio</h3>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: C.mid }}>Se actualizarán {changedCount} producto(s):</p>
+            <div style={{ maxHeight: 300, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: C.r }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px" }}>Producto</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Precio actual</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Nuevo precio</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(edits).map(([pid, newP]) => {
+                    const row = rows.find(r => r.id === Number(pid));
+                    if (!row) return null;
+                    const nm = calcMargin(row.cost, newP);
+                    return (
+                      <tr key={pid}>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>{row.name}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(row.price)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(newP)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: nm !== null ? (nm < 0 ? C.red : nm < 15 ? C.amber : C.green) : C.mute }}>
+                          {nm !== null ? `${nm.toFixed(1)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn variant="secondary" onClick={() => setShowSaveConfirm(false)}>Cancelar</Btn>
+              <Btn variant="success" onClick={saveChanges}>Confirmar y guardar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Preview Modal ───────────────────────────────────────────── */}
+      {showBulkConfirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowBulkConfirm(false)}>
+          <div style={{ background: C.surface, borderRadius: C.rMd, width: 600, maxWidth: "95vw", maxHeight: "80vh", overflow: "auto", boxShadow: C.shLg, padding: 24 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>Preview — Ajuste masivo</h3>
+            <p style={{ margin: "0 0 4px", fontSize: 13, color: C.mid }}>
+              {bulkDir === "increase" ? "Subir" : "Bajar"} {bulkType === "pct" ? `${bulkValue}%` : `$${formatCLP(bulkValue)}`} a {bulkPreview.length} producto(s)
+            </p>
+            {bulkPreview.some(p => (p.newMargin ?? 0) < 0) && (
+              <p style={{ margin: "4px 0 8px", fontSize: 12, color: C.red, fontWeight: 600 }}>
+                ⚠ Algunos productos quedarán con margen negativo
+              </p>
+            )}
+            <div style={{ maxHeight: 320, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: C.r }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px" }}>Producto</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Actual</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Nuevo</th>
+                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkPreview.map(p => (
+                    <tr key={p.id} style={{ background: (p.newMargin ?? 0) < 0 ? C.redBg : undefined }}>
+                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>{p.name}</td>
+                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(p.oldPrice)}</td>
+                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(p.newPrice)}</td>
+                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: p.newMargin !== null ? (p.newMargin < 0 ? C.red : p.newMargin < 15 ? C.amber : C.green) : C.mute }}>
+                        {p.newMargin !== null ? `${p.newMargin.toFixed(1)}%` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <Btn variant="secondary" onClick={() => setShowBulkConfirm(false)}>Cancelar</Btn>
+              <Btn variant="primary" onClick={applyBulk}>Confirmar y aplicar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

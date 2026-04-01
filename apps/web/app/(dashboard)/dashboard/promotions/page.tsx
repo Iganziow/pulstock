@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 
@@ -26,14 +26,27 @@ type Product = {
   price: string;
 };
 
+type ProductItem = {
+  product_id: number;
+  override_discount_value?: string | null;
+};
+
 type PromotionForm = {
   name: string;
   discount_type: "percentage" | "fixed";
   discount_value: string;
   start_date: string;
   end_date: string;
-  product_ids: number[];
+  product_items: ProductItem[];
 };
+
+type Conflict = {
+  product_id: number;
+  product_name: string;
+  conflicting_promotion_name: string;
+};
+
+type Toast = { type: "ok" | "err"; text: string } | null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,10 +82,10 @@ function discountLabel(type: "percentage" | "fixed", value: string) {
   return `$${formatCLP(value)} fijo`;
 }
 
-function promoPrice(price: string, type: "percentage" | "fixed", value: string) {
+function promoPrice(price: string, type: "percentage" | "fixed", value: string, override?: string | null) {
   const p = Number(price);
-  const v = Number(value);
-  if (Number.isNaN(p) || Number.isNaN(v)) return "—";
+  const v = Number(override || value);
+  if (Number.isNaN(p) || Number.isNaN(v) || v <= 0) return "—";
   if (type === "percentage") return formatCLP(Math.round(p * (1 - v / 100)));
   return formatCLP(v);
 }
@@ -90,7 +103,7 @@ const EMPTY_FORM: PromotionForm = {
   discount_value: "",
   start_date: "",
   end_date: "",
-  product_ids: [],
+  product_items: [],
 };
 
 // ─── Micro-components ─────────────────────────────────────────────────────────
@@ -119,7 +132,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-type BtnV = "primary" | "secondary" | "ghost" | "danger";
+type BtnV = "primary" | "secondary" | "ghost" | "danger" | "success";
 function Btn({ children, onClick, variant = "secondary", disabled, size = "md" }: {
   children: React.ReactNode; onClick?: () => void;
   variant?: BtnV; disabled?: boolean; size?: "sm" | "md";
@@ -129,6 +142,7 @@ function Btn({ children, onClick, variant = "secondary", disabled, size = "md" }
     secondary: { background: C.surface, color: C.text,  border: `1px solid ${C.borderMd}` },
     ghost:     { background: "transparent", color: C.mid, border: "1px solid transparent" },
     danger:    { background: C.redBg,   color: C.red,   border: `1px solid ${C.redBd}` },
+    success:   { background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` },
   };
   return (
     <button type="button" onClick={onClick} disabled={disabled} style={{
@@ -149,6 +163,7 @@ export default function PromotionsPage() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState<Toast>(null);
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -164,6 +179,19 @@ export default function PromotionsPage() {
 
   // Delete confirm
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  // Conflicts
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
+  const conflictTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const flash = (type: "ok" | "err", text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  // Helper: get product_ids from product_items
+  const selectedIds = form.product_items.map(i => i.product_id);
+  const overridesMap = new Map(form.product_items.map(i => [i.product_id, i.override_discount_value]));
 
   // ── Fetch promotions ────────────────────────────────────────────────────
   const loadPromotions = useCallback(async () => {
@@ -185,7 +213,7 @@ export default function PromotionsPage() {
   const loadProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
-      const data = await apiFetch("/catalog/products/?page_size=200");
+      const data = await apiFetch("/catalog/products/?page_size=500");
       setProducts(data?.results ?? []);
     } catch {
       // silently fail
@@ -194,14 +222,79 @@ export default function PromotionsPage() {
     }
   }, []);
 
+  // ── Conflict detection (debounced) ──────────────────────────────────────
+  const checkConflicts = useCallback(async (pids: number[], sd: string, ed: string, excludeId?: number | null) => {
+    if (!pids.length || !sd || !ed) { setConflicts([]); return; }
+    try {
+      const body: any = {
+        product_ids: pids,
+        start_date: new Date(sd).toISOString(),
+        end_date: new Date(ed).toISOString(),
+      };
+      if (excludeId) body.exclude_promotion_id = excludeId;
+      const res = await apiFetch("/promotions/check-conflicts/", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setConflicts(res?.conflicts ?? []);
+    } catch {
+      setConflicts([]);
+    }
+  }, []);
+
+  // Trigger conflict check when products/dates change
+  useEffect(() => {
+    if (!showModal) return;
+    clearTimeout(conflictTimer.current);
+    conflictTimer.current = setTimeout(() => {
+      checkConflicts(selectedIds, form.start_date, form.end_date, editingId);
+    }, 800);
+    return () => clearTimeout(conflictTimer.current);
+  }, [selectedIds.length, form.start_date, form.end_date, showModal]); // eslint-disable-line
+
   // ── Open create modal ───────────────────────────────────────────────────
   const openCreate = () => {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
     setFormError("");
     setProductSearch("");
+    setConflicts([]);
     setShowModal(true);
     loadProducts();
+  };
+
+  // ── Clone promotion ─────────────────────────────────────────────────────
+  const clonePromotion = async (promo: Promotion) => {
+    setEditingId(null);
+    setForm({
+      name: `${promo.name} (copia)`,
+      discount_type: promo.discount_type,
+      discount_value: promo.discount_value,
+      start_date: "",
+      end_date: "",
+      product_items: [],
+    });
+    setFormError("");
+    setProductSearch("");
+    setConflicts([]);
+    setShowModal(true);
+    loadProducts();
+    // Load original products
+    try {
+      const detail = await apiFetch(`/promotions/${promo.id}/`);
+      if (detail?.product_ids) {
+        setForm(f => ({ ...f, product_items: detail.product_ids.map((pid: number) => ({ product_id: pid })) }));
+      }
+      if (detail?.items) {
+        setForm(f => ({
+          ...f,
+          product_items: detail.items.map((item: any) => ({
+            product_id: item.product_id,
+            override_discount_value: item.override_discount_value || null,
+          })),
+        }));
+      }
+    } catch { /* use empty */ }
   };
 
   // ── Open edit modal ─────────────────────────────────────────────────────
@@ -213,28 +306,42 @@ export default function PromotionsPage() {
       discount_value: promo.discount_value,
       start_date: formatDatetimeLocal(promo.start_date),
       end_date: formatDatetimeLocal(promo.end_date),
-      product_ids: [],
+      product_items: [],
     });
     setFormError("");
     setProductSearch("");
+    setConflicts([]);
     setShowModal(true);
     loadProducts();
-    // Load promotion detail to get product_ids
     try {
       const detail = await apiFetch(`/promotions/${promo.id}/`);
-      if (detail?.product_ids) {
-        setForm((f) => ({ ...f, product_ids: detail.product_ids }));
+      if (detail?.items) {
+        setForm(f => ({
+          ...f,
+          product_items: detail.items.map((item: any) => ({
+            product_id: item.product_id,
+            override_discount_value: item.override_discount_value || null,
+          })),
+        }));
+      } else if (detail?.product_ids) {
+        setForm(f => ({ ...f, product_items: detail.product_ids.map((pid: number) => ({ product_id: pid })) }));
       }
-    } catch {
-      // use empty product list
-    }
+    } catch { /* use empty */ }
   };
 
   // ── Save (create or update) ─────────────────────────────────────────────
   const handleSave = async () => {
+    // Enhanced validation
     if (!form.name.trim()) { setFormError("El nombre es obligatorio"); return; }
     if (!form.discount_value || Number(form.discount_value) <= 0) { setFormError("El valor del descuento debe ser mayor a 0"); return; }
+    if (form.discount_type === "percentage" && Number(form.discount_value) > 100) {
+      setFormError("El porcentaje no puede ser mayor a 100%"); return;
+    }
     if (!form.start_date || !form.end_date) { setFormError("Las fechas son obligatorias"); return; }
+    if (new Date(form.end_date) <= new Date(form.start_date)) {
+      setFormError("La fecha de fin debe ser posterior a la de inicio"); return;
+    }
+    if (selectedIds.length === 0) { setFormError("Debes seleccionar al menos un producto"); return; }
 
     setSaving(true);
     setFormError("");
@@ -245,7 +352,7 @@ export default function PromotionsPage() {
         discount_value: form.discount_value,
         start_date: new Date(form.start_date).toISOString(),
         end_date: new Date(form.end_date).toISOString(),
-        product_ids: form.product_ids,
+        product_items: form.product_items,
       };
 
       if (editingId) {
@@ -253,11 +360,13 @@ export default function PromotionsPage() {
           method: "PATCH",
           body: JSON.stringify(body),
         });
+        flash("ok", "Oferta actualizada correctamente");
       } else {
         await apiFetch("/promotions/", {
           method: "POST",
           body: JSON.stringify(body),
         });
+        flash("ok", "Oferta creada correctamente");
       }
       setShowModal(false);
       loadPromotions();
@@ -273,19 +382,52 @@ export default function PromotionsPage() {
     try {
       await apiFetch(`/promotions/${id}/`, { method: "DELETE" });
       setConfirmDeleteId(null);
+      flash("ok", "Oferta desactivada");
       loadPromotions();
     } catch (e: any) {
-      alert(extractErr(e, "Error al desactivar oferta"));
+      flash("err", extractErr(e, "Error al desactivar oferta"));
+      setConfirmDeleteId(null);
     }
   };
 
   // ── Toggle product selection ────────────────────────────────────────────
   const toggleProduct = (id: number) => {
-    setForm((f) => ({
+    setForm(f => ({
       ...f,
-      product_ids: f.product_ids.includes(id)
-        ? f.product_ids.filter((x) => x !== id)
-        : [...f.product_ids, id],
+      product_items: selectedIds.includes(id)
+        ? f.product_items.filter(x => x.product_id !== id)
+        : [...f.product_items, { product_id: id }],
+    }));
+  };
+
+  const selectAll = () => {
+    const filtered = filteredProducts;
+    const newItems = [...form.product_items];
+    for (const p of filtered) {
+      if (!selectedIds.includes(p.id)) {
+        newItems.push({ product_id: p.id });
+      }
+    }
+    setForm(f => ({ ...f, product_items: newItems }));
+  };
+
+  const deselectAll = () => {
+    const filteredIds = new Set(filteredProducts.map(p => p.id));
+    setForm(f => ({
+      ...f,
+      product_items: f.product_items.filter(i => !filteredIds.has(i.product_id)),
+    }));
+  };
+
+  // ── Set override for a product ──────────────────────────────────────────
+  const setOverride = (pid: number, value: string) => {
+    setForm(f => ({
+      ...f,
+      product_items: f.product_items.map(i =>
+        i.product_id === pid
+          ? { ...i, override_discount_value: value || null }
+          : i
+      ),
     }));
   };
 
@@ -323,6 +465,20 @@ export default function PromotionsPage() {
   return (
     <>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 2000,
+          padding: "12px 20px", borderRadius: C.rMd,
+          background: toast.type === "ok" ? C.greenBg : C.redBg,
+          color: toast.type === "ok" ? C.green : C.red,
+          border: `1px solid ${toast.type === "ok" ? C.greenBd : C.redBd}`,
+          fontSize: 13, fontWeight: 600, boxShadow: C.shMd,
+        }}>
+          {toast.text}
+        </div>
+      )}
 
       <div style={{ padding: "28px 32px", maxWidth: 1200, margin: "0 auto", fontFamily: C.font }}>
 
@@ -387,6 +543,7 @@ export default function PromotionsPage() {
                     <td style={tdStyle}>{p.product_count}</td>
                     <td style={{ ...tdStyle, textAlign: "right" }}>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <Btn size="sm" variant="ghost" onClick={() => clonePromotion(p)}>Duplicar</Btn>
                         <Btn size="sm" variant="ghost" onClick={() => openEdit(p)}>Editar</Btn>
                         <Btn size="sm" variant="danger" onClick={() => setConfirmDeleteId(p.id)}>Desactivar</Btn>
                       </div>
@@ -433,7 +590,7 @@ export default function PromotionsPage() {
         }} onClick={() => setShowModal(false)}>
           <div style={{
             background: C.surface, borderRadius: C.rMd,
-            width: 580, maxWidth: "95vw", maxHeight: "90vh",
+            width: 620, maxWidth: "95vw", maxHeight: "90vh",
             display: "flex", flexDirection: "column",
             boxShadow: C.shLg,
           }} onClick={(e) => e.stopPropagation()}>
@@ -461,6 +618,23 @@ export default function PromotionsPage() {
                   color: C.red, fontSize: 12,
                 }}>
                   {formError}
+                </div>
+              )}
+
+              {/* Conflict warning */}
+              {conflicts.length > 0 && (
+                <div style={{
+                  padding: "8px 12px", marginBottom: 16, borderRadius: C.r,
+                  background: C.amberBg, border: `1px solid ${C.amberBd}`,
+                  color: C.amber, fontSize: 12,
+                }}>
+                  <strong>Conflictos detectados:</strong> {conflicts.length} producto(s) ya están en otras promociones activas en el mismo período.
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                    {conflicts.slice(0, 5).map((c, i) => (
+                      <li key={i}>{c.product_name} — ya en "{c.conflicting_promotion_name}"</li>
+                    ))}
+                    {conflicts.length > 5 && <li>...y {conflicts.length - 5} más</li>}
+                  </ul>
                 </div>
               )}
 
@@ -506,13 +680,21 @@ export default function PromotionsPage() {
                     {form.discount_type === "percentage" ? "%" : "$"}
                   </span>
                   <input
-                    style={{ ...inputStyle, paddingLeft: 32 }}
+                    style={{
+                      ...inputStyle,
+                      paddingLeft: 32,
+                      borderColor: form.discount_type === "percentage" && Number(form.discount_value) > 100 ? C.red : C.border,
+                    }}
                     type="number" min="0" step="1"
+                    max={form.discount_type === "percentage" ? "100" : undefined}
                     placeholder={form.discount_type === "percentage" ? "Ej: 30" : "Ej: 2500"}
                     value={form.discount_value}
                     onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))}
                   />
                 </div>
+                {form.discount_type === "percentage" && Number(form.discount_value) > 100 && (
+                  <span style={{ fontSize: 11, color: C.red }}>El porcentaje no puede ser mayor a 100%</span>
+                )}
               </div>
 
               {/* Dates */}
@@ -530,18 +712,35 @@ export default function PromotionsPage() {
                   <label style={labelStyle}>Fecha fin</label>
                   <input
                     type="datetime-local"
-                    style={inputStyle}
+                    style={{
+                      ...inputStyle,
+                      borderColor: form.start_date && form.end_date && new Date(form.end_date) <= new Date(form.start_date) ? C.red : C.border,
+                    }}
                     value={form.end_date}
                     onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
                   />
+                  {form.start_date && form.end_date && new Date(form.end_date) <= new Date(form.start_date) && (
+                    <span style={{ fontSize: 11, color: C.red }}>Debe ser posterior a la fecha de inicio</span>
+                  )}
                 </div>
               </div>
 
               {/* Product selector */}
               <div>
-                <label style={labelStyle}>
-                  Productos ({form.product_ids.length} seleccionados)
-                </label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <label style={{ ...labelStyle, marginBottom: 0 }}>
+                    Productos ({selectedIds.length} seleccionados)
+                  </label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={selectAll} style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                      Seleccionar todos ({filteredProducts.length})
+                    </button>
+                    <span style={{ color: C.mute }}>|</span>
+                    <button onClick={deselectAll} style={{ fontSize: 11, color: C.mid, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                      Deseleccionar
+                    </button>
+                  </div>
+                </div>
                 <input
                   style={{ ...inputStyle, marginBottom: 8 }}
                   placeholder="Buscar por nombre o SKU..."
@@ -550,7 +749,7 @@ export default function PromotionsPage() {
                 />
                 <div style={{
                   border: `1px solid ${C.border}`, borderRadius: C.r,
-                  maxHeight: 220, overflowY: "auto", background: C.bg,
+                  maxHeight: 260, overflowY: "auto", background: C.bg,
                 }}>
                   {loadingProducts ? (
                     <div style={{ display: "flex", justifyContent: "center", padding: 20 }}>
@@ -562,27 +761,27 @@ export default function PromotionsPage() {
                     </div>
                   ) : (
                     filteredProducts.map((p) => {
-                      const selected = form.product_ids.includes(p.id);
+                      const isSelected = selectedIds.includes(p.id);
                       const hasDiscount = form.discount_value && Number(form.discount_value) > 0;
+                      const override = overridesMap.get(p.id);
                       return (
                         <div
                           key={p.id}
-                          onClick={() => toggleProduct(p.id)}
                           style={{
                             display: "flex", alignItems: "center", gap: 10,
-                            padding: "8px 12px", cursor: "pointer",
-                            background: selected ? C.accentBg : "transparent",
+                            padding: "8px 12px",
+                            background: isSelected ? C.accentBg : "transparent",
                             borderBottom: `1px solid ${C.border}`,
                             transition: C.ease,
                           }}
                         >
                           <input
                             type="checkbox"
-                            checked={selected}
-                            readOnly
-                            style={{ flexShrink: 0, accentColor: C.accent }}
+                            checked={isSelected}
+                            onChange={() => toggleProduct(p.id)}
+                            style={{ flexShrink: 0, accentColor: C.accent, cursor: "pointer" }}
                           />
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => toggleProduct(p.id)}>
                             <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
                               {p.name}
                             </div>
@@ -590,13 +789,30 @@ export default function PromotionsPage() {
                               SKU: {p.sku || "—"}
                             </div>
                           </div>
-                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          {/* Override input — only visible for selected products */}
+                          {isSelected && (
+                            <input
+                              type="number"
+                              placeholder={form.discount_type === "percentage" ? "%" : "$"}
+                              value={override || ""}
+                              onChange={(e) => { e.stopPropagation(); setOverride(p.id, e.target.value); }}
+                              onClick={(e) => e.stopPropagation()}
+                              title="Override descuento para este producto"
+                              style={{
+                                width: 65, height: 26, padding: "0 6px",
+                                border: `1px solid ${override ? C.amberBd : C.border}`,
+                                borderRadius: C.r, fontSize: 11, fontFamily: C.mono,
+                                textAlign: "right", background: override ? C.amberBg : C.surface,
+                              }}
+                            />
+                          )}
+                          <div style={{ textAlign: "right", flexShrink: 0, minWidth: 70 }}>
                             <div style={{ fontSize: 12, color: C.mid }}>
                               ${formatCLP(p.price)}
                             </div>
-                            {hasDiscount && (
+                            {isSelected && hasDiscount && (
                               <div style={{ fontSize: 12, fontWeight: 600, color: C.green }}>
-                                → ${promoPrice(p.price, form.discount_type, form.discount_value)}
+                                → ${promoPrice(p.price, form.discount_type, form.discount_value, override)}
                               </div>
                             )}
                           </div>

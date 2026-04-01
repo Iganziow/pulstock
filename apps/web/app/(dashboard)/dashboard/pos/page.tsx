@@ -1244,21 +1244,30 @@ export default function PosPage() {
             </div>
 
             <div style={{ padding:"14px 18px", display:"flex", flexDirection:"column", gap:10 }}>
-              {/* Botones radio — siempre uno activo */}
+              {/* Toggle chips — click para activar/desactivar cada método */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
                 {PAY_METHODS.map(m => {
-                  const isSingle = payRows.length === 1;
-                  const active = isSingle && payRows[0].method === m.value;
+                  const isActive = payRows.some(r => r.method === m.value);
                   return (
                     <button key={m.value} type="button"
-                      onClick={() => setPayRows([{ method: m.value, amount: payRows.length === 1 ? payRows[0].amount : "" }])}
+                      onClick={() => {
+                        if (isActive) {
+                          // Desactivar — pero no permitir 0 métodos
+                          if (payRows.length <= 1) return;
+                          setPayRows(prev => prev.filter(r => r.method !== m.value));
+                        } else {
+                          // Activar
+                          setPayRows(prev => [...prev, { method: m.value, amount: "" }]);
+                        }
+                      }}
                       style={{
                         display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
                         gap:3, padding:"10px 4px", borderRadius:C.r, cursor:"pointer", fontFamily:"inherit",
-                        fontSize:11, fontWeight:700,
-                        border:`2px solid ${active ? C.accent : C.border}`,
-                        background: active ? C.accentBg : C.bg,
-                        color: active ? C.accent : C.mid,
+                        fontSize:11, fontWeight:700, transition:"all .15s ease",
+                        border:`2px solid ${isActive ? C.accent : C.border}`,
+                        background: isActive ? C.accentBg : C.bg,
+                        color: isActive ? C.accent : C.mid,
+                        opacity: !isActive && payRows.length >= 4 ? 0.4 : 1,
                       }}>
                       <span style={{ fontSize:20 }}>{m.icon}</span>
                       {m.label}
@@ -1267,17 +1276,20 @@ export default function PosPage() {
                 })}
               </div>
 
-              {/* Input(s) de monto */}
+              {/* Input de monto por cada método activo */}
               {payRows.map((row, i) => {
                 const meta = PAY_METHODS.find(m => m.value === row.method)!;
-                const active = !!row.amount;
+                const hasAmount = !!row.amount;
                 return (
                   <div key={row.method}>
                     {payRows.length > 1 && (
-                      <div style={{ fontSize:11, fontWeight:700, color:C.mute, marginBottom:4, display:"flex", justifyContent:"space-between" }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.mute, marginBottom:4, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                         <span>{meta.icon} {meta.label}</span>
-                        <button type="button" onClick={() => setPayRows(prev => prev.filter((_, j) => j !== i))}
-                          style={{ border:"none", background:"none", color:C.mute, cursor:"pointer", fontSize:12, padding:0 }}>✕ quitar</button>
+                        <button type="button" onClick={() => {
+                          if (payRows.length <= 1) return;
+                          setPayRows(prev => prev.filter((_, j) => j !== i));
+                        }}
+                          style={{ border:"none", background:"none", color:C.mute, cursor:"pointer", fontSize:11, padding:"2px 4px", borderRadius:4 }}>✕ quitar</button>
                       </div>
                     )}
                     <div style={{ position:"relative" }}>
@@ -1288,9 +1300,9 @@ export default function PosPage() {
                         inputMode="decimal"
                         style={{
                           width:"100%", height:48, padding:"0 48px 0 14px", boxSizing:"border-box",
-                          border:`2px solid ${active ? C.accent : C.border}`,
+                          border:`2px solid ${hasAmount ? C.accent : C.border}`,
                           borderRadius:C.r, fontSize:20, fontWeight:800, textAlign:"right",
-                          background: active ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
+                          background: hasAmount ? C.accentBg : C.bg, outline:"none", fontFamily:C.mono,
                         }}
                       />
                       <button type="button" disabled={pendingAmount <= 0} title="Cobrar total"
@@ -1302,18 +1314,6 @@ export default function PosPage() {
                   </div>
                 );
               })}
-
-              {/* Dividir pago */}
-              {payRows.length < PAY_METHODS.length && (
-                <button type="button" onClick={() => {
-                  const used = new Set(payRows.map(r => r.method));
-                  const next = PAY_METHODS.find(m => !used.has(m.value));
-                  if (next) setPayRows(prev => [...prev, { method: next.value, amount: "" }]);
-                }}
-                  style={{ background:"none", border:`1px dashed ${C.borderMd}`, borderRadius:C.r, padding:"7px 0", cursor:"pointer", color:C.mid, fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
-                  {payRows.length === 1 ? "+ Dividir pago" : "+ Agregar método"}
-                </button>
-              )}
 
               {/* Propina (tip) */}
               <div style={{ display:"flex", alignItems:"center", gap:10, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
