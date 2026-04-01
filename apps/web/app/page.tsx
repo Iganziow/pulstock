@@ -132,7 +132,7 @@ function DashboardMockup() {
         {/* Mock dashboard */}
         <div style={{ display: "flex", minHeight: 320 }}>
           {/* Sidebar */}
-          <div style={{ width: 180, background: "#18181B", padding: "16px 12px", flexShrink: 0 }}>
+          <div className="mockup-sidebar" style={{ width: 180, background: "#18181B", padding: "16px 12px", flexShrink: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.accent, marginBottom: 16 }}>Pulstock</div>
             {["Dashboard", "Catálogo", "Ventas", "Inventario", "Reportes", "Forecast IA"].map((item, i) => (
               <div key={item} style={{
@@ -146,7 +146,7 @@ function DashboardMockup() {
           <div style={{ flex: 1, padding: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Dashboard</div>
             {/* KPI cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div className="mockup-kpis" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
               {[
                 { label: "Ventas hoy", value: "$847.500", color: C.accent },
                 { label: "Productos", value: "342", color: C.green },
@@ -259,6 +259,14 @@ export default function LandingPage() {
         @media (max-width: 768px) {
           .desk-nav { display: none !important; }
           .mob-toggle { display: flex !important; }
+          .steps-grid { grid-template-columns: 1fr !important; }
+          .contact-row { grid-template-columns: 1fr !important; }
+          .mockup-sidebar { display: none !important; }
+          .mockup-kpis { grid-template-columns: 1fr 1fr !important; }
+          .benefits-grid { grid-template-columns: 1fr !important; }
+          .stats-bar { gap: 20px !important; }
+          .stats-bar > div { min-width: 120px; }
+          .footer-inner { flex-direction: column !important; text-align: center; }
         }
         @media (min-width: 769px) {
           .mob-toggle { display: none !important; }
@@ -436,7 +444,7 @@ export default function LandingPage() {
             />
           </RevealSection>
           <RevealSection>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
+            <div className="steps-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
               {/* Steps list */}
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {STEPS.map((s, i) => (
@@ -506,7 +514,7 @@ export default function LandingPage() {
             subtitle="Herramientas profesionales diseñadas para PYMES chilenas que quieren crecer."
           />
         </RevealSection>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
+        <div className="benefits-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
           {BENEFITS.map((b, i) => (
             <RevealSection key={i} delay={i * 80}>
               <div className="l-card" style={{
@@ -534,7 +542,7 @@ export default function LandingPage() {
       {/* ═══ STATS BAR (animated counters) ═══ */}
       <section style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`, padding: "64px 24px", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle at 20% 50%, rgba(255,255,255,.08) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(255,255,255,.05) 0%, transparent 50%)` }} />
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 30, position: "relative" }}>
+        <div className="stats-bar" style={{ maxWidth: 900, margin: "0 auto", display: "flex", justifyContent: "space-around", flexWrap: "wrap", gap: 30, position: "relative" }}>
           <StatCounter target={99} suffix=".9%" label="Disponibilidad" />
           <StatCounter target={200} suffix="ms" label="Tiempo de respuesta" />
           <StatCounter target={11} suffix="+" label="Reportes avanzados" />
@@ -624,7 +632,7 @@ export default function LandingPage() {
                 background: C.white, borderRadius: 20, padding: "36px 32px",
                 border: `1px solid ${C.border}`, boxShadow: "0 4px 20px rgba(0,0,0,.04)",
               }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div className="contact-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                   <div>
                     <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Nombre *</label>
                     <input className="l-input" required placeholder="Tu nombre completo" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={inputStyle} />
@@ -634,7 +642,7 @@ export default function LandingPage() {
                     <input className="l-input" required type="email" placeholder="tu@email.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} style={inputStyle} />
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div className="contact-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                   <div>
                     <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Teléfono</label>
                     <input className="l-input" placeholder="+56 9 1234 5678" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} style={inputStyle} />
@@ -687,7 +695,7 @@ export default function LandingPage() {
 
       {/* ═══ FOOTER ═══ */}
       <footer style={{ padding: "40px 24px", background: C.text, borderTop: "1px solid #27272A" }}>
-        <div style={{ maxWidth: 1140, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+        <div className="footer-inner" style={{ maxWidth: 1140, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{
               width: 28, height: 28, borderRadius: 8,
