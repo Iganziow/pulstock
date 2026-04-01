@@ -87,6 +87,9 @@ class SaleCreate(APIView):
         from api.utils import safe_decimal
         tip = safe_decimal(request.data.get("tip"), Decimal("0"))
 
+        g_discount_type = ser.validated_data.get("global_discount_type", "none") or "none"
+        g_discount_value = ser.validated_data.get("global_discount_value", Decimal("0")) or Decimal("0")
+
         try:
             result = create_sale(
                 user=user,
@@ -97,6 +100,8 @@ class SaleCreate(APIView):
                 payments_in=payments_in,
                 idempotency_key=idempotency_key,
                 tip=tip,
+                global_discount_type=g_discount_type,
+                global_discount_value=Decimal(str(g_discount_value)),
             )
         except SaleValidationError as exc:
             return Response(exc.detail, status=exc.status_code)

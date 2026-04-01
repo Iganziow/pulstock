@@ -65,6 +65,8 @@ def create_sale(
     idempotency_key="",
     tip=Decimal("0.00"),
     sale_type="VENTA",
+    global_discount_type="none",
+    global_discount_value=Decimal("0"),
 ):
     """
     Create a sale atomically.
@@ -148,7 +150,7 @@ def create_sale(
     # ------------------------------------------------------------------
     # 3) Build agg — original sold products (for SaleLines / customer receipt)
     # ------------------------------------------------------------------
-    agg = {}  # product_id -> {qty: Decimal, unit_price: Decimal}
+    agg = {}  # product_id -> {qty, unit_price, discount_type, discount_value, promotion_id}
     for l in lines_in:
         pid = int(l["product_id"])
         qty = Decimal(str(l["qty"]))
@@ -163,6 +165,11 @@ def create_sale(
         if not p.is_active:
             raise SaleValidationError({"detail": f"Product {pid} is inactive"})
 
+        # Capture per-line discount data from frontend
+        line_discount_type = str(l.get("discount_type") or "none")
+        line_discount_value = Decimal(str(l.get("discount_value") or 0))
+        line_promotion_id = l.get("promotion_id")
+
         if pid in agg:
             if agg[pid]["unit_price"] != unit_price:
                 raise SaleValidationError(
@@ -170,7 +177,13 @@ def create_sale(
                 )
             agg[pid]["qty"] += qty
         else:
-            agg[pid] = {"qty": qty, "unit_price": unit_price}
+            agg[pid] = {
+                "qty": qty,
+                "unit_price": unit_price,
+                "discount_type": line_discount_type,
+                "discount_value": line_discount_value,
+                "promotion_id": line_promotion_id,
+            }
 
     # ------------------------------------------------------------------
     # 4) Recipe expansion — build expanded_agg for actual stock ops
@@ -340,6 +353,7 @@ def create_sale(
 
     sale_lines = []
     subtotal = Decimal("0.00")
+    total_discount = Decimal("0.00")
     total_cost = Decimal("0.000")
     total_qty_costed = Decimal("0.000")
 
@@ -347,15 +361,40 @@ def create_sale(
     for pid in agg_ids_sorted:
         qty = agg[pid]["qty"]
         unit_price = agg[pid]["unit_price"]
-        line_total = (qty * unit_price).quantize(Decimal("1"))
-        subtotal += line_total
+        gross_line_total = (qty * unit_price).quantize(Decimal("1"))
+
+        # --- Per-line manual discount ---
+        dt = agg[pid].get("discount_type", "none")
+        dv = agg[pid].get("discount_value", Decimal("0"))
+        line_discount = Decimal("0")
+        original_up = None
+
+        if dt == "pct" and dv > 0:
+            line_discount = (gross_line_total * dv / Decimal("100")).quantize(Decimal("1"))
+            original_up = unit_price
+        elif dt == "amt" and dv > 0:
+            line_discount = min(dv, gross_line_total).quantize(Decimal("1"))
+            original_up = unit_price
+
+        # Auto-detected promo (only if no manual discount)
+        if pid in promo_map and line_discount == 0:
+            promo_obj, promo_price = promo_map[pid]
+            original_up = products[pid].price
+            line_discount = ((original_up - unit_price) * qty).quantize(Decimal("1"))
+            if line_discount < 0:
+                line_discount = Decimal("0")
+
+        # Frontend may also send promotion_id for promo-applied lines
+        line_promo_id = agg[pid].get("promotion_id")
+
+        line_total = gross_line_total - line_discount
+        if line_total < 0:
+            line_total = Decimal("0")
+
+        subtotal += gross_line_total
+        total_discount += line_discount
 
         if pid in recipe_costs:
-            # Recipe product: cost = per-unit cost from ingredients × qty
-            line_cost = (qty * (recipe_costs[pid] / qty if qty else Decimal("0"))).quantize(Decimal("0.000"))
-            # Recalculate: recipe_costs[pid] is already for the qty in expanded_agg
-            # But we need cost per unit of the product, then × qty sold
-            # Actually recipe_costs[pid] was computed as sum(ing_avg_cost * line.qty) — that's per 1 unit of product
             line_cost = (qty * recipe_costs[pid]).quantize(Decimal("0.000"))
             unit_cost = recipe_costs[pid]
         else:
@@ -380,16 +419,55 @@ def create_sale(
         if sl_has_line_gp:
             sl_kwargs["line_gross_profit"] = line_gp
 
-        # Promo tracking
-        if pid in promo_map:
-            promo_obj, promo_price = promo_map[pid]
-            sl_kwargs["promotion"] = promo_obj
-            sl_kwargs["original_unit_price"] = products[pid].price
-            sl_kwargs["discount_amount"] = ((products[pid].price - unit_price) * qty).quantize(Decimal("1"))
+        # Discount tracking
+        if line_discount > 0:
+            sl_kwargs["discount_amount"] = line_discount
+        if original_up is not None:
+            sl_kwargs["original_unit_price"] = original_up
+
+        # Promo FK — from auto-detected or frontend-sent
+        if pid in promo_map and line_discount > 0 and not line_promo_id:
+            sl_kwargs["promotion"] = promo_map[pid][0]
+        elif line_promo_id:
+            try:
+                from promotions.models import Promotion
+                promo_fk = Promotion.objects.filter(id=line_promo_id, tenant_id=tenant_id).first()
+                if promo_fk:
+                    sl_kwargs["promotion"] = promo_fk
+            except Exception:
+                pass
 
         sale_lines.append(SaleLine(**sl_kwargs))
         total_cost += line_cost
         total_qty_costed += qty
+
+    # --- Global discount (distributed proportionally across lines) ---
+    if global_discount_type != "none" and global_discount_value > 0:
+        lines_total_sum = sum(sl.line_total for sl in sale_lines)
+        if lines_total_sum > 0:
+            if global_discount_type == "pct":
+                global_disc_amount = (lines_total_sum * global_discount_value / Decimal("100")).quantize(Decimal("1"))
+            else:
+                global_disc_amount = min(global_discount_value, lines_total_sum).quantize(Decimal("1"))
+
+            remaining = global_disc_amount
+            for i, sl in enumerate(sale_lines):
+                if lines_total_sum > 0:
+                    share = (sl.line_total / lines_total_sum * global_disc_amount).quantize(Decimal("1"))
+                else:
+                    share = Decimal("0")
+                # Last line gets remainder to avoid rounding issues
+                if i == len(sale_lines) - 1:
+                    share = remaining
+                remaining -= share
+                sl.line_total = max(sl.line_total - share, Decimal("0"))
+                sl.discount_amount = (sl.discount_amount or Decimal("0")) + share
+                if sl.original_unit_price is None:
+                    sl.original_unit_price = sl.unit_price
+                # Recalc gross profit
+                if sl_has_line_gp:
+                    sl.line_gross_profit = (sl.line_total - (sl.line_cost or Decimal("0"))).quantize(Decimal("1"))
+            total_discount += global_disc_amount
 
     SaleLine.objects.bulk_create(sale_lines)
 
@@ -452,7 +530,9 @@ def create_sale(
     # 13) Save final totals
     # ------------------------------------------------------------------
     sale.subtotal = subtotal
-    sale.total = subtotal
+    sale.total = (subtotal - total_discount).quantize(Decimal("1"))
+    if sale.total < 0:
+        sale.total = Decimal("0")
     sale.total_cost = total_cost.quantize(Decimal("0.000"))
     sale.gross_profit = (sale.total - sale.total_cost).quantize(Decimal("1"))
 

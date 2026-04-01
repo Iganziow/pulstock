@@ -10,10 +10,16 @@ from inventory.models import StockMove
 # INPUT (CREATE SALE)
 # =========================
 
+DISCOUNT_TYPE_CHOICES = [("none", "none"), ("pct", "pct"), ("amt", "amt")]
+
+
 class SaleLineInSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
     qty = serializers.DecimalField(max_digits=12, decimal_places=3)
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    discount_type = serializers.ChoiceField(choices=DISCOUNT_TYPE_CHOICES, default="none", required=False)
+    discount_value = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), required=False)
+    promotion_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
     def validate_qty(self, value):
         if value <= 0:
@@ -25,10 +31,17 @@ class SaleLineInSerializer(serializers.Serializer):
             raise serializers.ValidationError("unit_price must be >= 0")
         return value
 
+    def validate_discount_value(self, value):
+        if value < 0:
+            raise serializers.ValidationError("discount_value must be >= 0")
+        return value
+
 
 class SaleCreateSerializer(serializers.Serializer):
     warehouse_id = serializers.IntegerField()
     lines = SaleLineInSerializer(many=True)
+    global_discount_type = serializers.ChoiceField(choices=DISCOUNT_TYPE_CHOICES, default="none", required=False)
+    global_discount_value = serializers.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"), required=False)
 
     def validate_lines(self, lines):
         if not lines:
@@ -194,7 +207,9 @@ class SaleLineSerializer(serializers.ModelSerializer):
             "qty",
             "unit_price",
             "line_total",
-            # ✅ nuevos
+            "discount_amount",
+            "original_unit_price",
+            # ✅ cost tracking
             "unit_cost_snapshot",
             "line_cost",
             "line_profit",
