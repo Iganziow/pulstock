@@ -753,10 +753,10 @@ def train_product_model(tenant, product, warehouse_id, today,
         if promo_qty and promo_qty >= qty_sold and qty_sold > 0:
             stockout_dates.add(dt)
 
-    # Clean series (impute stockout zeros, dampen outliers)
+    # Clean series (impute stockout zeros, dampen outliers, reduce promo day weight)
     # Note: holidays NOT excluded from IQR — apply_holiday_adjustments handles holiday
     # boost in save_forecasts() to avoid double-adjustment.
-    cleaned = clean_series(raw_series, stockout_dates=stockout_dates)
+    cleaned = clean_series(raw_series, stockout_dates=stockout_dates, promo_dates=promo_dates)
 
     # Demand pattern classification
     demand_pattern, adi, cv2 = classify_demand_pattern(raw_series)

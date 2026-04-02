@@ -49,17 +49,20 @@ def _q3(v):
 # DATA CLEANING — Stockout detection + Outlier dampening
 # ══════════════════════════════════════════════════════════════════════════════
 
-def clean_series(daily_series, stockout_dates=None, holiday_dates=None):
+def clean_series(daily_series, stockout_dates=None, holiday_dates=None, promo_dates=None):
     """
     Pre-process training data:
     1. Replace stockout zeros with same-weekday interpolation (weight 0.5)
-    2. Dampen outliers using IQR method (weight 0.7)
+    2. Dampen outliers using percentile method (weight 0.7)
+    3. Reduce weight of promo days (weight 0.6) — organic qty is already
+       computed upstream, but promo days are noisier signals.
        — Holiday dates are excluded from IQR so seasonal spikes aren't clipped.
 
     Args:
         daily_series: sorted list of (date, qty_sold) tuples
         stockout_dates: set of dates marked as stockout (from DailySales.is_stockout)
         holiday_dates: set of dates that are holidays/events (excluded from IQR)
+        promo_dates: set of dates where promotions were active (reduced weight)
 
     Returns:
         list of (date, qty, weight) tuples where weight < 1.0 for imputed values.
@@ -69,6 +72,7 @@ def clean_series(daily_series, stockout_dates=None, holiday_dates=None):
 
     stockout_dates = stockout_dates or set()
     holiday_dates = holiday_dates or set()
+    promo_dates = promo_dates or set()
     result = []
 
     # Group values by weekday for interpolation
@@ -111,6 +115,11 @@ def clean_series(daily_series, stockout_dates=None, holiday_dates=None):
             # Dampen outlier — but never dampen holiday spikes
             qty = iqr_limit
             weight = 0.7
+
+        # Promo days: reduce weight — organic qty is already computed upstream
+        # but promo days are noisier (cannibalization, artificial demand)
+        if d in promo_dates and weight == 1.0:
+            weight = 0.6
 
         result.append((d, _q3(qty), weight))
 
