@@ -84,20 +84,25 @@ type NavItem = {
   icon: keyof typeof icons;
   section?: string;
   badge?: number;
+  requires?: string; // permission key from ROLE_PERMISSIONS
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard",                label: "Dashboard",  icon: "dashboard" },
-  { href: "/dashboard/catalog",        label: "Catálogo",   icon: "catalog",   section: "Productos" },
-  { href: "/dashboard/prices",         label: "Precios",    icon: "prices" },
-  { href: "/dashboard/pos",            label: "Punto de Venta", icon: "pos",   section: "Ventas" },
-  { href: "/dashboard/sales",          label: "Ventas",     icon: "sales" },
-  { href: "/dashboard/promotions",     label: "Ofertas",    icon: "offers" },
-  { href: "/dashboard/purchases",      label: "Compras",    icon: "purchases", section: "Inventario" },
-  { href: "/dashboard/inventory/stock", label: "Stock",     icon: "stock" },
-  { href: "/dashboard/inventory/kardex", label: "Kardex",   icon: "kardex" },
-  { href: "/dashboard/forecast",       label: "Pronóstico", icon: "forecast",  section: "Análisis" },
-  { href: "/dashboard/reports",        label: "Reportes",   icon: "reports" },
+  { href: "/dashboard/catalog",        label: "Catálogo",   icon: "catalog",   section: "Productos", requires: "catalog" },
+  { href: "/dashboard/catalog/recetas", label: "Recetas",   icon: "catalog",   requires: "catalog" },
+  { href: "/dashboard/prices",         label: "Precios",    icon: "prices",    requires: "catalog_write" },
+  { href: "/dashboard/pos",            label: "Punto de Venta", icon: "pos",   section: "Ventas",    requires: "pos" },
+  { href: "/dashboard/sales",          label: "Ventas",     icon: "sales",     requires: "sales" },
+  { href: "/dashboard/caja",           label: "Caja",       icon: "sales",     requires: "caja" },
+  { href: "/dashboard/mesas",          label: "Mesas",      icon: "pos",       requires: "pos" },
+  { href: "/dashboard/promotions",     label: "Ofertas",    icon: "offers",    requires: "catalog_write" },
+  { href: "/dashboard/purchases",      label: "Compras",    icon: "purchases", section: "Inventario", requires: "purchases" },
+  { href: "/dashboard/inventory/stock", label: "Stock",     icon: "stock",     requires: "inventory" },
+  { href: "/dashboard/inventory/kardex", label: "Kardex",   icon: "kardex",    requires: "inventory" },
+  { href: "/dashboard/inventory/salidas", label: "Salidas",  icon: "stock",    requires: "inventory_write" },
+  { href: "/dashboard/forecast",       label: "Predicción", icon: "forecast",  section: "Inteligencia", requires: "forecast" },
+  { href: "/dashboard/reports",        label: "Reportes",   icon: "reports",   section: "Análisis", requires: "reports" },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -106,22 +111,28 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [lowStock, setLowStock] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  const [perms, setPerms] = useState<Record<string, boolean> | null>(null);
+  const [me, setMe] = useState<{ email?: string; role_label?: string } | null>(null);
 
-  // Poll low stock count every 5 min
+  // Load user permissions + low stock
   useEffect(() => {
     let mounted = true;
 
-    async function fetchLowStock() {
+    async function fetchData() {
       try {
-        const res = await apiFetch("/dashboard/summary/");
-        if (mounted && res?.kpis?.low_stock?.count != null) {
-          setLowStock(res.kpis.low_stock.count);
-        }
+        const [meRes, dashRes] = await Promise.all([
+          apiFetch("/core/me/").catch(() => null),
+          apiFetch("/dashboard/summary/").catch(() => null),
+        ]);
+        if (!mounted) return;
+        if (meRes?.permissions) setPerms(meRes.permissions);
+        if (meRes) setMe({ email: meRes.email, role_label: meRes.role_label });
+        if (dashRes?.kpis?.low_stock?.count != null) setLowStock(dashRes.kpis.low_stock.count);
       } catch { /* silent */ }
     }
 
-    fetchLowStock();
-    const id = setInterval(fetchLowStock, 300_000);
+    fetchData();
+    const id = setInterval(fetchData, 300_000);
     return () => { mounted = false; clearInterval(id); };
   }, []);
 
@@ -135,11 +146,13 @@ export default function Sidebar() {
     window.location.href = "/login";
   }
 
-  // Inject nav items with badge
-  const items = NAV_ITEMS.map(item => ({
-    ...item,
-    badge: item.icon === "stock" ? lowStock : undefined,
-  }));
+  // Filter by role permissions + inject badges
+  const items = NAV_ITEMS
+    .filter(item => !item.requires || !perms || perms[item.requires] !== false)
+    .map(item => ({
+      ...item,
+      badge: item.icon === "stock" ? lowStock : undefined,
+    }));
 
   // Group by section
   let lastSection = "";
@@ -264,6 +277,23 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* User info */}
+      {!collapsed && me && (
+        <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8, background: C.accentBg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 13, fontWeight: 700, color: C.accent, flexShrink: 0,
+          }}>
+            {(me.email || "U")[0].toUpperCase()}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.email}</div>
+            <div style={{ fontSize: 10, color: C.mute }}>{me.role_label}</div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom: Collapse + Logout */}
       <div style={{

@@ -547,6 +547,13 @@ class FlowWebhookView(APIView):
         # ── 2. Consultar estado real del pago en Flow ──
         payment_data = get_payment_status(token)
 
+        # Verificar firma si Flow la incluye
+        if payment_data.get("s"):
+            from .gateway import _verify_flow_token_signature
+            if not _verify_flow_token_signature(payment_data):
+                logger.warning("Flow webhook: firma HMAC inválida token=%s", token[:20])
+                return Response({"detail": "Firma inválida."}, status=status.HTTP_403_FORBIDDEN)
+
         flow_status = payment_data.get("status")
         commerce_order = payment_data.get("commerceOrder", "")
         flow_order = payment_data.get("flowOrder", "")
