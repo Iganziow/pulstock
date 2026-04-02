@@ -126,7 +126,7 @@ export default function ReceiptPage() {
       } else {
         printHTML(buildReceiptHTML(receiptData));
       }
-    } catch (e: any) { alert(e?.message || "Error al imprimir"); }
+    } catch (e: any) { setErr(e?.message || "Error al imprimir"); }
   }
 
   function handleBrowserPrint() { window.print(); }

@@ -574,7 +574,7 @@ function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUp
         printHTML(buildPreCuentaHTML(data));
       }
     } catch (e: any) {
-      alert(e?.message || "Error al imprimir pre-cuenta");
+      setPayErr(e?.message || "Error al imprimir pre-cuenta");
     }
   }
 
@@ -648,7 +648,7 @@ function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUp
         printHTML(buildReceiptHTML(receiptData));
       }
     } catch (e: any) {
-      alert(e?.message || "Error al imprimir boleta");
+      setPayErr(e?.message || "Error al imprimir boleta");
     }
   }
 

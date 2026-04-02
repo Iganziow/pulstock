@@ -110,6 +110,7 @@ export default function ForecastPage() {
   const [meta, setMeta] = useState<PageMeta>({ count: 0, page: 1, page_size: 50, total_pages: 0, categories: [] });
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [selId, setSelId] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detLoad, setDetLoad] = useState(false);
@@ -139,7 +140,7 @@ export default function ForecastPage() {
         page_size: data?.page_size || 50, total_pages: data?.total_pages || 0,
         categories: data?.categories || meta.categories,
       });
-    } catch (e) { console.error(e); }
+    } catch (e: any) { setErr(e?.message || "Error al cargar predicciones"); }
     finally { setTableLoading(false); setLoading(false); }
   }, []);
 
@@ -194,6 +195,12 @@ export default function ForecastPage() {
           📋 Ver pedidos sugeridos
         </Link>
       </div>
+
+      {err && (
+        <div style={{ padding: "10px 16px", marginBottom: 16, borderRadius: 8, background: "#FEF2F2", border: "1px solid #FECACA", color: "#DC2626", fontSize: 13 }}>
+          {err}
+        </div>
+      )}
 
       {loading && (
         <div style={{ padding: "48px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: C.mute }}>
