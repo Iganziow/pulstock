@@ -137,6 +137,15 @@ export default function ForecastMetricsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Training & Import state
+  const [training, setTraining] = useState(false);
+  const [trainTenant, setTrainTenant] = useState("");
+  const [trainMsg, setTrainMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importTenant, setImportTenant] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<any>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -151,6 +160,43 @@ export default function ForecastMetricsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleTrain() {
+    setTraining(true); setTrainMsg(null);
+    try {
+      const body: any = {};
+      if (trainTenant) body.tenant_id = Number(trainTenant);
+      const res = await apiFetch("/superadmin/forecast/train/", {
+        method: "POST", body: JSON.stringify(body),
+      });
+      setTrainMsg({ type: "ok", text: res.message || "Entrenamiento iniciado" });
+    } catch (e: any) {
+      setTrainMsg({ type: "err", text: e?.message || "Error al iniciar entrenamiento" });
+    } finally { setTraining(false); }
+  }
+
+  async function handleImport() {
+    if (!importTenant || !importFile) return;
+    setImporting(true); setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("tenant_id", importTenant);
+      fd.append("file", importFile);
+      const token = typeof window !== "undefined" ? localStorage.getItem("access") : null;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+      const res = await fetch(`${apiUrl}/superadmin/forecast/import-sales/`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error importando");
+      setImportResult(data);
+    } catch (e: any) {
+      setImportResult({ ok: false, error: e?.message || "Error importando" });
+    } finally { setImporting(false); }
+  }
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", color: C.mute }}>
@@ -187,6 +233,94 @@ export default function ForecastMetricsPage() {
           padding: "8px 16px", borderRadius: 8, background: C.card, border: `1px solid ${C.border}`,
           color: C.mute, fontSize: 12, fontWeight: 600, cursor: "pointer",
         }}>Actualizar</button>
+      </div>
+
+      {/* ═══ ACCIONES ═══ */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24,
+      }}>
+        {/* Training */}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 12 }}>
+            Entrenar modelos
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+            <select value={trainTenant} onChange={e => setTrainTenant(e.target.value)}
+              style={{ flex: 1, padding: "8px 10px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: 13, fontFamily: "inherit" }}>
+              <option value="">Todos los tenants</option>
+              {(data?.by_tenant || []).map(t => (
+                <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>
+              ))}
+            </select>
+            <button onClick={handleTrain} disabled={training}
+              style={{
+                padding: "8px 20px", borderRadius: 8, border: "none", cursor: training ? "wait" : "pointer",
+                background: training ? C.border : `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
+                color: C.white, fontSize: 13, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap",
+              }}>
+              {training ? "Entrenando..." : "Entrenar"}
+            </button>
+          </div>
+          {trainMsg && (
+            <div style={{
+              fontSize: 12, padding: "6px 10px", borderRadius: 6,
+              background: trainMsg.type === "ok" ? "rgba(34,197,94,.15)" : "rgba(239,68,68,.15)",
+              color: trainMsg.type === "ok" ? C.green : C.red,
+              fontWeight: 600,
+            }}>
+              {trainMsg.text}
+            </div>
+          )}
+        </div>
+
+        {/* Import sales */}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 22px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 12 }}>
+            Importar ventas históricas
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <select value={importTenant} onChange={e => setImportTenant(e.target.value)}
+              style={{ width: 160, padding: "8px 10px", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: 13, fontFamily: "inherit" }}>
+              <option value="">Seleccionar tenant</option>
+              {(data?.by_tenant || []).map(t => (
+                <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>
+              ))}
+            </select>
+            <input type="file" accept=".csv,.xlsx,.xls"
+              onChange={e => setImportFile(e.target.files?.[0] || null)}
+              style={{ flex: 1, fontSize: 12, color: C.mute }} />
+            <button onClick={handleImport} disabled={importing || !importTenant || !importFile}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none", cursor: !importTenant || !importFile ? "not-allowed" : "pointer",
+                background: !importTenant || !importFile ? C.border : C.cyan,
+                color: C.white, fontSize: 13, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap",
+                opacity: !importTenant || !importFile ? 0.5 : 1,
+              }}>
+              {importing ? "Importando..." : "Importar"}
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: C.mute, marginBottom: 6 }}>
+            CSV o Excel con columnas: fecha, sku (o nombre), cantidad, total (opcional), promo_qty (opcional)
+          </div>
+          {importResult && (
+            <div style={{
+              fontSize: 12, padding: "8px 10px", borderRadius: 6,
+              background: importResult.ok ? "rgba(34,197,94,.15)" : "rgba(239,68,68,.15)",
+              color: importResult.ok ? C.green : C.red,
+            }}>
+              {importResult.ok ? (
+                <span>{importResult.created} creados, {importResult.updated} actualizados, {importResult.skipped} saltados de {importResult.total_rows} filas</span>
+              ) : (
+                <span>{importResult.error || "Error desconocido"}</span>
+              )}
+              {importResult.errors?.length > 0 && (
+                <div style={{ marginTop: 6, maxHeight: 80, overflowY: "auto", fontSize: 10, color: C.yellow }}>
+                  {importResult.errors.map((e: string, i: number) => <div key={i}>{e}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* KPIs */}

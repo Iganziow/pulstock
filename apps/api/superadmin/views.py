@@ -1018,3 +1018,225 @@ class AdminInvoicePayView(APIView):
         logger.info("Superadmin %s marked invoice %d as paid (manual)",
                      request.user.email, invoice_id)
         return Response({"ok": True, "id": invoice.id, "status": "paid"})
+
+
+# ─────────────────────────────────────────────────────────────
+# FORECAST TRAINING (manual trigger)
+# ─────────────────────────────────────────────────────────────
+class AdminForecastTrainView(APIView):
+    """POST /superadmin/forecast/train/ — trigger training from UI.
+    Body: { tenant_id?: int, product_id?: int }
+    """
+    permission_classes = PERMS
+
+    def post(self, request):
+        import threading
+        from django.core.management import call_command
+        from io import StringIO
+
+        tenant_id = request.data.get("tenant_id")
+        product_id = request.data.get("product_id")
+
+        args = []
+        if tenant_id:
+            args += ["--tenant", str(tenant_id)]
+        if product_id:
+            args += ["--product", str(product_id)]
+
+        def run_training():
+            try:
+                out = StringIO()
+                call_command("train_forecast_models", *args, stdout=out)
+                logger.info("Superadmin training completed: %s", out.getvalue()[-200:])
+            except Exception as e:
+                logger.error("Superadmin training failed: %s", e)
+
+        thread = threading.Thread(target=run_training, daemon=True)
+        thread.start()
+
+        scope = f"tenant={tenant_id}" if tenant_id else "all tenants"
+        if product_id:
+            scope += f", product={product_id}"
+
+        logger.info("Superadmin %s triggered forecast training: %s", request.user.email, scope)
+        return Response({
+            "ok": True,
+            "message": f"Entrenamiento iniciado ({scope}). Revisa los logs en unos minutos.",
+        })
+
+
+# ─────────────────────────────────────────────────────────────
+# IMPORT HISTORICAL SALES (CSV)
+# ─────────────────────────────────────────────────────────────
+class AdminImportSalesView(APIView):
+    """POST /superadmin/forecast/import-sales/
+    Multipart form: tenant_id + file (CSV/Excel)
+    CSV columns: date, product_id (or sku or name), qty_sold, total (optional), promo_qty (optional)
+    """
+    permission_classes = PERMS
+
+    def post(self, request):
+        import csv
+        from datetime import date as date_cls
+        from decimal import Decimal, InvalidOperation
+
+        tenant_id = request.data.get("tenant_id")
+        if not tenant_id:
+            return Response({"detail": "tenant_id es requerido."}, status=400)
+
+        try:
+            tenant_id = int(tenant_id)
+        except (ValueError, TypeError):
+            return Response({"detail": "tenant_id inválido."}, status=400)
+
+        from core.models import Tenant
+        tenant = Tenant.objects.filter(id=tenant_id).first()
+        if not tenant:
+            return Response({"detail": "Tenant no encontrado."}, status=404)
+
+        uploaded = request.FILES.get("file")
+        if not uploaded:
+            return Response({"detail": "Archivo es requerido."}, status=400)
+
+        # Parse file
+        fname = uploaded.name.lower()
+        rows = []
+
+        if fname.endswith(".csv"):
+            import io
+            content = uploaded.read().decode("utf-8-sig", errors="replace")
+            reader = csv.DictReader(io.StringIO(content))
+            rows = list(reader)
+        elif fname.endswith((".xlsx", ".xls")):
+            import openpyxl
+            wb = openpyxl.load_workbook(uploaded, read_only=True, data_only=True)
+            ws = wb.active
+            headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                rows.append(dict(zip(headers, row)))
+            wb.close()
+        else:
+            return Response({"detail": "Formato no soportado. Usa CSV o Excel (.xlsx)."}, status=400)
+
+        if not rows:
+            return Response({"detail": "Archivo vacío."}, status=400)
+
+        # Header mapping (Spanish support)
+        HEADER_MAP = {
+            "fecha": "date", "producto": "product_id", "producto_id": "product_id",
+            "sku": "sku", "nombre": "name", "nombre_producto": "name",
+            "cantidad": "qty_sold", "qty": "qty_sold", "qty_sold": "qty_sold",
+            "venta": "total", "total": "total", "monto": "total",
+            "promo": "promo_qty", "promo_qty": "promo_qty", "qty_promo": "promo_qty",
+        }
+
+        def norm_key(k):
+            return HEADER_MAP.get(k.strip().lower().replace(" ", "_"), k.strip().lower())
+
+        rows = [{norm_key(k): v for k, v in r.items()} for r in rows]
+
+        # Resolve products
+        from catalog.models import Product
+        products_by_id = {p.id: p for p in Product.objects.filter(tenant_id=tenant_id)}
+        products_by_sku = {p.sku.upper(): p for p in products_by_id.values() if p.sku}
+        products_by_name = {p.name.upper(): p for p in products_by_id.values()}
+
+        # Get or create warehouse
+        from core.models import Warehouse
+        warehouse = Warehouse.objects.filter(tenant_id=tenant_id, is_active=True).first()
+        if not warehouse:
+            return Response({"detail": "Tenant no tiene bodega activa."}, status=400)
+
+        from forecast.models import DailySales
+
+        created = 0
+        updated = 0
+        skipped = 0
+        errors = []
+
+        for i, row in enumerate(rows, start=2):
+            # Parse date
+            dt_raw = row.get("date", "")
+            try:
+                if hasattr(dt_raw, "date"):
+                    dt = dt_raw.date() if hasattr(dt_raw, "date") else dt_raw
+                elif isinstance(dt_raw, date_cls):
+                    dt = dt_raw
+                else:
+                    dt = date_cls.fromisoformat(str(dt_raw).strip()[:10])
+            except (ValueError, TypeError):
+                errors.append(f"Fila {i}: fecha inválida '{dt_raw}'")
+                skipped += 1
+                continue
+
+            # Resolve product
+            product = None
+            pid = row.get("product_id")
+            sku = row.get("sku")
+            name = row.get("name")
+
+            if pid:
+                try:
+                    product = products_by_id.get(int(pid))
+                except (ValueError, TypeError):
+                    pass
+            if not product and sku:
+                product = products_by_sku.get(str(sku).strip().upper())
+            if not product and name:
+                product = products_by_name.get(str(name).strip().upper())
+
+            if not product:
+                errors.append(f"Fila {i}: producto no encontrado (id={pid}, sku={sku}, name={name})")
+                skipped += 1
+                continue
+
+            # Parse qty
+            try:
+                qty_sold = Decimal(str(row.get("qty_sold", 0) or 0))
+            except (InvalidOperation, TypeError):
+                errors.append(f"Fila {i}: cantidad inválida")
+                skipped += 1
+                continue
+
+            promo_qty = Decimal("0")
+            try:
+                promo_qty = Decimal(str(row.get("promo_qty", 0) or 0))
+            except (InvalidOperation, TypeError):
+                pass
+
+            total = Decimal("0")
+            try:
+                total = Decimal(str(row.get("total", 0) or 0))
+            except (InvalidOperation, TypeError):
+                total = qty_sold * product.price
+
+            # Upsert DailySales
+            obj, was_created = DailySales.objects.update_or_create(
+                tenant_id=tenant_id,
+                product=product,
+                warehouse=warehouse,
+                date=dt,
+                defaults={
+                    "qty_sold": qty_sold,
+                    "revenue": total,
+                    "promo_qty": promo_qty,
+                },
+            )
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+
+        logger.info(
+            "Superadmin %s imported sales for tenant %d: %d created, %d updated, %d skipped",
+            request.user.email, tenant_id, created, updated, skipped,
+        )
+
+        return Response({
+            "ok": True,
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors[:20],
+            "total_rows": len(rows),
+        })

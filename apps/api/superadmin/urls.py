@@ -12,6 +12,8 @@ from .views import (
     AdminInvoiceListView,
     AdminInvoicePayView,
     AdminForecastMetricsView,
+    AdminForecastTrainView,
+    AdminImportSalesView,
     AdminHolidayListView,
     AdminHolidayDetailView,
 )
@@ -42,4 +44,6 @@ urlpatterns = [
 
     # Forecast
     path("forecast/",              AdminForecastMetricsView.as_view()),
+    path("forecast/train/",        AdminForecastTrainView.as_view()),
+    path("forecast/import-sales/", AdminImportSalesView.as_view()),
 ]
