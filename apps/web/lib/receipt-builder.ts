@@ -20,6 +20,7 @@ export interface PreCuentaData {
   subtotal: number;
   date: Date;
   attendedBy?: string;
+  tenant?: { name?: string; rut?: string; address?: string; receipt_header?: string };
 }
 
 export interface PaymentInfo {
@@ -195,25 +196,50 @@ export function buildReceipt(data: ReceiptData, paperWidth: 58 | 80 = 80): Uint8
 // ── HTML Builders (fallback for window.print) ────────────────────────────────
 
 export function buildPreCuentaHTML(data: PreCuentaData): string {
+  const neto = Math.round(data.subtotal / 1.19);
+  const iva = data.subtotal - neto;
+
   const lines = data.lines.map(l => {
     const qty = typeof l.qty === "string" ? parseFloat(l.qty) : l.qty;
     const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
-    return `<div class="row"><span class="item-name">${qtyStr}x ${esc(l.name)}</span><span class="price">${fmtCLP(l.total)}</span></div>`;
+    const totalNum = typeof l.total === "string" ? parseFloat(l.total) : l.total;
+    const unitPrice = qty > 0 ? Math.round(totalNum / qty) : 0;
+    return `
+      <div class="row" style="padding:3px 0">
+        <span class="item-name" style="flex:1">${esc(l.name)}</span>
+        <span class="price">${fmtCLP(l.total)}</span>
+      </div>
+      <div class="row info" style="padding:0 0 4px;color:#888;font-size:11px">
+        <span>${qtyStr} × ${fmtCLP(unitPrice)}</span>
+      </div>`;
   }).join("");
 
+  const totalItems = data.lines.reduce((s, l) => {
+    const qty = typeof l.qty === "string" ? parseFloat(l.qty) : l.qty;
+    return s + qty;
+  }, 0);
+
   return `
-    <div class="sep-double"></div>
+    ${data.tenant?.name ? `<div class="title" style="font-size:18px;margin-bottom:2px">${esc(data.tenant.name)}</div>` : ""}
+    ${data.tenant?.receipt_header ? `<div class="center info">${esc(data.tenant.receipt_header)}</div>` : ""}
+    ${data.tenant?.rut ? `<div class="center info" style="font-size:11px">RUT: ${esc(data.tenant.rut)}</div>` : ""}
+    ${data.tenant?.address ? `<div class="center info" style="font-size:11px">${esc(data.tenant.address)}</div>` : ""}
+    <div class="sep-double" style="margin-top:8px"></div>
     <div class="title">PRE-CUENTA</div>
     <div class="sep-double"></div>
     <div class="row info"><span>Mesa:</span><span>${esc(data.tableName)}</span></div>
     <div class="row info"><span>Fecha:</span><span>${fmtDate(data.date)}</span></div>
     ${data.attendedBy ? `<div class="row info"><span>Atendido por:</span><span>${esc(data.attendedBy)}</span></div>` : ""}
+    <div class="row info"><span>Items:</span><span>${data.lines.length} producto(s), ${totalItems} unid.</span></div>
     <div class="sep"></div>
     ${lines}
     <div class="sep"></div>
-    <div class="row total-row"><span>SUBTOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>
+    <div class="row info"><span>Neto</span><span>${fmtCLP(neto)}</span></div>
+    <div class="row info"><span>IVA (19%)</span><span>${fmtCLP(iva)}</span></div>
+    <div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>
     <div class="sep-double"></div>
     <div class="disclaimer">** ESTE NO ES UN DOCUMENTO FISCAL **</div>
+    <div class="center info" style="margin-top:8px;font-size:11px;color:#888">Propina sugerida (10%): ${fmtCLP(Math.round(data.subtotal * 0.10))}</div>
   `;
 }
 

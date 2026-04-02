@@ -70,6 +70,7 @@ def _line_data(line):
         "added_by":    line.added_by.get_full_name() or line.added_by.email,
         "is_paid":     line.is_paid,
         "is_cancelled": line.is_cancelled,
+        "cancel_reason": line.cancel_reason or "",
     }
 
 
@@ -343,7 +344,8 @@ class DeleteLineView(APIView):
 
         line.is_cancelled = True
         line.cancelled_at = timezone.now()
-        line.save(update_fields=["is_cancelled", "cancelled_at"])
+        line.cancel_reason = (request.data.get("reason") or "").strip()[:255]
+        line.save(update_fields=["is_cancelled", "cancelled_at", "cancel_reason"])
         order.refresh_from_db()
         return Response(_order_data(order, include_lines=True))
 

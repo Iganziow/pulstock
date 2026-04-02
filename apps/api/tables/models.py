@@ -83,6 +83,7 @@ class OpenOrderLine(models.Model):
     is_paid     = models.BooleanField(default=False)
     is_cancelled = models.BooleanField(default=False)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=255, blank=True, default="")
     paid_by_sale = models.ForeignKey(
         "sales.Sale",
         on_delete=models.SET_NULL,
