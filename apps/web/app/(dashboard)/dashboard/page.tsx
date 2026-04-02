@@ -200,50 +200,131 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Onboarding (empty state) ─────────────────────────────────────────────────
 
-function OnboardingCard() {
-  const steps = [
-    { icon: "📦", title: "Crea tu primer producto", desc: "Agrega los productos que vendes", href: "/dashboard/catalog" },
-    { icon: "🏪", title: "Agrega stock", desc: "Registra inventario en tu bodega", href: "/dashboard/inventory/stock" },
-    { icon: "💰", title: "Haz tu primera venta", desc: "Usa el punto de venta", href: "/dashboard/pos" },
-  ];
+type OnboardingStep = { key: string; label: string; description: string; completed: boolean; link: string };
+type OnboardingData = { completed: boolean; progress: number; total_steps: number; steps: OnboardingStep[] };
+
+const STEP_ICONS: Record<string, string> = {
+  business_setup: "🏪", receipt_setup: "🧾", has_categories: "📂",
+  has_products: "📦", has_stock: "📊", caja_opened: "💵", first_sale: "🎉",
+};
+
+function OnboardingChecklist() {
+  const [data, setData] = useState<OnboardingData | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  const [celebrated, setCelebrated] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/auth/onboarding-status/").then(setData).catch(() => {});
+    // Check localStorage for minimized state
+    if (typeof window !== "undefined" && localStorage.getItem("onboarding_minimized") === "1") {
+      setMinimized(true);
+    }
+  }, []);
+
+  if (!data || data.completed) return null;
+
+  const pct = Math.round((data.progress / data.total_steps) * 100);
+
+  if (minimized) {
+    return (
+      <div className="fade-in" style={{
+        background: C.surface, borderRadius: C.rMd, border: `1px solid ${C.accentBd}`,
+        padding: "10px 16px", marginBottom: 16, boxShadow: C.sh,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 16 }}>🚀</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+            Configuración: {data.progress}/{data.total_steps} pasos
+          </span>
+          <div style={{ width: 80, height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, height: "100%", background: C.accent, borderRadius: 3, transition: "width .3s" }} />
+          </div>
+        </div>
+        <button onClick={() => { setMinimized(false); localStorage.removeItem("onboarding_minimized"); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.accent, fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
+          Expandir
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-in" style={{
       background: C.surface, borderRadius: C.rLg, border: `1px solid ${C.accentBd}`,
-      padding: 32, boxShadow: C.shMd, maxWidth: 640, margin: "40px auto",
+      padding: 28, marginBottom: 20, boxShadow: C.shMd,
     }}>
-      <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ fontSize: 32, marginBottom: 8 }}>🚀</div>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: 0 }}>
-          ¡Bienvenido a tu sistema de inventario!
-        </h2>
-        <p style={{ fontSize: 14, color: C.mid, marginTop: 8 }}>
-          Configura tu negocio en 3 pasos simples
-        </p>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 24 }}>🚀</span>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0 }}>
+              Configura tu negocio
+            </h2>
+          </div>
+          <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>
+            Completa estos pasos para dejar todo listo
+          </p>
+        </div>
+        <button onClick={() => { setMinimized(true); localStorage.setItem("onboarding_minimized", "1"); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 12, fontFamily: "inherit", padding: 4 }}>
+          Minimizar
+        </button>
       </div>
 
-      <div style={{ display: "grid", gap: 12 }}>
-        {steps.map((step, i) => (
-          <Link key={i} href={step.href} style={{ textDecoration: "none", color: "inherit" }}>
-            <div className="xb" style={{
-              display: "flex", alignItems: "center", gap: 16,
-              padding: "16px 20px", borderRadius: C.rMd,
-              border: `1px solid ${C.border}`, background: C.bg,
+      {/* Progress bar */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>{data.progress} de {data.total_steps} completados</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>{pct}%</span>
+        </div>
+        <div style={{ width: "100%", height: 8, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${C.accent}, #7C3AED)`, borderRadius: 4, transition: "width .5s ease" }} />
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div style={{ display: "grid", gap: 8 }}>
+        {data.steps.map((step) => (
+          <Link key={step.key} href={step.completed ? "#" : step.link}
+            style={{ textDecoration: "none", color: "inherit", pointerEvents: step.completed ? "none" : "auto" }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "12px 16px", borderRadius: C.rMd,
+              border: `1px solid ${step.completed ? C.greenBd : C.border}`,
+              background: step.completed ? C.greenBg : C.bg,
+              opacity: step.completed ? 0.7 : 1,
               transition: C.ease,
             }}>
+              {/* Check / Icon */}
               <div style={{
-                width: 42, height: 42, borderRadius: "50%",
-                background: C.accentBg, border: `1px solid ${C.accentBd}`,
+                width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18, flexShrink: 0,
+                fontSize: step.completed ? 16 : 18,
+                background: step.completed ? C.green : C.accentBg,
+                color: step.completed ? "#fff" : C.text,
+                border: step.completed ? "none" : `1px solid ${C.accentBd}`,
               }}>
-                {step.icon}
+                {step.completed ? "✓" : STEP_ICONS[step.key] || "📋"}
               </div>
+              {/* Text */}
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{step.title}</div>
-                <div style={{ fontSize: 12, color: C.mute, marginTop: 2 }}>{step.desc}</div>
+                <div style={{
+                  fontSize: 13, fontWeight: 600,
+                  color: step.completed ? C.green : C.text,
+                  textDecoration: step.completed ? "line-through" : "none",
+                }}>
+                  {step.label}
+                </div>
+                <div style={{ fontSize: 11, color: C.mute, marginTop: 1 }}>{step.description}</div>
               </div>
-              <div style={{ color: C.mute, fontSize: 18 }}>→</div>
+              {/* Action */}
+              {!step.completed && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.accent, whiteSpace: "nowrap" }}>
+                  Ir →
+                </span>
+              )}
             </div>
           </Link>
         ))}
@@ -318,11 +399,13 @@ export default function DashboardPage() {
 
   if (!data) return null;
 
-  // Si no tiene productos, mostrar onboarding
+  // Si no tiene productos, mostrar solo onboarding
   if (!data.onboarding.has_products) {
     return (
       <div style={{ background: C.bg, minHeight: "100vh", padding: 24, fontFamily: C.font }}>
-        <OnboardingCard />
+        <div style={{ maxWidth: 640, margin: "40px auto" }}>
+          <OnboardingChecklist />
+        </div>
       </div>
     );
   }
@@ -331,6 +414,11 @@ export default function DashboardPage() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: C.font }}>
+      {/* Onboarding checklist (shows until all steps completed) */}
+      <div style={{ padding: mob ? "12px 12px 0" : "16px 24px 0" }}>
+        <OnboardingChecklist />
+      </div>
+
       {/* Header */}
       <div style={{
         padding: mob ? "16px 12px 12px" : "20px 24px 16px", display: "flex", alignItems: "center",

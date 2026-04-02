@@ -228,7 +228,8 @@ class RegisterView(APIView):
 class OnboardingStatusView(APIView):
     """
     GET /api/auth/onboarding-status/
-    Returns whether the user has completed onboarding steps.
+    Returns guided onboarding checklist with 7 steps.
+    Each step: { key, label, description, completed, link }
     """
     permission_classes = [IsAuthenticated]
 
@@ -236,41 +237,100 @@ class OnboardingStatusView(APIView):
         user = request.user
         tenant = user.tenant
         store = user.active_store
+        tid = getattr(tenant, "id", None)
 
-        has_tenant = tenant is not None
-        has_store = store is not None
-        has_warehouse = False
-        has_products = False
-        has_first_sale = False
+        if not tid:
+            return Response({"completed": False, "progress": 0, "total_steps": 7, "steps": []})
 
-        if has_tenant and has_store:
-            has_warehouse = Warehouse.objects.filter(
-                tenant=tenant, store=store, is_active=True
-            ).exists()
+        from catalog.models import Product, Category
+        from inventory.models import StockItem
+        from sales.models import Sale
 
-            from catalog.models import Product
-            has_products = Product.objects.filter(
-                tenant=tenant, is_active=True
-            ).exists()
+        # Step 1: Business data
+        business_ok = bool(tenant.name and tenant.name.strip() and getattr(tenant, "rut", None))
 
-            from sales.models import Sale
-            has_first_sale = Sale.objects.filter(
-                tenant=tenant, store=store, status="COMPLETED"
-            ).exists()
+        # Step 2: Receipt config
+        receipt_ok = bool(
+            getattr(tenant, "receipt_header", None) or getattr(tenant, "receipt_footer", None)
+        )
 
-        steps = {
-            "account_created": True,
-            "business_setup": has_tenant and has_store,
-            "warehouse_ready": has_warehouse,
-            "first_product": has_products,
-            "first_sale": has_first_sale,
-        }
+        # Step 3: Categories
+        has_categories = Category.objects.filter(tenant_id=tid).exists()
 
-        completed = all(steps.values())
+        # Step 4: Products
+        has_products = Product.objects.filter(tenant_id=tid, is_active=True).exists()
+
+        # Step 5: Stock
+        has_stock = StockItem.objects.filter(tenant_id=tid, on_hand__gt=0).exists()
+
+        # Step 6: Cash register session
+        caja_opened = False
+        try:
+            from caja.models import CashSession
+            caja_opened = CashSession.objects.filter(tenant_id=tid).exists()
+        except Exception:
+            pass
+
+        # Step 7: First sale
+        first_sale = Sale.objects.filter(tenant_id=tid, status="COMPLETED").exists()
+
+        steps = [
+            {
+                "key": "business_setup",
+                "label": "Datos del negocio",
+                "description": "Configura el nombre, RUT y dirección de tu negocio",
+                "completed": business_ok,
+                "link": "/dashboard/settings",
+            },
+            {
+                "key": "receipt_setup",
+                "label": "Configurar boleta",
+                "description": "Personaliza el header y footer de tus boletas",
+                "completed": receipt_ok,
+                "link": "/dashboard/settings",
+            },
+            {
+                "key": "has_categories",
+                "label": "Crear categorías",
+                "description": "Organiza tus productos por categorías",
+                "completed": has_categories,
+                "link": "/dashboard/catalog",
+            },
+            {
+                "key": "has_products",
+                "label": "Cargar productos",
+                "description": "Agrega al menos un producto a tu catálogo",
+                "completed": has_products,
+                "link": "/dashboard/catalog",
+            },
+            {
+                "key": "has_stock",
+                "label": "Agregar stock",
+                "description": "Registra inventario inicial en tu bodega",
+                "completed": has_stock,
+                "link": "/dashboard/inventory/stock",
+            },
+            {
+                "key": "caja_opened",
+                "label": "Abrir caja",
+                "description": "Abre tu primera sesión de caja para empezar a vender",
+                "completed": caja_opened,
+                "link": "/dashboard/caja",
+            },
+            {
+                "key": "first_sale",
+                "label": "Primera venta",
+                "description": "Realiza tu primera venta desde el punto de venta",
+                "completed": first_sale,
+                "link": "/dashboard/pos",
+            },
+        ]
+
+        progress = sum(1 for s in steps if s["completed"])
 
         return Response({
-            "completed": completed,
-            "steps": steps,
-            "progress": sum(1 for v in steps.values() if v),
+            "completed": progress == len(steps),
+            "progress": progress,
             "total_steps": len(steps),
+            "steps": steps,
         })
