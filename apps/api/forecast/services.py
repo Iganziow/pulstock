@@ -32,7 +32,7 @@ from forecast.engine import (
     apply_empirical_intervals, detect_price_change_impact,
     compute_monthly_seasonality, compute_bimodal_seasonality, apply_monthly_seasonality,
     compute_yoy_growth, apply_yoy_adjustment,
-    compute_confidence_decay,
+    compute_confidence_decay, _q3,
 )
 
 D0 = Decimal("0.000")
@@ -826,11 +826,25 @@ def train_product_model(tenant, product, warehouse_id, today,
         apply_yoy_adjustment(best["forecasts"], yoy)
         best["params"]["yoy_growth"] = yoy
 
-    # Price elasticity signal (informational, stored in params)
+    # Price elasticity — detect and apply demand adjustment for recent price changes
     revenue_series = list(ds_qs.values_list("date", "revenue"))
     price_info = detect_price_change_impact(raw_series, revenue_series)
     if price_info and price_info["is_price_sensitive"]:
         best["params"]["price_sensitivity"] = price_info
+        # Apply elasticity: if most recent event is within last 14 days, adjust forecasts
+        if price_info["events"] and best["forecasts"]:
+            last_event = price_info["events"][-1]
+            event_date = date.fromisoformat(last_event["date"]) if isinstance(last_event["date"], str) else last_event["date"]
+            if (today - event_date).days <= 14:
+                demand_change = last_event["demand_change_pct"] / 100  # e.g. -0.20
+                # Apply 50%-damped adjustment to avoid overreaction
+                adj_factor = 1 + (demand_change * 0.5)
+                adj_factor = max(0.5, min(1.5, adj_factor))  # clamp
+                for f in best["forecasts"]:
+                    f["qty_predicted"] = _q3(f["qty_predicted"] * Decimal(str(adj_factor)))
+                    f["lower_bound"] = max(D0, _q3(f["lower_bound"] * Decimal(str(adj_factor))))
+                    f["upper_bound"] = _q3(f["upper_bound"] * Decimal(str(adj_factor)))
+                best["params"]["price_elasticity_applied"] = round(adj_factor, 3)
 
     # Compare with existing
     existing = ForecastModel.objects.filter(

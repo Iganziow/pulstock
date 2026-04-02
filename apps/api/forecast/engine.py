@@ -77,7 +77,8 @@ def clean_series(daily_series, stockout_dates=None, holiday_dates=None):
         if d not in stockout_dates and float(q) > 0:
             dow_values.setdefault(d.weekday(), []).append(float(q))
 
-    # IQR for outlier detection — exclude holidays so seasonal spikes survive
+    # Percentile-based outlier detection — less aggressive than IQR 1.5x
+    # Excludes holidays so seasonal spikes survive
     all_nonzero = [
         float(q) for d, q in daily_series
         if float(q) > 0 and d not in holiday_dates
@@ -89,7 +90,9 @@ def clean_series(daily_series, stockout_dates=None, holiday_dates=None):
         q1 = sorted_vals[n // 4]
         q3_val = sorted_vals[(3 * n) // 4]
         iqr = q3_val - q1
-        iqr_limit = q3_val + 1.5 * iqr
+        # Use p97.5 as ceiling — keeps real demand spikes, only clips true anomalies
+        p975 = sorted_vals[min(int(n * 0.975), n - 1)]
+        iqr_limit = max(q3_val + 2.0 * iqr, p975)
 
     for d, q in daily_series:
         qty = float(q)
@@ -1407,6 +1410,56 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None):
             fc["upper_bound"] = _q3(fc["upper_bound"] * mult_d)
 
     return forecasts
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HOLIDAY AUTO-LEARNING — compute learned_multiplier from historical sales
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_holiday_learned_multiplier(daily_series, holiday_date, window=7):
+    """
+    Compute a learned demand multiplier for a holiday by comparing
+    actual sales on the holiday vs surrounding normal days.
+
+    Args:
+        daily_series: sorted list of (date, qty, ...) tuples
+        holiday_date: the date of the holiday event
+        window: days before/after to use as baseline (excluding the holiday itself)
+
+    Returns:
+        float multiplier (e.g., 1.5 means +50% demand) or None if insufficient data
+    """
+    date_map = {}
+    for item in daily_series:
+        d = item[0]
+        q = float(item[1])
+        date_map[d] = q
+
+    # Get holiday demand
+    holiday_demand = date_map.get(holiday_date)
+    if holiday_demand is None or holiday_demand <= 0:
+        return None
+
+    # Compute baseline from surrounding normal days (excluding holiday ±1)
+    baseline_values = []
+    for offset in range(-window, window + 1):
+        if abs(offset) <= 1:  # skip the holiday and adjacent days
+            continue
+        check_date = holiday_date + timedelta(days=offset)
+        val = date_map.get(check_date)
+        if val is not None and val > 0:
+            baseline_values.append(val)
+
+    if len(baseline_values) < 3:
+        return None
+
+    baseline_avg = sum(baseline_values) / len(baseline_values)
+    if baseline_avg <= 0:
+        return None
+
+    multiplier = holiday_demand / baseline_avg
+    # Clamp to reasonable range (0.2x to 5.0x)
+    return max(0.2, min(5.0, round(multiplier, 2)))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

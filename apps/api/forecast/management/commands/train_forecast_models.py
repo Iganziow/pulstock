@@ -10,9 +10,11 @@ Usage:
     python manage.py train_forecast_models --product 42
     python manage.py train_forecast_models --horizon 14
 """
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.db.models import Sum
 
 from core.models import Tenant
 from catalog.models import Product
@@ -38,7 +40,10 @@ class Command(BaseCommand):
         # Retail/minimarket: ítems de alta rotación, ventana corta, respuesta rápida
         "retail":      {"window": 14, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
         # Restaurant/cafetería: demanda muy estacional por día de semana, horizonte corto
-        "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21, "shrinkage_k": 7},
+        # seasonal_prior: verano turismo alto, invierno bajo (Chile)
+        "restaurant":  {"window": 7,  "min_days": 10, "horizon": 21, "shrinkage_k": 7,
+                        "seasonal_prior": {1:1.3, 2:1.2, 3:1.0, 4:0.9, 5:0.8, 6:0.7,
+                                           7:0.7, 8:0.8, 9:0.9, 10:1.0, 11:1.1, 12:1.3}},
         # Ferretería: ítems de baja rotación, proyectos, ventana larga
         # seasonal_prior: construcción Chile (Sep-Mar alto, Abr-Ago bajo)
         "hardware":    {"window": 30, "min_days": 21, "horizon": 60, "shrinkage_k": 21,
@@ -46,8 +51,10 @@ class Command(BaseCommand):
                                            7:0.6, 8:0.7, 9:1.0, 10:1.3, 11:1.4, 12:1.3}},
         # Distribuidora: volumen alto, demanda regular, horizonte medio-largo
         "wholesale":   {"window": 21, "min_days": 14, "horizon": 45, "shrinkage_k": 14},
-        # Farmacia: similar a retail pero con patrones de receta/estacionalidad
-        "pharmacy":    {"window": 14, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
+        # Farmacia: estacionalidad por clima (antigripales invierno, protectores verano)
+        "pharmacy":    {"window": 14, "min_days": 14, "horizon": 30, "shrinkage_k": 14,
+                        "seasonal_prior": {1:0.8, 2:0.8, 3:0.9, 4:1.1, 5:1.3, 6:1.4,
+                                           7:1.4, 8:1.3, 9:1.1, 10:0.9, 11:0.8, 12:0.8}},
         # Genérico
         "other":       {"window": 21, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
     }
@@ -81,6 +88,8 @@ class Command(BaseCommand):
                 self._process_tenant(tenant, today, min_days, horizon, window,
                                      options.get("product"), stats, shrinkage_k=shrinkage_k,
                                      seasonal_prior=seasonal_prior)
+                # Auto-learn holiday multipliers from historical sales
+                self._learn_holiday_multipliers(tenant, today)
             except Exception as e:
                 stats["failed"] += 1
                 stats["errors"].append(f"Tenant {tenant.id} ({tenant.name}): {e}")
@@ -231,3 +240,38 @@ class Command(BaseCommand):
                             horizon, stock_items, category_profiles, stats,
                             shrinkage_k=shrinkage_k,
                         )
+
+    def _learn_holiday_multipliers(self, tenant, today):
+        """
+        Auto-learn holiday demand multipliers from historical sales data.
+        Scans past holidays and computes actual demand vs baseline.
+        Updates Holiday.learned_multiplier for future forecast cycles.
+        """
+        from forecast.models import Holiday, DailySales
+        from forecast.engine import compute_holiday_learned_multiplier
+
+        # Only learn from holidays that already occurred (not future)
+        past_holidays = Holiday.objects.filter(date__lt=today, date__gte=today - timedelta(days=365))
+
+        # Get aggregate daily sales for this tenant
+        daily_agg = list(
+            DailySales.objects.filter(tenant=tenant)
+            .values("date")
+            .annotate(total_qty=Sum("qty_sold"))
+            .order_by("date")
+        )
+        if len(daily_agg) < 30:
+            return  # Not enough data to learn
+
+        series = [(row["date"], float(row["total_qty"])) for row in daily_agg]
+        updated = 0
+
+        for h in past_holidays:
+            mult = compute_holiday_learned_multiplier(series, h.date, window=7)
+            if mult is not None and mult != h.learned_multiplier:
+                h.learned_multiplier = Decimal(str(mult))
+                h.save(update_fields=["learned_multiplier"])
+                updated += 1
+
+        if updated:
+            self.stdout.write(f"  Holiday learning: {updated} multipliers updated for {tenant.name}")
