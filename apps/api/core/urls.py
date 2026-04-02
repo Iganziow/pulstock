@@ -540,6 +540,112 @@ class AlertPreferenceView(APIView):
         return Response({f: getattr(prefs, f) for f in self.FIELDS})
 
 
+class NotificationsView(APIView):
+    """GET /core/notifications/ — alertas activas basadas en preferencias del usuario."""
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        user = request.user
+        tid = user.tenant_id
+        sid = getattr(user, "active_store_id", None)
+
+        # Load user preferences
+        prefs, _ = AlertPreference.objects.get_or_create(user=user)
+
+        notifications = []
+
+        # ── Stock bajo ──
+        if prefs.stock_bajo:
+            from inventory.models import StockItem
+            from catalog.models import Product
+            low_items = (
+                StockItem.objects
+                .filter(tenant_id=tid, product__is_active=True, product__min_stock__gt=0)
+                .filter(on_hand__lt=models.F("product__min_stock"))
+                .select_related("product")[:10]
+            )
+            for si in low_items:
+                notifications.append({
+                    "type": "stock_bajo",
+                    "icon": "📦",
+                    "title": f"{si.product.name} — stock bajo",
+                    "description": f"Quedan {si.on_hand} unidades (mínimo: {si.product.min_stock})",
+                    "link": "/dashboard/inventory/stock",
+                    "severity": "warning" if float(si.on_hand) > 0 else "critical",
+                })
+
+        # ── Forecast urgente (days_to_stockout <= 3) ──
+        if prefs.forecast_urgente:
+            try:
+                from forecast.models import Forecast
+                from django.utils import timezone
+                urgent = (
+                    Forecast.objects
+                    .filter(tenant_id=tid, date=timezone.now().date())
+                    .filter(days_to_stockout__isnull=False, days_to_stockout__lte=3)
+                    .select_related("product")[:5]
+                )
+                for f in urgent:
+                    notifications.append({
+                        "type": "forecast_urgente",
+                        "icon": "⚠️",
+                        "title": f"{f.product.name} — se agota pronto",
+                        "description": f"Estimado {f.days_to_stockout} día(s) para quedarse sin stock",
+                        "link": "/dashboard/forecast",
+                        "severity": "critical" if f.days_to_stockout <= 1 else "warning",
+                    })
+            except Exception:
+                pass
+
+        # ── Sugerencias de compra pendientes ──
+        if prefs.sugerencia_compra:
+            try:
+                from forecast.models import PurchaseSuggestion
+                pending = PurchaseSuggestion.objects.filter(
+                    tenant_id=tid, status="pending"
+                ).count()
+                if pending > 0:
+                    notifications.append({
+                        "type": "sugerencia_compra",
+                        "icon": "🛒",
+                        "title": f"{pending} sugerencia(s) de compra",
+                        "description": "Hay sugerencias automáticas de reposición pendientes",
+                        "link": "/dashboard/forecast/suggestions",
+                        "severity": "info",
+                    })
+            except Exception:
+                pass
+
+        # ── Merma alta (último mes) ──
+        if prefs.merma_alta:
+            from inventory.models import StockMove
+            from django.utils import timezone
+            from datetime import timedelta
+            month_ago = timezone.now() - timedelta(days=30)
+            loss_count = StockMove.objects.filter(
+                tenant_id=tid, move_type="OUT", ref_type="LOSS",
+                created_at__gte=month_ago,
+            ).count()
+            if loss_count > 0:
+                notifications.append({
+                    "type": "merma_alta",
+                    "icon": "📉",
+                    "title": f"{loss_count} merma(s) registradas este mes",
+                    "description": "Revisa las pérdidas en el reporte de mermas",
+                    "link": "/dashboard/reports/losses",
+                    "severity": "warning",
+                })
+
+        # Sort: critical first, then warning, then info
+        severity_order = {"critical": 0, "warning": 1, "info": 2}
+        notifications.sort(key=lambda n: severity_order.get(n["severity"], 9))
+
+        return Response({
+            "count": len(notifications),
+            "notifications": notifications,
+        })
+
+
 urlpatterns = [
     path("health/", HealthView.as_view()),
     path("me/", MeView.as_view()),
@@ -552,4 +658,5 @@ urlpatterns = [
     path("users/", TenantUsersView.as_view()),
     path("users/<int:user_id>/", TenantUserDetailView.as_view()),
     path("alerts/", AlertPreferenceView.as_view()),
+    path("notifications/", NotificationsView.as_view()),
 ]

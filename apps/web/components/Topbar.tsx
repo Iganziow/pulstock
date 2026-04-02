@@ -54,6 +54,8 @@ type Store = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+type Notification = { type: string; icon: string; title: string; description: string; link: string; severity: string };
+
 export default function Topbar() {
   const pathname = usePathname();
   const [user, setUser] = useState<UserData | null>(null);
@@ -61,8 +63,12 @@ export default function Topbar() {
   const [activeStoreId, setActiveStoreId] = useState<number | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifCount, setNotifCount] = useState(0);
   const storeRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   // Fetch user + stores
   useEffect(() => {
@@ -90,11 +96,29 @@ export default function Topbar() {
     return () => { mounted = false; };
   }, []);
 
+  // Load notifications
+  useEffect(() => {
+    let mounted = true;
+    async function fetchNotifs() {
+      try {
+        const res = await apiFetch("/core/notifications/");
+        if (mounted) {
+          setNotifications(res?.notifications || []);
+          setNotifCount(res?.count || 0);
+        }
+      } catch { /* silent */ }
+    }
+    fetchNotifs();
+    const id = setInterval(fetchNotifs, 300_000); // every 5 min
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
+
   // Close dropdowns on outside click
   useEffect(() => {
     function onClick(e: MouseEvent) {
       if (storeRef.current && !storeRef.current.contains(e.target as Node)) setDropdownOpen(false);
       if (userRef.current && !userRef.current.contains(e.target as Node)) setUserMenuOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
     }
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
@@ -218,6 +242,84 @@ export default function Topbar() {
             )}
           </div>
         )}
+
+        {/* Notification bell */}
+        <div ref={notifRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => { setNotifOpen(!notifOpen); setDropdownOpen(false); setUserMenuOpen(false); }}
+            style={{
+              position: "relative", display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, borderRadius: 8, border: "none",
+              background: notifOpen ? C.bg : "transparent", cursor: "pointer",
+              transition: "background .12s",
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.bg; }}
+            onMouseLeave={e => { if (!notifOpen) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? C.accent : C.mute} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            {notifCount > 0 && (
+              <span style={{
+                position: "absolute", top: 2, right: 2,
+                width: 16, height: 16, borderRadius: "50%",
+                background: C.red, color: "#fff", fontSize: 9, fontWeight: 700,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                lineHeight: 1, border: "2px solid " + C.surface,
+              }}>
+                {notifCount > 9 ? "9+" : notifCount}
+              </span>
+            )}
+          </button>
+
+          {notifOpen && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0,
+              background: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.14)",
+              width: 360, maxHeight: 420, overflow: "hidden", zIndex: 100,
+            }}>
+              <div style={{
+                padding: "12px 16px", borderBottom: `1px solid ${C.border}`,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+              }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Notificaciones</span>
+                <span style={{ fontSize: 11, color: C.mute }}>{notifCount} alerta(s)</span>
+              </div>
+              <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: "center", color: C.mute, fontSize: 13 }}>
+                    Sin alertas por ahora
+                  </div>
+                ) : (
+                  notifications.map((n, i) => (
+                    <a key={i} href={n.link}
+                      onClick={() => setNotifOpen(false)}
+                      style={{
+                        display: "flex", gap: 10, padding: "12px 16px",
+                        borderBottom: `1px solid ${C.border}`, textDecoration: "none", color: "inherit",
+                        background: n.severity === "critical" ? "#FEF2F2" : "transparent",
+                        transition: "background .1s",
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.bg; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = n.severity === "critical" ? "#FEF2F2" : "transparent"; }}
+                    >
+                      <span style={{ fontSize: 20, flexShrink: 0, lineHeight: 1.2 }}>{n.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 13, fontWeight: 600,
+                          color: n.severity === "critical" ? C.red : C.text,
+                        }}>{n.title}</div>
+                        <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>{n.description}</div>
+                      </div>
+                      <span style={{ fontSize: 12, color: C.accent, flexShrink: 0, alignSelf: "center" }}>→</span>
+                    </a>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* User avatar + menu */}
         <div ref={userRef} style={{ position: "relative" }}>
