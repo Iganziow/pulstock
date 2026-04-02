@@ -257,11 +257,20 @@ function PaymentModal({
         </div>
       )}
 
-      {/* Consumo interno "all" mode: read-only items list */}
-      {isConsumoInterno && checkoutMode === "all" && unpaidLines.length > 0 && (
-        <div style={{ marginBottom: 14, border: `1px solid #F59E0B`, borderRadius: C.r, overflow: "hidden", maxHeight: 200, overflowY: "auto", background: "#FFFBEB" }}>
-          <div style={{ padding: "6px 10px", background: "#FEF3C7", borderBottom: `1px solid #F59E0B`, fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            Items a registrar como consumo
+      {/* Items list — always visible in "all" mode */}
+      {checkoutMode === "all" && unpaidLines.length > 0 && (
+        <div style={{
+          marginBottom: 14, border: `1px solid ${isConsumoInterno ? "#F59E0B" : C.border}`,
+          borderRadius: C.r, overflow: "hidden", maxHeight: 200, overflowY: "auto",
+          background: isConsumoInterno ? "#FFFBEB" : C.surface,
+        }}>
+          <div style={{
+            padding: "6px 10px", borderBottom: `1px solid ${isConsumoInterno ? "#F59E0B" : C.border}`,
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+            background: isConsumoInterno ? "#FEF3C7" : C.bg,
+            color: isConsumoInterno ? "#92400E" : C.mute,
+          }}>
+            {isConsumoInterno ? "Items a registrar como consumo" : `${unpaidLines.length} producto(s)`}
           </div>
           {unpaidLines.map(l => (
             <div key={l.id} style={{
@@ -270,7 +279,7 @@ function PaymentModal({
             }}>
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.text }}>{l.product_name}</span>
               <span style={{ fontSize: 11, color: C.mid }}>{l.qty} × ${fmt(l.unit_price)}</span>
-              <span style={{ fontWeight: 700, fontSize: 12, color: "#92400E" }}>${fmt(l.line_total)}</span>
+              <span style={{ fontWeight: 700, fontSize: 12, color: isConsumoInterno ? "#92400E" : C.text }}>${fmt(l.line_total)}</span>
             </div>
           ))}
         </div>
@@ -365,13 +374,16 @@ function PaymentModal({
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 800, color: C.text, borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 3 }}>
-          <span>Total</span><span>${fmt(grandTotal)}</span>
+          <span>Total a cobrar</span><span>${fmt(grandTotal)}</span>
         </div>
-        {totalPaid > 0 && (
+        {!isConsumoInterno && totalPaid > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
-            {change > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>Vuelto: ${fmt(change)}</div>}
-            {pending > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Falta: ${fmt(pending)}</div>}
-            {pending === 0 && change === 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>Pagado exacto</div>}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid, marginBottom: 2 }}>
+              <span>Pagado</span><span>${fmt(totalPaid)}</span>
+            </div>
+            {change > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.green }}><span>Vuelto</span><span>${fmt(change)}</span></div>}
+            {pending > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.red }}><span>Falta</span><span>${fmt(pending)}</span></div>}
+            {pending === 0 && change === 0 && <div style={{ fontSize: 13, fontWeight: 700, color: C.green, textAlign: "center" }}>Pagado exacto</div>}
           </div>
         )}
       </div>
@@ -390,7 +402,7 @@ function PaymentModal({
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
         <Btn variant={isConsumoInterno ? "danger" : "primary"} full size="lg"
-          disabled={loading || grandTotal === 0 || (checkoutMode === "partial" && selLines.size === 0)}
+          disabled={loading || grandTotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < grandTotal)}
           onClick={() => onConfirm(
             isConsumoInterno ? [] : rows.filter(r => Number(r.amount) > 0),
             isConsumoInterno ? 0 : tip,
