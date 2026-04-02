@@ -204,7 +204,12 @@ class ReactivateSubscriptionView(APIView):
             from .services import create_invoice
             from .gateway import charge_subscription
 
-            invoice = create_invoice(sub)
+            # Idempotencia: reusar factura pendiente si existe
+            existing_invoice = Invoice.objects.filter(
+                subscription=sub,
+                status=Invoice.Status.PENDING,
+            ).order_by("-created_at").first()
+            invoice = existing_invoice or create_invoice(sub)
             result  = charge_subscription(sub, invoice)
 
             if result["success"]:

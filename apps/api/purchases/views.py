@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import status, generics
 from rest_framework.exceptions import ValidationError
 
-from core.permissions import HasTenant
+from core.permissions import HasTenant, IsInventoryOrManager
 from core.models import Warehouse
 from catalog.models import Product
 from inventory.models import StockItem, StockMove
@@ -109,7 +109,7 @@ def _get_or_create_stockitem_locked(*, tenant_id: int, warehouse_id: int, produc
 # CREATE (DRAFT)
 # ======================================================
 class PurchaseCreate(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request):
@@ -212,7 +212,7 @@ class PurchaseCreate(APIView):
 # LIST / DETAIL
 # ======================================================
 class PurchaseList(generics.ListAPIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
     serializer_class = PurchaseListSerializer
 
     def list(self, request, *args, **kwargs):
@@ -270,7 +270,7 @@ class PurchaseList(generics.ListAPIView):
         return qs
 
 class PurchaseDetail(generics.RetrieveAPIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
     serializer_class = PurchaseDetailSerializer
 
     def get_queryset(self):
@@ -289,7 +289,7 @@ class PurchaseDetail(generics.RetrieveAPIView):
 # POST (aplica stock + kardex)
 # ======================================================
 class PurchasePost(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request, pk: int):
@@ -394,7 +394,7 @@ class PurchasePost(APIView):
 # VOID (revierte stock + kardex)
 # ======================================================
 class PurchaseVoid(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request, pk: int):

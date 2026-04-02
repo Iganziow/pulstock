@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from decimal import Decimal,InvalidOperation
-from core.permissions import HasTenant, IsManager
+from core.permissions import HasTenant, IsManager, IsManagerOrReadOnly
 from .models import Category, Product, Barcode, Recipe, RecipeLine, Unit
 from .serializers import (
     CategorySerializer, ProductReadSerializer, ProductWriteSerializer,
@@ -41,7 +41,7 @@ def _prefetch_barcodes_ordered():
 # Categories
 # -----------------------
 class CategoryListCreate(generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = CategorySerializer
 
     def get_queryset(self):
@@ -58,7 +58,7 @@ class CategoryListCreate(generics.ListCreateAPIView):
 
 
 class CategoryDetail(generics.RetrieveUpdateAPIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = CategorySerializer
 
     def get_queryset(self):
@@ -74,7 +74,7 @@ class ProductListCreate(generics.ListCreateAPIView):
     - GET /api/catalog/products/?q=
     - POST /api/catalog/products/
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get_queryset(self):
         qs = (
@@ -136,7 +136,7 @@ class ProductListCreate(generics.ListCreateAPIView):
 
 
 class ProductDetail(generics.RetrieveUpdateAPIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get_queryset(self):
         return (
@@ -183,7 +183,7 @@ class ProductSearch(APIView):
     - Catálogo use /products/?q=
     - POS use /products/lookup/?term=
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get(self, request):
         t_id = tenant_id(request)
@@ -242,7 +242,7 @@ class ProductLookup(APIView):
 
     GET /api/catalog/products/lookup/?term=XXXXXXXX
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get(self, request):
         t_id = tenant_id(request)
@@ -274,7 +274,7 @@ class ProductLookup(APIView):
     
 
 class ProductImport(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     REQUIRED_HEADERS = {"name"}  # mínimo
     OPTIONAL_HEADERS = {"sku", "description", "unit", "price", "is_active", "category", "barcodes", "cost", "min_stock", "brand", "image_url"}
@@ -643,7 +643,7 @@ class CategoryTree(generics.ListAPIView):
     GET /api/catalog/categories/tree/
     Devuelve árbol completo para selectores de UI.
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = CategorySerializer
 
     def get_queryset(self):
@@ -661,7 +661,7 @@ class CategoryTree(generics.ListAPIView):
 
 class ProductImportSample(APIView):
     """GET /catalog/products/import-sample/ → descargar Excel de ejemplo."""
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get(self, request):
         from openpyxl import Workbook
@@ -794,7 +794,7 @@ class RecipeImport(APIView):
         - Identifica ingrediente por SKU o nombre
         - Agrupa líneas por producto padre → crea/reemplaza receta
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def post(self, request):
         t_id = tenant_id(request)
@@ -971,7 +971,7 @@ class RecipeImport(APIView):
 
 class RecipeImportSample(APIView):
     """GET /catalog/recipes/import-sample/ → descargar Excel de ejemplo para recetas."""
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get(self, request):
         from openpyxl import Workbook
@@ -1083,7 +1083,7 @@ class ProductRecipeView(APIView):
     POST /catalog/products/{pk}/recipe/  → crear o reemplazar receta completa
     DELETE /catalog/products/{pk}/recipe/ → eliminar receta
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def _get_product(self, pk, t_id):
         try:
@@ -1230,7 +1230,7 @@ class ProductRecipeView(APIView):
 
 class UnitList(generics.ListAPIView):
     """GET /catalog/units/ → lista de unidades del tenant."""
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = UnitSerializer
     pagination_class = None
 
@@ -1246,7 +1246,7 @@ class UnitList(generics.ListAPIView):
 
 class PriceListView(APIView):
     """GET /catalog/products/prices/ — Lista de productos con info de precios."""
-    permission_classes = [IsAuthenticated, HasTenant]
+    permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     PAGE_SIZE = 50
 

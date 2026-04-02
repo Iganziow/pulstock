@@ -95,7 +95,7 @@ function CheckoutCompleteInner() {
 
   async function handleSubmit() {
     const errs: Record<string, string> = {};
-    if (!password || password.length < 6) errs.password = "Mínimo 6 caracteres";
+    if (!password || password.length < 8) errs.password = "Mínimo 8 caracteres";
     if (!fullName.trim()) errs.full_name = "Tu nombre es obligatorio";
     if (!businessName.trim()) errs.business_name = "El nombre de tu negocio es obligatorio";
     if (Object.keys(errs).length > 0) { setFormErrors(errs); return; }

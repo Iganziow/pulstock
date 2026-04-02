@@ -13,8 +13,10 @@ from django.utils.dateparse import parse_date
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 
 from billing.permissions import RequireFeature
+from core.permissions import HasTenant, IsManager
 from catalog.models import Product
 from core.models import Warehouse
 from inventory.models import StockItem, StockMove
@@ -81,6 +83,8 @@ def _user_display(request):
 # 1. STOCK VALORIZADO
 # ══════════════════════════════════════════════════════════════════
 class StockValuedReportView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         data = services.get_stock_valued(
@@ -149,6 +153,8 @@ class LossesReportView(APIView):
 # 4. VENTAS DEL PERÍODO
 # ══════════════════════════════════════════════════════════════════
 class SalesSummaryReportView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         p = request.query_params

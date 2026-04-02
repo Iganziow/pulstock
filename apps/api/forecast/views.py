@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from billing.permissions import RequireFeature
+from core.permissions import IsManager
 from forecast.models import PurchaseSuggestion, SuggestionLine, Holiday
 from forecast.serializers import HolidaySerializer
 from forecast import services
@@ -147,7 +148,7 @@ class SuggestionListView(APIView):
 
 class SuggestionApproveView(APIView):
     """POST /api/forecast/suggestions/<id>/approve/"""
-    permission_classes = [RequireFeature("has_forecast")]
+    permission_classes = [RequireFeature("has_forecast"), IsManager]
 
     def post(self, request, pk):
         t_id, s_id, err = _require(request)
@@ -233,7 +234,7 @@ class SuggestionApproveView(APIView):
 
 class SuggestionDismissView(APIView):
     """POST /api/forecast/suggestions/<id>/dismiss/"""
-    permission_classes = [RequireFeature("has_forecast")]
+    permission_classes = [RequireFeature("has_forecast"), IsManager]
 
     def post(self, request, pk):
         t_id, s_id, err = _require(request)
