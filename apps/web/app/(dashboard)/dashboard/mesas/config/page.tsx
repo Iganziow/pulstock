@@ -69,7 +69,7 @@ function Modal({ title, onClose, children, width = 400 }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: C.surface, borderRadius: C.rMd, width: "100%", maxWidth: width, boxShadow: C.shMd, animation: "fadeIn 0.18s ease" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
           <span style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{title}</span>
