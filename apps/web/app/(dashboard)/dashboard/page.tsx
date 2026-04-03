@@ -210,125 +210,117 @@ const STEP_ICONS: Record<string, string> = {
 
 function OnboardingChecklist() {
   const [data, setData] = useState<OnboardingData | null>(null);
-  const [minimized, setMinimized] = useState(false);
-  const [celebrated, setCelebrated] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     apiFetch("/auth/onboarding-status/").then(setData).catch(() => {});
-    // Check localStorage for minimized state
-    if (typeof window !== "undefined" && localStorage.getItem("onboarding_minimized") === "1") {
-      setMinimized(true);
-    }
   }, []);
 
   if (!data || data.completed) return null;
 
   const pct = Math.round((data.progress / data.total_steps) * 100);
 
-  if (minimized) {
-    return (
-      <div className="fade-in" style={{
-        background: C.surface, borderRadius: C.rMd, border: `1px solid ${C.accentBd}`,
-        padding: "10px 16px", marginBottom: 16, boxShadow: C.sh,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 16 }}>🚀</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-            Configuración: {data.progress}/{data.total_steps} pasos
-          </span>
-          <div style={{ width: 80, height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ width: `${pct}%`, height: "100%", background: C.accent, borderRadius: 3, transition: "width .3s" }} />
-          </div>
-        </div>
-        <button onClick={() => { setMinimized(false); localStorage.removeItem("onboarding_minimized"); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: C.accent, fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>
-          Expandir
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="fade-in" style={{
-      background: C.surface, borderRadius: C.rLg, border: `1px solid ${C.accentBd}`,
-      padding: 28, marginBottom: 20, boxShadow: C.shMd,
-    }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 24 }}>🚀</span>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: 0 }}>
-              Configura tu negocio
-            </h2>
-          </div>
-          <p style={{ fontSize: 13, color: C.mid, margin: 0 }}>
-            Completa estos pasos para dejar todo listo
-          </p>
-        </div>
-        <button onClick={() => { setMinimized(true); localStorage.setItem("onboarding_minimized", "1"); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 12, fontFamily: "inherit", padding: 4 }}>
-          Minimizar
-        </button>
-      </div>
-
-      {/* Progress bar */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>{data.progress} de {data.total_steps} completados</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>{pct}%</span>
-        </div>
-        <div style={{ width: "100%", height: 8, background: C.border, borderRadius: 4, overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${C.accent}, #7C3AED)`, borderRadius: 4, transition: "width .5s ease" }} />
-        </div>
-      </div>
-
-      {/* Steps */}
-      <div style={{ display: "grid", gap: 8 }}>
-        {data.steps.map((step) => (
-          <Link key={step.key} href={step.completed ? "#" : step.link}
-            style={{ textDecoration: "none", color: "inherit", pointerEvents: step.completed ? "none" : "auto" }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "12px 16px", borderRadius: C.rMd,
-              border: `1px solid ${step.completed ? C.greenBd : C.border}`,
-              background: step.completed ? C.greenBg : C.bg,
-              opacity: step.completed ? 0.7 : 1,
-              transition: C.ease,
-            }}>
-              {/* Check / Icon */}
-              <div style={{
-                width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: step.completed ? 16 : 18,
-                background: step.completed ? C.green : C.accentBg,
-                color: step.completed ? "#fff" : C.text,
-                border: step.completed ? "none" : `1px solid ${C.accentBd}`,
-              }}>
-                {step.completed ? "✓" : STEP_ICONS[step.key] || "📋"}
-              </div>
-              {/* Text */}
-              <div style={{ flex: 1 }}>
-                <div style={{
-                  fontSize: 13, fontWeight: 600,
-                  color: step.completed ? C.green : C.text,
-                  textDecoration: step.completed ? "line-through" : "none",
-                }}>
-                  {step.label}
-                </div>
-                <div style={{ fontSize: 11, color: C.mute, marginTop: 1 }}>{step.description}</div>
-              </div>
-              {/* Action */}
-              {!step.completed && (
-                <span style={{ fontSize: 12, fontWeight: 600, color: C.accent, whiteSpace: "nowrap" }}>
-                  Ir →
-                </span>
-              )}
+    <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 90 }}>
+      {/* Expanded panel */}
+      {open && (
+        <div className="fade-in" style={{
+          width: 320, background: C.surface, borderRadius: 16,
+          border: `1px solid ${C.border}`, boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
+          marginBottom: 10, overflow: "hidden",
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: "14px 16px", background: `linear-gradient(135deg, ${C.accent}, #7C3AED)`,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🚀</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>Configura tu negocio</span>
             </div>
-          </Link>
-        ))}
-      </div>
+            <button onClick={() => setOpen(false)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.7)", fontSize: 16, lineHeight: 1 }}>✕</button>
+          </div>
+
+          {/* Progress */}
+          <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: C.mid }}>{data.progress}/{data.total_steps} completados</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>{pct}%</span>
+            </div>
+            <div style={{ width: "100%", height: 5, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: C.accent, borderRadius: 3, transition: "width .4s" }} />
+            </div>
+          </div>
+
+          {/* Steps */}
+          <div style={{ maxHeight: 320, overflowY: "auto", padding: "8px 12px" }}>
+            {data.steps.map((step) => (
+              <Link key={step.key} href={step.completed ? "#" : step.link}
+                onClick={() => !step.completed && setOpen(false)}
+                style={{ textDecoration: "none", color: "inherit", pointerEvents: step.completed ? "none" : "auto" }}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 10px", borderRadius: 8, marginBottom: 2,
+                  background: step.completed ? C.greenBg : "transparent",
+                  transition: "background .15s",
+                }}
+                  onMouseEnter={e => { if (!step.completed) (e.currentTarget as HTMLElement).style.background = C.bg; }}
+                  onMouseLeave={e => { if (!step.completed) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <div style={{
+                    width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: step.completed ? 12 : 13,
+                    background: step.completed ? C.green : C.accentBg,
+                    color: step.completed ? "#fff" : C.text,
+                  }}>
+                    {step.completed ? "✓" : STEP_ICONS[step.key] || "·"}
+                  </div>
+                  <span style={{
+                    fontSize: 12, fontWeight: 600, flex: 1,
+                    color: step.completed ? C.green : C.text,
+                    textDecoration: step.completed ? "line-through" : "none",
+                  }}>
+                    {step.label}
+                  </span>
+                  {!step.completed && (
+                    <span style={{ fontSize: 11, color: C.accent }}>→</span>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Floating button */}
+      <button onClick={() => setOpen(!open)}
+        style={{
+          width: 52, height: 52, borderRadius: "50%",
+          background: `linear-gradient(135deg, ${C.accent}, #7C3AED)`,
+          border: "none", cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(79,70,229,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          position: "relative", transition: "transform .15s",
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.08)"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1 }}>{open ? "✕" : "🚀"}</span>
+        {/* Badge */}
+        {!open && data.progress < data.total_steps && (
+          <span style={{
+            position: "absolute", top: -2, right: -2,
+            width: 20, height: 20, borderRadius: "50%",
+            background: C.green, color: "#fff", fontSize: 10, fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: "2px solid " + C.surface,
+          }}>
+            {data.progress}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
@@ -399,13 +391,16 @@ export default function DashboardPage() {
 
   if (!data) return null;
 
-  // Si no tiene productos, mostrar solo onboarding
+  // Si no tiene productos, mostrar dashboard vacío con onboarding flotante
   if (!data.onboarding.has_products) {
     return (
       <div style={{ background: C.bg, minHeight: "100vh", padding: 24, fontFamily: C.font }}>
-        <div style={{ maxWidth: 640, margin: "40px auto" }}>
-          <OnboardingChecklist />
+        <div style={{ textAlign: "center", paddingTop: 80 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: "0 0 8px" }}>¡Bienvenido a Pulstock!</h2>
+          <p style={{ fontSize: 14, color: C.mid }}>Haz click en el botón 🚀 de abajo a la derecha para configurar tu negocio</p>
         </div>
+        <OnboardingChecklist />
       </div>
     );
   }
@@ -414,10 +409,8 @@ export default function DashboardPage() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: C.font }}>
-      {/* Onboarding checklist (shows until all steps completed) */}
-      <div style={{ padding: mob ? "12px 12px 0" : "16px 24px 0" }}>
-        <OnboardingChecklist />
-      </div>
+      {/* Onboarding widget (floating bottom-right) */}
+      <OnboardingChecklist />
 
       {/* Header */}
       <div style={{
