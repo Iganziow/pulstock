@@ -181,11 +181,11 @@ const PAY_METHODS = [
 ];
 
 function PaymentModal({
-  total, tableName, onConfirm, onClose, loading, unpaidLines, canConsumoInterno,
+  total, tableName, onConfirm, onClose, loading, unpaidLines, canConsumoInterno, error,
 }: {
   total: number; tableName: string;
   onConfirm: (payments: PaymentRow[], tip: number, mode: "all" | "partial", lineIds: number[], saleType?: string) => void;
-  onClose: () => void; loading: boolean; unpaidLines: OrderLine[]; canConsumoInterno?: boolean;
+  onClose: () => void; loading: boolean; unpaidLines: OrderLine[]; canConsumoInterno?: boolean; error?: string;
 }) {
   const [rows, setRows] = useState<PaymentRow[]>([{ method: "cash", amount: "" }]);
   const [tipStr, setTipStr] = useState("");
@@ -398,6 +398,19 @@ function PaymentModal({
         <span style={{ fontSize: 11, color: C.mute }}>pers.</span>
         {splitPer != null && <span style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginLeft: "auto" }}>${fmt(splitPer)} c/u</span>}
       </div>
+      )}
+
+      {/* Error from checkout attempt */}
+      {error && (
+        <div style={{
+          padding: "10px 14px", marginBottom: 10, borderRadius: C.r,
+          background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
+          fontSize: 12, fontWeight: 600,
+        }}>
+          {error.includes("Insufficient stock") || error.includes("stock")
+            ? "No hay stock suficiente para completar esta venta. Verifica el inventario."
+            : error}
+        </div>
       )}
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -855,7 +868,7 @@ function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUp
       {showPayment && (
         <PaymentModal total={Number(order.subtotal_unpaid)} tableName={order.customer_name || tableName}
           unpaidLines={unpaidLines} onClose={() => setShowPayment(false)}
-          loading={payLoading} onConfirm={handleCheckout} canConsumoInterno={canConsumoInterno} />
+          loading={payLoading} onConfirm={handleCheckout} canConsumoInterno={canConsumoInterno} error={payErr} />
       )}
       {quickPayLine && (
         <PaymentModal total={Number(quickPayLine.line_total)} tableName={`${quickPayLine.product_name}`}
