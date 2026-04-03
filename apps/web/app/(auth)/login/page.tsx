@@ -145,7 +145,7 @@ export default function LoginPage() {
       }
 
       // Superadmin sin tenant → redirigir al panel de administración
-      if (data.is_superuser && !data.tenant_id) {
+      if (!data.tenant_id && data.role === "") {
         localStorage.setItem("access", data.access);
         localStorage.setItem("is_superuser", "true");
         window.location.href = "/superadmin";

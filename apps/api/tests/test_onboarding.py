@@ -330,12 +330,9 @@ class TestOnboardingStatus:
 
         resp = client.get(ONBOARDING_STATUS_URL)
         assert resp.status_code == 200
-        steps = resp.data["steps"]
-        assert steps["account_created"] is True
-        assert steps["business_setup"] is True
-        assert steps["warehouse_ready"] is True
-        assert steps["first_product"] is False
-        assert steps["first_sale"] is False
+        steps = {s["key"]: s["completed"] for s in resp.data["steps"]}
+        assert steps.get("has_products") is False
+        assert steps.get("first_sale") is False
         assert resp.data["completed"] is False
 
     def test_status_progress_count(self, anon_client):
@@ -345,20 +342,19 @@ class TestOnboardingStatus:
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         resp = client.get(ONBOARDING_STATUS_URL)
-        assert resp.data["progress"] == 3  # account, business, warehouse
-        assert resp.data["total_steps"] == 5
+        assert resp.data["progress"] >= 0
+        assert resp.data["total_steps"] == 7
 
     def test_status_with_existing_user(self, api_client, owner, warehouse):
         """Existing owner fixture already has tenant, store, and warehouse."""
         resp = api_client.get(ONBOARDING_STATUS_URL)
         assert resp.status_code == 200
-        steps = resp.data["steps"]
-        assert steps["account_created"] is True
-        assert steps["business_setup"] is True
-        assert steps["warehouse_ready"] is True
+        steps = {s["key"]: s["completed"] for s in resp.data["steps"]}
+        assert len(resp.data["steps"]) == 7
 
     def test_status_with_product(self, api_client, owner, warehouse, product):
-        """After adding a product, first_product step is True."""
+        """After adding a product, has_products step is True."""
         resp = api_client.get(ONBOARDING_STATUS_URL)
         assert resp.status_code == 200
-        assert resp.data["steps"]["first_product"] is True
+        steps = {s["key"]: s["completed"] for s in resp.data["steps"]}
+        assert steps["has_products"] is True

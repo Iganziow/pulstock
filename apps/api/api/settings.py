@@ -251,10 +251,12 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
+        "api.throttles.TenantRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": "200/hour",
         "user": "2000/hour",
+        "tenant": "5000/hour",
         "login": "10/minute",
         "register": "10/hour",
         "sensitive_action": "20/hour",
@@ -326,6 +328,11 @@ LOGGING = {
         },
         "simple": {
             "format": "{levelname} {message}",
+            "style": "{",
+        },
+        "json": {
+            "()": "django.utils.log.ServerFormatter",
+            "format": "{levelname} {asctime} {name} {message}",
             "style": "{",
         },
     },

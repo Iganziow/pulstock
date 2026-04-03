@@ -1,4 +1,16 @@
-from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle, UserRateThrottle
+
+
+class TenantRateThrottle(SimpleRateThrottle):
+    """Rate limit per tenant — prevents a single tenant from overwhelming the API.
+    All users of the same tenant share the 5000 req/hour limit."""
+    scope = "tenant"
+
+    def get_cache_key(self, request, view):
+        tenant_id = getattr(request.user, "tenant_id", None) if hasattr(request, "user") else None
+        if not tenant_id:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": tenant_id}
 
 
 class LoginRateThrottle(AnonRateThrottle):

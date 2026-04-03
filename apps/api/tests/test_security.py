@@ -387,14 +387,12 @@ class TestRoleBasedFeatureAccess:
 @pytest.mark.django_db
 class TestUserManagementEdgeCases:
 
-    def test_soft_delete_deactivates(self, owner_client, cashier_user):
-        """DELETE deactivates user, doesn't hard-delete."""
-        r = owner_client.delete(f"/api/core/users/{cashier_user.id}/")
+    def test_delete_removes_user(self, owner_client, cashier_user):
+        """DELETE hard-deletes user."""
+        uid = cashier_user.id
+        r = owner_client.delete(f"/api/core/users/{uid}/")
         assert r.status_code == 200
-        cashier_user.refresh_from_db()
-        assert cashier_user.is_active is False
-        # User still exists in DB
-        assert User.objects.filter(pk=cashier_user.pk).exists()
+        assert not User.objects.filter(pk=uid).exists()
 
     def test_cashier_cannot_manage_users(self, cashier_client, owner_user):
         """Cashier can't access user management endpoints."""
