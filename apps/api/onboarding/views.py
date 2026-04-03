@@ -106,6 +106,7 @@ class RegisterView(APIView):
                 tenant = Tenant(
                     name=business_name,
                     slug=slug,
+                    business_type=business_type or "retail",
                     is_active=True,
                 )
                 tenant._skip_default_store = True

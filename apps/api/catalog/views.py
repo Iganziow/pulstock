@@ -1,6 +1,6 @@
 from django.db.models import Q, Prefetch, Exists, OuterRef, Count, F, Case, When, Value
 from django.db.models.functions import Greatest
-from rest_framework import generics, status
+from rest_framework import generics, serializers, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -1427,3 +1427,86 @@ class PriceExportView(APIView):
         )
         response["Content-Disposition"] = 'attachment; filename="precios_pulstock.xlsx"'
         return response
+
+
+# -----------------------
+# Barcode bulk assignment
+# -----------------------
+
+class ProductsWithoutBarcode(generics.ListAPIView):
+    """GET /catalog/products/without-barcode/ — Products with zero barcodes."""
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    class _Serializer(serializers.Serializer):
+        id = serializers.IntegerField()
+        name = serializers.CharField()
+        sku = serializers.CharField(allow_null=True)
+        category_name = serializers.CharField(source="category__name", default=None)
+
+    serializer_class = _Serializer
+
+    def get_queryset(self):
+        from django.db.models import CharField
+        from django.db.models.functions import Coalesce
+        qs = (
+            Product.objects
+            .filter(tenant_id=tenant_id(self.request), is_active=True)
+            .annotate(bc_count=Count("barcodes"))
+            .filter(bc_count=0)
+            .values("id", "name", "sku")
+            .annotate(category__name=F("category__name"))
+            .order_by("name")
+        )
+        q = (self.request.query_params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(sku__icontains=q))
+        return qs
+
+
+class AssignBarcode(APIView):
+    """POST /catalog/products/<pk>/assign-barcode/ — Assign a barcode to a product."""
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def post(self, request, pk):
+        from .serializers import BarcodeSerializer
+        from .services import validate_ean13
+
+        tid = tenant_id(request)
+        product = Product.objects.filter(pk=pk, tenant_id=tid, is_active=True).first()
+        if not product:
+            return Response({"detail": "Producto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        code = (request.data.get("code") or "").strip()
+        if not code:
+            return Response({"detail": "El código de barras es obligatorio."}, status=status.HTTP_400_BAD_REQUEST)
+
+        barcode_type = (request.data.get("barcode_type") or "").strip() or "EAN13"
+
+        # EAN-13 checksum validation
+        if code.isdigit() and len(code) == 13:
+            if not validate_ean13(code):
+                return Response(
+                    {"detail": f"EAN-13 checksum inválido: {code}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Uniqueness check
+        if Barcode.objects.filter(tenant_id=tid, code=code).exists():
+            existing = Barcode.objects.select_related("product").get(tenant_id=tid, code=code)
+            return Response(
+                {"detail": f"Este código ya está asignado a: {existing.product.name}"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        Barcode.objects.create(
+            tenant_id=tid, product=product, code=code, barcode_type=barcode_type,
+        )
+
+        # Return updated product with barcodes
+        barcodes = list(product.barcodes.order_by("code").values("id", "code", "barcode_type"))
+        return Response({
+            "id": product.id,
+            "name": product.name,
+            "sku": product.sku,
+            "barcodes": barcodes,
+        }, status=status.HTTP_201_CREATED)

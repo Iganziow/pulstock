@@ -21,9 +21,13 @@ pytest -k "test_name"                     # Run specific test
 
 ### Frontend (`apps/web/`)
 ```bash
-npm run dev      # Dev server (port 3000)
-npm run build    # Production build
-npm run lint     # ESLint check
+npm run dev          # Dev server (port 3000)
+npm run build        # Production build
+npm run lint         # ESLint check
+npm run test         # Vitest in watch mode
+npm run test:run     # Vitest single pass
+npm run test:e2e     # Playwright E2E tests
+npm run test:coverage # Vitest with coverage
 ```
 
 ### Celery (`apps/api/`)
@@ -103,7 +107,17 @@ Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS:
 
 ## Testing
 
-Tests live in `apps/api/tests/`. Pytest is configured with `--maxfail=1` (stops on first failure). Key fixtures from `conftest.py`: `api_client`, `auth_client`, `tenant`, `store`, `user`, `warehouse_a`, `warehouse_b`, `category`, `product`, `stockitem_a`.
+**Backend:** Tests live in `apps/api/tests/`. Pytest config is in `apps/api/pytest.ini` (sets `DJANGO_SETTINGS_MODULE=api.settings`, `--maxfail=1`). All pytest commands must be run from `apps/api/`. Key fixtures from `conftest.py`: `api_client`, `auth_client`, `tenant`, `store`, `user`, `warehouse_a`, `warehouse_b`, `category`, `product`, `stockitem_a`.
+
+**Frontend:** Vitest for unit/component tests, Playwright for E2E. Run from `apps/web/`.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on push to `main` and PRs: backend pytest + frontend typecheck & build. Python 3.12, Node 22.
+
+## Docker (Production)
+
+`docker-compose.yml` at root defines: PostgreSQL 16, Redis 7, Django (Gunicorn, 3 workers), Celery worker + beat, Nginx, Certbot. Dev uses SQLite + `runserver` instead.
 
 ## Environment Setup
 

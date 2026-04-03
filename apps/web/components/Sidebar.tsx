@@ -137,8 +137,13 @@ export default function Sidebar() {
   }, []);
 
   function isActive(href: string): boolean {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href);
+    if (pathname === href) return true;
+    if (href === "/dashboard") return false;
+    if (!pathname.startsWith(href)) return false;
+    // Don't match if a more specific menu item matches
+    return !NAV_ITEMS.some(
+      m => m.href !== href && m.href.length > href.length && pathname.startsWith(m.href)
+    );
   }
 
   function handleLogout() {
