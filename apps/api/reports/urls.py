@@ -1,5 +1,11 @@
 from django.urls import path
 from reports import views
+from reports.exports import (
+    SalesSummaryExportView,
+    LossesExportView,
+    StockValuedExportView,
+    AuditTrailExportView,
+)
 
 urlpatterns = [
     # Stock y operación
@@ -19,4 +25,10 @@ urlpatterns = [
     path("audit-trail/", views.AuditTrailReportView.as_view(), name="report-audit-trail"),
     path("abc-analysis/", views.ABCAnalysisReportView.as_view(), name="report-abc-analysis"),
     path("inventory-health/", views.InventoryHealthView.as_view(), name="report-inventory-health"),
+
+    # Exports
+    path("sales-summary/export/", SalesSummaryExportView.as_view(), name="report-sales-summary-export"),
+    path("losses/export/", LossesExportView.as_view(), name="report-losses-export"),
+    path("stock-valued/export/", StockValuedExportView.as_view(), name="report-stock-valued-export"),
+    path("audit-trail/export/", AuditTrailExportView.as_view(), name="report-audit-trail-export"),
 ]
