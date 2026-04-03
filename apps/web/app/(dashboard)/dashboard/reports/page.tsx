@@ -140,19 +140,6 @@ const SECTIONS: {
       },
     ],
   },
-  {
-    key: "operativo", icon: "🔧", label: "Operativo",
-    color: C.mid, colorBg: "#F4F4F5", colorBd: "#D4D4D8",
-    desc: "Documentos y herramientas para la operación diaria",
-    reports: [
-      {
-        href: "/dashboard/reports/transfer-suggestion-sheet", icon: "shuffle", label: "Planilla de transferencia",
-        desc: "Formato para reponer desde bodega central al punto de venta.",
-        color: C.mid, colorBg: "#F4F4F5", colorBd: "#D4D4D8",
-        tag: { text: "Imprimible", icon: <span style={{ display: "inline-flex" }}>{ICONS.print}</span> }, category: "operativo",
-      },
-    ],
-  },
 ];
 
 const ALL_REPORTS: ReportDef[] = SECTIONS.flatMap(s => s.reports);
