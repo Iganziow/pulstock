@@ -1,7 +1,10 @@
 """
 Sales service layer.
 
-Extracted from SaleCreate view so that table checkout can reuse the same logic.
+Orchestrates sale creation by delegating to focused modules:
+- promotions.py  → resolve active promotions
+- recipes.py     → expand BOM / recipe ingredients
+- pricing.py     → build sale lines with discounts and costs
 """
 import logging
 from decimal import Decimal
@@ -13,10 +16,12 @@ from core.models import Warehouse
 
 logger = logging.getLogger(__name__)
 from catalog.models import Product
-from catalog.models import Recipe
 from inventory.models import StockItem, StockMove
 
 from .models import Sale, SaleLine, SalePayment, TenantSaleCounter
+from .promotions import resolve_active_promotions
+from .recipes import expand_recipes, compute_recipe_costs
+from .pricing import build_sale_lines
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +55,7 @@ def _model_has_field(model_cls, field_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Main service
+# Main orchestrator
 # ---------------------------------------------------------------------------
 
 @transaction.atomic
@@ -71,32 +76,21 @@ def create_sale(
     """
     Create a sale atomically.
 
-    Parameters
-    ----------
-    user            : User instance (request.user)
-    tenant_id       : int
-    store_id        : int
-    warehouse_id    : int
-    lines_in        : list[dict]  — each dict: {product_id, qty, unit_price}
-    payments_in     : list[dict]  — each dict: {method, amount}
-    idempotency_key : str (max 64 chars)
-    tip             : Decimal     — optional gratuity, NOT added to sale.total
-
-    Returns
-    -------
-    dict with keys: id, sale_number, store_id, warehouse_id, total, total_cost,
-                    gross_profit, lines_count, payment_warning, sale (Sale instance)
-
-    Raises
-    ------
-    SaleValidationError  — invalid input
-    StockShortageError   — not enough stock
+    Flow:
+        1. Validate warehouse
+        2. Fetch products + resolve promotions
+        3. Aggregate lines + capture discounts
+        4. Expand recipes (BOM)
+        5. Lock stock + check shortages
+        6. Create Sale record
+        7. Build SaleLines (pricing + discounts + costs)
+        8. Decrement stock + create StockMoves
+        9. Record payments
+        10. Save final totals
     """
     payments_in = payments_in or []
 
-    # ------------------------------------------------------------------
-    # 1) Validate warehouse belongs to store
-    # ------------------------------------------------------------------
+    # ── 1. Validate warehouse ────────────────────────────────────────
     warehouse = (
         Warehouse.objects
         .select_related("store")
@@ -105,52 +99,23 @@ def create_sale(
     )
     if not warehouse:
         raise SaleValidationError(
-            {
-                "detail": "Warehouse does not belong to active store",
-                "active_store_id": store_id,
-                "warehouse_id": warehouse_id,
-            },
+            {"detail": "Warehouse does not belong to active store",
+             "active_store_id": store_id, "warehouse_id": warehouse_id},
             status_code=409,
         )
 
-    # ------------------------------------------------------------------
-    # 2) Fetch products
-    # ------------------------------------------------------------------
+    # ── 2. Fetch products ────────────────────────────────────────────
     if not lines_in:
         raise SaleValidationError({"detail": "Sale must have at least one line"})
 
     product_ids = [int(l["product_id"]) for l in lines_in]
     products = {p.id: p for p in Product.objects.filter(tenant_id=tenant_id, id__in=product_ids)}
 
-    # ------------------------------------------------------------------
-    # 2b) Resolve active promotions
-    # ------------------------------------------------------------------
-    promo_map = {}  # product_id -> (Promotion, effective_price)
-    try:
-        from promotions.models import PromotionProduct as PP
-        from django.utils import timezone
-        now = timezone.now()
-        pp_qs = PP.objects.filter(
-            product_id__in=product_ids,
-            promotion__tenant_id=tenant_id,
-            promotion__is_active=True,
-            promotion__start_date__lte=now,
-            promotion__end_date__gte=now,
-        ).select_related("promotion")
-        for pp in pp_qs:
-            promo = pp.promotion
-            original = products[pp.product_id].price
-            effective = promo.compute_promo_price(original, pp.override_discount_value)
-            pid = pp.product_id
-            if pid not in promo_map or effective < promo_map[pid][1]:
-                promo_map[pid] = (promo, effective)
-    except Exception as e:
-        logger.warning("Error cargando promociones para venta (tenant=%s): %s", tenant_id, e)
+    # ── 2b. Resolve active promotions ────────────────────────────────
+    promo_map = resolve_active_promotions(product_ids, products, tenant_id)
 
-    # ------------------------------------------------------------------
-    # 3) Build agg — original sold products (for SaleLines / customer receipt)
-    # ------------------------------------------------------------------
-    agg = {}  # product_id -> {qty, unit_price, discount_type, discount_value, promotion_id}
+    # ── 3. Aggregate lines ───────────────────────────────────────────
+    agg = {}
     for l in lines_in:
         pid = int(l["product_id"])
         qty = Decimal(str(l["qty"]))
@@ -165,7 +130,6 @@ def create_sale(
         if not p.is_active:
             raise SaleValidationError({"detail": f"Product {pid} is inactive"})
 
-        # Capture per-line discount data from frontend
         line_discount_type = str(l.get("discount_type") or "none")
         line_discount_value = Decimal(str(l.get("discount_value") or 0))
         line_promotion_id = l.get("promotion_id")
@@ -185,62 +149,10 @@ def create_sale(
                 "promotion_id": line_promotion_id,
             }
 
-    # ------------------------------------------------------------------
-    # 4) Recipe expansion — build expanded_agg for actual stock ops
-    #    Products with an active recipe → replace with their ingredients.
-    #    Products without a recipe → pass through unchanged.
-    # ------------------------------------------------------------------
-    from catalog.unit_conversion import convert_qty
+    # ── 4. Recipe expansion ──────────────────────────────────────────
+    expanded_agg, recipe_map = expand_recipes(agg, tenant_id)
 
-    recipe_map = {
-        r.product_id: r
-        for r in Recipe.objects.filter(
-            tenant_id=tenant_id,
-            product_id__in=list(agg.keys()),
-            is_active=True,
-        ).prefetch_related("lines__ingredient__unit_obj", "lines__unit")
-    }
-
-    expanded_agg = {}  # ingredient_or_product_id -> {qty, unit_price}
-    for pid, data in agg.items():
-        if pid in recipe_map:
-            recipe = recipe_map[pid]
-            for line in recipe.lines.all():
-                ing_id = line.ingredient_id
-                recipe_qty = data["qty"] * line.qty
-                # Auto-convert units if recipe line specifies a different unit
-                if line.unit_id and line.ingredient.unit_obj_id and line.unit_id != line.ingredient.unit_obj_id:
-                    try:
-                        recipe_qty = convert_qty(recipe_qty, line.unit, line.ingredient.unit_obj)
-                    except (ValueError, ZeroDivisionError) as exc:
-                        raise SaleValidationError({
-                            "detail": f"Error de conversión en receta: {line.ingredient.name} — {exc}"
-                        })
-                elif line.unit_id and not line.ingredient.unit_obj_id:
-                    # Recipe line has unit but ingredient has no unit_obj —
-                    # try to auto-resolve from ingredient's string unit field
-                    from catalog.models import Unit as UnitModel
-                    ing_unit = UnitModel.objects.filter(
-                        tenant_id=tenant_id,
-                        code=line.ingredient.unit.upper() if line.ingredient.unit else "",
-                        is_active=True,
-                    ).first()
-                    if ing_unit and ing_unit.pk != line.unit_id:
-                        try:
-                            recipe_qty = convert_qty(recipe_qty, line.unit, ing_unit)
-                        except (ValueError, ZeroDivisionError):
-                            pass  # Same family check failed — use raw qty
-                if ing_id not in expanded_agg:
-                    expanded_agg[ing_id] = {"qty": Decimal("0"), "unit_price": Decimal("0")}
-                expanded_agg[ing_id]["qty"] += recipe_qty
-        else:
-            if pid not in expanded_agg:
-                expanded_agg[pid] = {"qty": Decimal("0"), "unit_price": data["unit_price"]}
-            expanded_agg[pid]["qty"] += data["qty"]
-
-    # ------------------------------------------------------------------
-    # 5) Lock StockItems from expanded_agg (ingredients / plain products)
-    # ------------------------------------------------------------------
+    # ── 5. Lock stock + check shortages ──────────────────────────────
     expanded_ids_sorted = sorted(expanded_agg.keys())
     stock_items = StockItem.objects.select_for_update().filter(
         tenant_id=tenant_id,
@@ -249,9 +161,6 @@ def create_sale(
     )
     stock_map = {int(si.product_id): si for si in stock_items}
 
-    # ------------------------------------------------------------------
-    # 6) Check shortages against expanded_agg
-    # ------------------------------------------------------------------
     shortages = []
     for pid in expanded_ids_sorted:
         required_qty = expanded_agg[pid]["qty"]
@@ -265,14 +174,11 @@ def create_sale(
     if shortages:
         raise StockShortageError(shortages)
 
-    # ------------------------------------------------------------------
-    # 7) Assign sale_number (atomic counter — no race condition)
-    # ------------------------------------------------------------------
+    # ── 6. Create Sale record ────────────────────────────────────────
     TenantSaleCounter.objects.get_or_create(tenant_id=tenant_id)
     counter = TenantSaleCounter.objects.select_for_update().get(tenant_id=tenant_id)
     TenantSaleCounter.objects.filter(pk=counter.pk).update(last_number=F("last_number") + 1)
     counter.refresh_from_db()
-    next_sale_number = counter.last_number
 
     sale_create_kwargs = dict(
         tenant_id=tenant_id,
@@ -286,16 +192,13 @@ def create_sale(
         total_cost=Decimal("0.000"),
         gross_profit=Decimal("0.000"),
         idempotency_key=idempotency_key,
-        sale_number=next_sale_number,
+        sale_number=counter.last_number,
     )
 
     if _model_has_field(Sale, "unit_cost_snapshot"):
         sale_create_kwargs["unit_cost_snapshot"] = Decimal("0.000")
-
     if _model_has_field(Sale, "tip"):
         sale_create_kwargs["tip"] = tip
-
-    # Attach active cash session for this store (if any)
     if _model_has_field(Sale, "cash_session"):
         try:
             from caja.models import CashSession
@@ -305,11 +208,8 @@ def create_sale(
             if open_session:
                 sale_create_kwargs["cash_session"] = open_session
         except Exception as e:
-            logger.warning("Error obteniendo sesión de caja (tenant=%s store=%s): %s", tenant_id, store_id, e)
+            logger.warning("Error obteniendo sesión de caja: %s", e)
 
-    # ------------------------------------------------------------------
-    # 8) Create Sale (deferred until after stock validation)
-    # ------------------------------------------------------------------
     try:
         sale = Sale.objects.create(**sale_create_kwargs)
     except IntegrityError:
@@ -318,162 +218,28 @@ def create_sale(
             return _idempotent_response(existing)
         raise
 
-    # ------------------------------------------------------------------
-    # 9) Build ingredient avg_cost map for recipe cost attribution
-    #    Fetch from expanded_agg stock_map (already locked)
-    # ------------------------------------------------------------------
+    # ── 7. Build SaleLines (pricing + discounts + costs) ─────────────
     ingredient_avg_cost = {
         pid: (stock_map[pid].avg_cost or Decimal("0.000")).quantize(Decimal("0.000"))
         for pid in expanded_ids_sorted
         if pid in stock_map
     }
+    recipe_costs = compute_recipe_costs(agg, recipe_map, ingredient_avg_cost)
 
-    # Compute recipe product cost: sum(ingredient.avg_cost * converted_qty) per recipe line
-    recipe_costs = {}  # product_id -> Decimal
-    for pid in agg:
-        if pid in recipe_map:
-            recipe = recipe_map[pid]
-            cost = Decimal("0")
-            for line in recipe.lines.all():
-                converted_qty = line.qty
-                if line.unit_id and line.ingredient.unit_obj_id and line.unit_id != line.ingredient.unit_obj_id:
-                    try:
-                        converted_qty = convert_qty(line.qty, line.unit, line.ingredient.unit_obj)
-                    except (ValueError, ZeroDivisionError):
-                        pass  # use raw qty if conversion fails
-                cost += ingredient_avg_cost.get(line.ingredient_id, Decimal("0")) * converted_qty
-            recipe_costs[pid] = Decimal(str(cost)).quantize(Decimal("0.000"))
-
-    # ------------------------------------------------------------------
-    # 10) Create SaleLines from agg (customer receipt — original products)
-    # ------------------------------------------------------------------
-    sl_has_unit_cost = _model_has_field(SaleLine, "unit_cost_snapshot")
-    sl_has_line_cost = _model_has_field(SaleLine, "line_cost")
-    sl_has_line_gp = _model_has_field(SaleLine, "line_gross_profit")
-
-    sale_lines = []
-    subtotal = Decimal("0.00")
-    total_discount = Decimal("0.00")
-    total_cost = Decimal("0.000")
-    total_qty_costed = Decimal("0.000")
-
-    agg_ids_sorted = sorted(agg.keys())
-    for pid in agg_ids_sorted:
-        qty = agg[pid]["qty"]
-        unit_price = agg[pid]["unit_price"]
-        gross_line_total = (qty * unit_price).quantize(Decimal("1"))
-
-        # --- Per-line manual discount ---
-        dt = agg[pid].get("discount_type", "none")
-        dv = agg[pid].get("discount_value", Decimal("0"))
-        line_discount = Decimal("0")
-        original_up = None
-
-        if dt == "pct" and dv > 0:
-            line_discount = (gross_line_total * dv / Decimal("100")).quantize(Decimal("1"))
-            original_up = unit_price
-        elif dt == "amt" and dv > 0:
-            line_discount = min(dv, gross_line_total).quantize(Decimal("1"))
-            original_up = unit_price
-
-        # Auto-detected promo (only if no manual discount)
-        if pid in promo_map and line_discount == 0:
-            promo_obj, promo_price = promo_map[pid]
-            original_up = products[pid].price
-            line_discount = ((original_up - unit_price) * qty).quantize(Decimal("1"))
-            if line_discount < 0:
-                line_discount = Decimal("0")
-
-        # Frontend may also send promotion_id for promo-applied lines
-        line_promo_id = agg[pid].get("promotion_id")
-
-        line_total = gross_line_total - line_discount
-        if line_total < 0:
-            line_total = Decimal("0")
-
-        subtotal += gross_line_total
-        total_discount += line_discount
-
-        if pid in recipe_costs:
-            line_cost = (qty * recipe_costs[pid]).quantize(Decimal("0.000"))
-            unit_cost = recipe_costs[pid]
-        else:
-            si = stock_map.get(pid)
-            unit_cost = (si.avg_cost or Decimal("0.000")).quantize(Decimal("0.000")) if si else Decimal("0.000")
-            line_cost = (qty * unit_cost).quantize(Decimal("0.000"))
-
-        line_gp = (line_total - line_cost).quantize(Decimal("1"))
-
-        sl_kwargs = dict(
-            sale=sale,
-            tenant_id=tenant_id,
-            product_id=pid,
-            qty=qty,
-            unit_price=unit_price,
-            line_total=line_total,
-        )
-        if sl_has_unit_cost:
-            sl_kwargs["unit_cost_snapshot"] = unit_cost
-        if sl_has_line_cost:
-            sl_kwargs["line_cost"] = line_cost
-        if sl_has_line_gp:
-            sl_kwargs["line_gross_profit"] = line_gp
-
-        # Discount tracking
-        if line_discount > 0:
-            sl_kwargs["discount_amount"] = line_discount
-        if original_up is not None:
-            sl_kwargs["original_unit_price"] = original_up
-
-        # Promo FK — from auto-detected or frontend-sent
-        if pid in promo_map and line_discount > 0 and not line_promo_id:
-            sl_kwargs["promotion"] = promo_map[pid][0]
-        elif line_promo_id:
-            try:
-                from promotions.models import Promotion
-                promo_fk = Promotion.objects.filter(id=line_promo_id, tenant_id=tenant_id).first()
-                if promo_fk:
-                    sl_kwargs["promotion"] = promo_fk
-            except Exception:
-                pass
-
-        sale_lines.append(SaleLine(**sl_kwargs))
-        total_cost += line_cost
-        total_qty_costed += qty
-
-    # --- Global discount (distributed proportionally across lines) ---
-    if global_discount_type != "none" and global_discount_value > 0:
-        lines_total_sum = sum(sl.line_total for sl in sale_lines)
-        if lines_total_sum > 0:
-            if global_discount_type == "pct":
-                global_disc_amount = (lines_total_sum * global_discount_value / Decimal("100")).quantize(Decimal("1"))
-            else:
-                global_disc_amount = min(global_discount_value, lines_total_sum).quantize(Decimal("1"))
-
-            remaining = global_disc_amount
-            for i, sl in enumerate(sale_lines):
-                if lines_total_sum > 0:
-                    share = (sl.line_total / lines_total_sum * global_disc_amount).quantize(Decimal("1"))
-                else:
-                    share = Decimal("0")
-                # Last line gets remainder to avoid rounding issues
-                if i == len(sale_lines) - 1:
-                    share = remaining
-                remaining -= share
-                sl.line_total = max(sl.line_total - share, Decimal("0"))
-                sl.discount_amount = (sl.discount_amount or Decimal("0")) + share
-                if sl.original_unit_price is None:
-                    sl.original_unit_price = sl.unit_price
-                # Recalc gross profit
-                if sl_has_line_gp:
-                    sl.line_gross_profit = (sl.line_total - (sl.line_cost or Decimal("0"))).quantize(Decimal("1"))
-            total_discount += global_disc_amount
-
+    sale_lines, subtotal, total_discount, total_cost, total_qty_costed = build_sale_lines(
+        sale=sale,
+        tenant_id=tenant_id,
+        agg=agg,
+        promo_map=promo_map,
+        products=products,
+        recipe_costs=recipe_costs,
+        stock_map=stock_map,
+        global_discount_type=global_discount_type,
+        global_discount_value=global_discount_value,
+    )
     SaleLine.objects.bulk_create(sale_lines)
 
-    # ------------------------------------------------------------------
-    # 11) Decrement stock + create StockMoves from expanded_agg (ingredients)
-    # ------------------------------------------------------------------
+    # ── 8. Decrement stock + create StockMoves ───────────────────────
     stock_moves = []
     for pid in expanded_ids_sorted:
         qty = expanded_agg[pid]["qty"]
@@ -508,9 +274,7 @@ def create_sale(
     if stock_moves:
         StockMove.objects.bulk_create(stock_moves)
 
-    # ------------------------------------------------------------------
-    # 12) Save payments
-    # ------------------------------------------------------------------
+    # ── 9. Record payments ───────────────────────────────────────────
     valid_methods = {SalePayment.METHOD_CASH, SalePayment.METHOD_CARD, SalePayment.METHOD_DEBIT, SalePayment.METHOD_TRANSFER}
     payment_rows = []
     total_paid = Decimal("0.00")
@@ -526,30 +290,24 @@ def create_sale(
     if payment_rows:
         SalePayment.objects.bulk_create(payment_rows)
 
-    # ------------------------------------------------------------------
-    # 13) Save final totals
-    # ------------------------------------------------------------------
+    # ── 10. Save final totals ────────────────────────────────────────
     sale.subtotal = subtotal
-    sale.total = (subtotal - total_discount).quantize(Decimal("1"))
-    if sale.total < 0:
-        sale.total = Decimal("0")
+    sale.total = max((subtotal - total_discount).quantize(Decimal("1")), Decimal("0"))
     sale.total_cost = total_cost.quantize(Decimal("0.000"))
     sale.gross_profit = (sale.total - sale.total_cost).quantize(Decimal("1"))
 
     save_fields = ["subtotal", "total", "total_cost", "gross_profit"]
 
     if _model_has_field(Sale, "unit_cost_snapshot"):
-        if total_qty_costed > 0:
-            sale.unit_cost_snapshot = (sale.total_cost / total_qty_costed).quantize(Decimal("0.000"))
-        else:
-            sale.unit_cost_snapshot = Decimal("0.000")
+        sale.unit_cost_snapshot = (
+            (sale.total_cost / total_qty_costed).quantize(Decimal("0.000"))
+            if total_qty_costed > 0 else Decimal("0.000")
+        )
         save_fields.append("unit_cost_snapshot")
 
     sale.save(update_fields=save_fields)
 
-    # ------------------------------------------------------------------
-    # 14) Payment warning
-    # ------------------------------------------------------------------
+    # ── Payment warning ──────────────────────────────────────────────
     payment_warning = None
     if sale_type != Sale.SALE_TYPE_CONSUMO and payment_rows and total_paid < subtotal:
         payment_warning = f"Pago registrado ({total_paid}) es inferior al total ({subtotal})"
