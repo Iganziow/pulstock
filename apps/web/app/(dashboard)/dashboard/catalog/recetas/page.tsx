@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-
-function useIsMobile(){const[m,setM]=useState(false);useEffect(()=>{const fn=()=>setM(window.innerWidth<768);fn();window.addEventListener("resize",fn);return()=>window.removeEventListener("resize",fn);},[]);return m;}
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Spinner } from "@/components/ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,17 +40,6 @@ function extractErr(e: unknown, fallback: string) {
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
-
-function Spinner({ size = 14 }: { size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%",
-      border: `${size < 16 ? 2 : 2.5}px solid #E4E4E7`,
-      borderTopColor: C.accent,
-      animation: "spin 0.7s linear infinite", flexShrink: 0,
-    }}/>
-  );
-}
 
 type BtnVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 function Btn({

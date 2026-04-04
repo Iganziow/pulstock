@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-
-function useIsMobile(){const[m,setM]=useState(false);useEffect(()=>{const fn=()=>setM(window.innerWidth<768);fn();window.addEventListener("resize",fn);return()=>window.removeEventListener("resize",fn);},[]);return m;}
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Spinner } from "@/components/ui";
 
 type Warehouse = {id:number; name:string; is_active:boolean; warehouse_type?:string};
 type PurchaseRow = {
@@ -24,7 +24,6 @@ function fDate(iso:string):string{const d=new Date(iso);if(isNaN(d.getTime()))re
 function fDateTime(iso:string):string{const d=new Date(iso);if(isNaN(d.getTime()))return iso;return d.toLocaleString("es-CL",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});}
 
 // ─── Mini-components ──────────────────────────────────────────────────────────
-function Spinner({size=14}:{size?:number}){return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{animation:"spin 0.7s linear infinite",display:"block",flexShrink:0}}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>);}
 
 type BtnV="primary"|"secondary"|"ghost"|"danger"|"success"|"teal";
 function Btn({children,onClick,variant="secondary",disabled,size="md",full}:{children:React.ReactNode;onClick?:()=>void;variant?:BtnV;disabled?:boolean;size?:"sm"|"md"|"lg";full?:boolean;}){

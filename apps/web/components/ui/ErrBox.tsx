@@ -14,7 +14,7 @@ export function ErrBox({ msg, onClose }: { msg: string; onClose: () => void }) {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <span style={{ flex: 1 }}>{msg}</span>
-      <button onClick={onClose} className="ib" style={{
+      <button onClick={onClose} className="ib" aria-label="Cerrar" style={{
         background: "none", border: "none", color: C.red, padding: 0, fontSize: 16, cursor: "pointer", lineHeight: 1,
       }}>✕</button>
     </div>

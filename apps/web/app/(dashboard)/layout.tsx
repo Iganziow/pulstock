@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { apiFetch, clearTokens } from "@/lib/api";
 import { C } from "@/lib/theme";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -160,17 +161,6 @@ function getBreadcrumbs(pathname: string): { label: string; href?: string }[] {
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
-
-function useIsMobile() {
-  const [mobile, setMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setMobile(window.innerWidth < MOBILE_BP);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-  return mobile;
-}
 
 const ROLE_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
   owner:     { bg: "#EEF2FF", fg: "#4F46E5", label: "Dueño/Gerente" },

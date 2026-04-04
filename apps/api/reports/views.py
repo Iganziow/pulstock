@@ -230,6 +230,8 @@ class DeadStockReportView(APIView):
 # 8. HOJA DE CONTEO DE INVENTARIO (TOMA FÍSICA)
 # ══════════════════════════════════════════════════════════════════
 class InventoryCountSheetView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant]
+
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         p = request.query_params
@@ -249,6 +251,8 @@ class InventoryCountSheetView(APIView):
 # 9. DIFERENCIAS FÍSICO vs SISTEMA
 # ══════════════════════════════════════════════════════════════════
 class InventoryDiffReportView(APIView):
+    permission_classes = [IsAuthenticated, HasTenant]
+
     def post(self, request):
         t_id, s_id = _require_ctx(request)
         counts = request.data.get("counts", [])

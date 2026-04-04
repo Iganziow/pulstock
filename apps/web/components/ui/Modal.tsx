@@ -26,7 +26,7 @@ export function Modal({ onClose, width = 560, accentColor, title, subtitle, foot
             <div style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>{title}</div>
             {subtitle && <div style={{ fontSize: 12, color: C.mute, marginTop: 3 }}>{subtitle}</div>}
           </div>
-          <button onClick={onClose} className="ib" style={{
+          <button onClick={onClose} className="ib" aria-label="Cerrar" style={{
             width: 30, height: 30, borderRadius: C.r, border: `1px solid ${C.border}`,
             background: C.surface, color: C.mid, fontSize: 14,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,

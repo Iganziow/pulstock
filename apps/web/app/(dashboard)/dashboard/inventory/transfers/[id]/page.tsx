@@ -6,8 +6,8 @@ import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-
-function useIsMobile(){const[m,setM]=useState(false);useEffect(()=>{const fn=()=>setM(window.innerWidth<768);fn();window.addEventListener("resize",fn);return()=>window.removeEventListener("resize",fn);},[]);return m;}
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Spinner } from "@/components/ui";
 
 type TransferProduct={id:number;name:string;sku:string|null;barcode:string|null};
 type TransferLine={id:number;product:TransferProduct;qty:string;note:string|null};
@@ -22,7 +22,6 @@ type TransferDetail={
 
 function fDt(iso:string):string{const d=new Date(iso);return isNaN(d.getTime())?iso:d.toLocaleString("es-CL");}
 function fQty(v:string):string{const n=Number(v);return !Number.isFinite(n)?v:n.toLocaleString("es-CL",{maximumFractionDigits:3});}
-function Spinner({size=16}:{size?:number}){return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{animation:"spin 0.7s linear infinite",display:"block"}}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>);}
 
 function MoveBadge({type}:{type:string}){
   const t=(type||"").toUpperCase();

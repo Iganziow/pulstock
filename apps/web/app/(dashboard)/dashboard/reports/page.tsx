@@ -3,21 +3,8 @@ import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
-
-
-function useIsMobile() {
-  const [m, setM] = useState(false);
-  useEffect(() => {
-    const fn = () => setM(window.innerWidth < 768);
-    fn(); window.addEventListener("resize", fn);
-    return () => window.removeEventListener("resize", fn);
-  }, []);
-  return m;
-}
-
-function Spinner() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: "spin .7s linear infinite", display: "inline-block" }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>;
-}
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Spinner } from "@/components/ui";
 
 const fmt = (v: number | string) => {
   const n = typeof v === "string" ? parseFloat(v) : v;

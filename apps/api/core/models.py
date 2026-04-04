@@ -158,6 +158,10 @@ class Warehouse(models.Model):
 
 class AlertPreference(models.Model):
     """Preferencias de notificación por usuario."""
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="alert_preferences",
+        null=True,  # null for backfill of existing rows
+    )
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="alert_prefs",
     )
