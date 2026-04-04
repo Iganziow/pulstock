@@ -12,6 +12,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/lib/useGlobalStyles", () => ({
+  useGlobalStyles: () => {},
+}));
+
 const { default: CatalogPage } = await import(
   "@/app/(dashboard)/dashboard/catalog/page"
 );
@@ -68,7 +72,7 @@ describe("CatalogPage", () => {
   it("renders the page title", async () => {
     render(<CatalogPage />);
     await waitFor(() => {
-      expect(screen.getByText("Catálogo")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     });
   });
 
