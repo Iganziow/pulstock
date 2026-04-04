@@ -4,74 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { apiFetch, getAccessToken } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-import { Spinner } from "@/components/ui";
+import { Btn, Spinner } from "@/components/ui";
+import { formatCLP, extractErr } from "@/lib/format";
+import { sanitizePrice, calcMargin } from "@/components/prices/helpers";
+import { PriceTable } from "@/components/prices/PriceTable";
+import { SaveConfirmModal } from "@/components/prices/SaveConfirmModal";
+import { BulkPreviewModal } from "@/components/prices/BulkPreviewModal";
+import type { PriceRow, Category, Msg, BulkPreviewItem } from "@/components/prices/types";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type PriceRow = {
-  id: number;
-  sku: string | null;
-  name: string;
-  category_name: string | null;
-  category_id: number | null;
-  cost: string;
-  price: string;
-  margin_pct: string;
-};
-type Category = { id: number; name: string };
-type Msg = { type: "ok" | "err"; text: string } | null;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatCLP(value: string | number): string {
-  const n = typeof value === "string" ? Number(value) : value;
-  if (Number.isNaN(n)) return String(value);
-  return n.toLocaleString("es-CL");
-}
-
-function sanitizePrice(v: string): string {
-  const c = v.replace(/[^0-9]/g, "");
-  return c;
-}
-
-function calcMargin(cost: string, price: string): number | null {
-  const c = Number(cost);
-  const p = Number(price);
-  if (!Number.isFinite(c) || !Number.isFinite(p) || p === 0) return null;
-  return ((p - c) / p) * 100;
-}
-
-function extractErr(e: any, fallback: string): string {
-  if (e?.data) {
-    try {
-      return typeof e.data === "string" ? e.data : JSON.stringify(e.data);
-    } catch {
-      return fallback;
-    }
-  }
-  return e?.message ?? fallback;
-}
-
-// ─── Micro-components ─────────────────────────────────────────────────────────
-
-type BtnV = "primary" | "secondary" | "ghost" | "danger" | "success";
-function Btn({ children, onClick, variant = "secondary", disabled, size = "md", full }: { children: React.ReactNode; onClick?: () => void; variant?: BtnV; disabled?: boolean; size?: "sm" | "md" | "lg"; full?: boolean }) {
-  const vs: Record<BtnV, React.CSSProperties> = {
-    primary: { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` },
-    secondary: { background: C.surface, color: C.text, border: `1px solid ${C.borderMd}` },
-    ghost: { background: "transparent", color: C.mid, border: "1px solid transparent" },
-    danger: { background: C.redBg, color: C.red, border: `1px solid ${C.redBd}` },
-    success: { background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` },
-  };
-  const h = size === "lg" ? 46 : size === "sm" ? 30 : 38;
-  const px = size === "lg" ? "0 20px" : size === "sm" ? "0 10px" : "0 14px";
-  const fs = size === "lg" ? 14 : size === "sm" ? 11 : 13;
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className="xb" style={{ ...vs[variant], display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: h, padding: px, borderRadius: C.r, fontSize: fs, fontWeight: 600, letterSpacing: "0.01em", whiteSpace: "nowrap", width: full ? "100%" : undefined, opacity: disabled ? 0.5 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
-      {children}
-    </button>
-  );
-}
+// ─── Input style helper ──────────────────────────────────────────────────────
 
 function iS(extra?: React.CSSProperties): React.CSSProperties {
   return { width: "100%", height: 36, padding: "0 10px", border: `1px solid ${C.border}`, borderRadius: C.r, fontSize: 13, background: C.surface, ...extra };
@@ -113,7 +54,7 @@ export default function PricesPage() {
   // Confirmation modals
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
-  const [bulkPreview, setBulkPreview] = useState<Array<{ id: number; name: string; oldPrice: number; newPrice: number; oldMargin: number | null; newMargin: number | null }>>([]);
+  const [bulkPreview, setBulkPreview] = useState<BulkPreviewItem[]>([]);
   const [exporting, setExporting] = useState(false);
 
   const flash = (type: "ok" | "err", text: string) => {
@@ -122,7 +63,6 @@ export default function PricesPage() {
   };
 
   // ─── Data fetching ────────────────────────────────────────────────────────
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -144,9 +84,7 @@ export default function PricesPage() {
     }
   }, [search, catFilter, page]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
     (async () => {
@@ -160,15 +98,11 @@ export default function PricesPage() {
   }, []);
 
   // ─── Selection helpers ────────────────────────────────────────────────────
-
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   function toggleAll() {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(rows.map((r) => r.id)));
-    }
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(rows.map((r) => r.id)));
   }
 
   function toggleOne(id: number) {
@@ -181,15 +115,11 @@ export default function PricesPage() {
   }
 
   // ─── Edit helpers ─────────────────────────────────────────────────────────
-
   function setNewPrice(id: number, val: string) {
     setEdits((prev) => {
       const next = { ...prev };
-      if (val === "") {
-        delete next[id];
-      } else {
-        next[id] = sanitizePrice(val);
-      }
+      if (val === "") delete next[id];
+      else next[id] = sanitizePrice(val);
       return next;
     });
   }
@@ -197,7 +127,6 @@ export default function PricesPage() {
   const changedCount = Object.keys(edits).length;
 
   // ─── Save individual changes ──────────────────────────────────────────────
-
   function requestSaveConfirm() {
     if (changedCount === 0) return;
     setShowSaveConfirm(true);
@@ -227,7 +156,6 @@ export default function PricesPage() {
   }
 
   // ─── Apply bulk rule ──────────────────────────────────────────────────────
-
   function requestBulkConfirm() {
     if (selected.size === 0) {
       flash("err", "Selecciona al menos un producto");
@@ -238,7 +166,6 @@ export default function PricesPage() {
       flash("err", "Ingresa un valor mayor a 0");
       return;
     }
-    // Build preview
     const preview = rows.filter(r => selected.has(r.id)).map(r => {
       const oldPrice = Number(r.price);
       let newPrice: number;
@@ -288,7 +215,6 @@ export default function PricesPage() {
   }
 
   // ─── Export ───────────────────────────────────────────────────────────────
-
   async function exportPrices() {
     setExporting(true);
     try {
@@ -319,26 +245,6 @@ export default function PricesPage() {
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
-
-  const thStyle: React.CSSProperties = {
-    padding: "10px 12px",
-    fontSize: 11,
-    fontWeight: 700,
-    color: C.mute,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    textAlign: "left",
-    borderBottom: `2px solid ${C.border}`,
-    whiteSpace: "nowrap",
-  };
-
-  const tdStyle: React.CSSProperties = {
-    padding: "10px 12px",
-    fontSize: 13,
-    borderBottom: `1px solid ${C.border}`,
-    verticalAlign: "middle",
-  };
-
   return (
     <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -389,121 +295,20 @@ export default function PricesPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "auto", boxShadow: C.sh }}>
-        {loading ? (
-          <div style={{ padding: 40, display: "flex", justifyContent: "center", alignItems: "center", gap: 8, color: C.mute, fontSize: 13 }}>
-            <Spinner size={16} /> Cargando...
-          </div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: 40, textAlign: "center", color: C.mute, fontSize: 13 }}>
-            No se encontraron productos
-          </div>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 40, textAlign: "center" }}>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleAll}
-                    style={{ cursor: "pointer" }}
-                  />
-                </th>
-                <th style={thStyle}>SKU</th>
-                <th style={thStyle}>Nombre</th>
-                <th style={thStyle}>Categoria</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Costo</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Precio Actual</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Margen %</th>
-                <th style={{ ...thStyle, textAlign: "right", minWidth: 130 }}>Nuevo Precio</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Nuevo Margen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const hasEdit = row.id in edits;
-                const newPrice = edits[row.id] ?? "";
-                const newMargin = hasEdit ? calcMargin(row.cost, newPrice) : null;
-                const currentMargin = Number(row.margin_pct);
-
-                return (
-                  <tr key={row.id} style={{ background: hasEdit ? C.amberBg : undefined, transition: C.ease }}>
-                    <td style={{ ...tdStyle, textAlign: "center" }}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(row.id)}
-                        onChange={() => toggleOne(row.id)}
-                        style={{ cursor: "pointer" }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, fontFamily: C.mono, fontSize: 12, color: C.mid }}>
-                      {row.sku || "—"}
-                    </td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>
-                      {row.name}
-                    </td>
-                    <td style={{ ...tdStyle, color: C.mid, fontSize: 12 }}>
-                      {row.category_name || "—"}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono }}>
-                      ${formatCLP(row.cost)}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: 600 }}>
-                      ${formatCLP(row.price)}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: Number.isFinite(currentMargin) ? (currentMargin < 0 ? C.red : currentMargin < 15 ? C.amber : C.green) : C.mute }}>
-                      {Number.isFinite(currentMargin) ? `${currentMargin.toFixed(1)}%` : "—"}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder={formatCLP(row.price)}
-                        value={newPrice}
-                        onChange={(e) => setNewPrice(row.id, e.target.value)}
-                        style={{
-                          width: 110,
-                          height: 30,
-                          padding: "0 8px",
-                          border: `1px solid ${hasEdit ? C.amberBd : C.border}`,
-                          borderRadius: C.r,
-                          fontSize: 13,
-                          fontFamily: C.mono,
-                          textAlign: "right",
-                          background: hasEdit ? C.surface : C.bg,
-                        }}
-                      />
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: hasEdit ? 700 : 400, color: newMargin !== null ? (newMargin < 0 ? C.red : newMargin < 15 ? C.amber : C.green) : C.mute }}>
-                      {newMargin !== null ? `${newMargin.toFixed(1)}%` : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-
-        {/* Paginación */}
-        {total > pageSize && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12, paddingBottom: 8 }}>
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: page <= 1 ? "default" : "pointer", opacity: page <= 1 ? 0.4 : 1, fontSize: 13 }}
-            >← Anterior</button>
-            <span style={{ fontSize: 13, color: C.mid, alignSelf: "center" }}>
-              Página {page} de {Math.ceil(total / pageSize)}
-            </span>
-            <button
-              disabled={page >= Math.ceil(total / pageSize)}
-              onClick={() => setPage(p => p + 1)}
-              style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: page >= Math.ceil(total / pageSize) ? "default" : "pointer", opacity: page >= Math.ceil(total / pageSize) ? 0.4 : 1, fontSize: 13 }}
-            >Siguiente →</button>
-          </div>
-        )}
-      </div>
+      <PriceTable
+        rows={rows}
+        loading={loading}
+        edits={edits}
+        selected={selected}
+        allSelected={allSelected}
+        toggleAll={toggleAll}
+        toggleOne={toggleOne}
+        setNewPrice={setNewPrice}
+        total={total}
+        pageSize={pageSize}
+        page={page}
+        setPage={setPage}
+      />
 
       {/* Bottom action bar */}
       <div style={{
@@ -516,7 +321,6 @@ export default function PricesPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ajuste masivo</span>
 
-          {/* Type: % or fixed */}
           <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: C.text, cursor: "pointer" }}>
             <input type="radio" name="bulkType" checked={bulkType === "pct"} onChange={() => setBulkType("pct")} /> %
           </label>
@@ -524,7 +328,6 @@ export default function PricesPage() {
             <input type="radio" name="bulkType" checked={bulkType === "amt"} onChange={() => setBulkType("amt")} /> Monto fijo
           </label>
 
-          {/* Direction */}
           <select
             value={bulkDir}
             onChange={(e) => setBulkDir(e.target.value as "increase" | "decrease")}
@@ -534,7 +337,6 @@ export default function PricesPage() {
             <option value="decrease">Bajar</option>
           </select>
 
-          {/* Value */}
           <input
             type="text"
             inputMode="numeric"
@@ -563,92 +365,26 @@ export default function PricesPage() {
         </div>
       </div>
 
-      {/* ── Save Confirmation Modal ──────────────────────────────────────── */}
+      {/* Save Confirmation Modal */}
       {showSaveConfirm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowSaveConfirm(false)}>
-          <div style={{ background: C.surface, borderRadius: C.rMd, width: 520, maxWidth: "95vw", maxHeight: "80vh", overflow: "auto", boxShadow: C.shLg, padding: 24 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700 }}>Confirmar cambios de precio</h3>
-            <p style={{ margin: "0 0 12px", fontSize: 13, color: C.mid }}>Se actualizarán {changedCount} producto(s):</p>
-            <div style={{ maxHeight: 300, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: C.r }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px" }}>Producto</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Precio actual</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Nuevo precio</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Margen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(edits).map(([pid, newP]) => {
-                    const row = rows.find(r => r.id === Number(pid));
-                    if (!row) return null;
-                    const nm = calcMargin(row.cost, newP);
-                    return (
-                      <tr key={pid}>
-                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>{row.name}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(row.price)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(newP)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: nm !== null ? (nm < 0 ? C.red : nm < 15 ? C.amber : C.green) : C.mute }}>
-                          {nm !== null ? `${nm.toFixed(1)}%` : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-              <Btn variant="secondary" onClick={() => setShowSaveConfirm(false)}>Cancelar</Btn>
-              <Btn variant="success" onClick={saveChanges}>Confirmar y guardar</Btn>
-            </div>
-          </div>
-        </div>
+        <SaveConfirmModal
+          edits={edits}
+          rows={rows}
+          onCancel={() => setShowSaveConfirm(false)}
+          onConfirm={saveChanges}
+        />
       )}
 
-      {/* ── Bulk Preview Modal ───────────────────────────────────────────── */}
+      {/* Bulk Preview Modal */}
       {showBulkConfirm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowBulkConfirm(false)}>
-          <div style={{ background: C.surface, borderRadius: C.rMd, width: 600, maxWidth: "95vw", maxHeight: "80vh", overflow: "auto", boxShadow: C.shLg, padding: 24 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>Preview — Ajuste masivo</h3>
-            <p style={{ margin: "0 0 4px", fontSize: 13, color: C.mid }}>
-              {bulkDir === "increase" ? "Subir" : "Bajar"} {bulkType === "pct" ? `${bulkValue}%` : `$${formatCLP(bulkValue)}`} a {bulkPreview.length} producto(s)
-            </p>
-            {bulkPreview.some(p => (p.newMargin ?? 0) < 0) && (
-              <p style={{ margin: "4px 0 8px", fontSize: 12, color: C.red, fontWeight: 600 }}>
-                ⚠ Algunos productos quedarán con margen negativo
-              </p>
-            )}
-            <div style={{ maxHeight: 320, overflow: "auto", border: `1px solid ${C.border}`, borderRadius: C.r }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px" }}>Producto</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Actual</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Nuevo</th>
-                    <th style={{ ...thStyle, fontSize: 10, padding: "6px 8px", textAlign: "right" }}>Margen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulkPreview.map(p => (
-                    <tr key={p.id} style={{ background: (p.newMargin ?? 0) < 0 ? C.redBg : undefined }}>
-                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}` }}>{p.name}</td>
-                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(p.oldPrice)}</td>
-                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(p.newPrice)}</td>
-                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: p.newMargin !== null ? (p.newMargin < 0 ? C.red : p.newMargin < 15 ? C.amber : C.green) : C.mute }}>
-                        {p.newMargin !== null ? `${p.newMargin.toFixed(1)}%` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-              <Btn variant="secondary" onClick={() => setShowBulkConfirm(false)}>Cancelar</Btn>
-              <Btn variant="primary" onClick={applyBulk}>Confirmar y aplicar</Btn>
-            </div>
-          </div>
-        </div>
+        <BulkPreviewModal
+          bulkDir={bulkDir}
+          bulkType={bulkType}
+          bulkValue={bulkValue}
+          bulkPreview={bulkPreview}
+          onCancel={() => setShowBulkConfirm(false)}
+          onConfirm={applyBulk}
+        />
       )}
     </div>
   );

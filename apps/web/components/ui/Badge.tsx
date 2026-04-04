@@ -1,6 +1,6 @@
 import { C } from "@/lib/theme";
 
-export type BadgeColor = "green" | "orange" | "gray" | "amber";
+export type BadgeColor = "green" | "orange" | "gray" | "amber" | "accent";
 
 export function Badge({ color, children }: { color: BadgeColor; children: React.ReactNode }) {
   const m: Record<BadgeColor, { bg: string; bd: string; c: string }> = {
@@ -8,6 +8,7 @@ export function Badge({ color, children }: { color: BadgeColor; children: React.
     orange: { bg: C.redBg,   bd: C.redBd,   c: C.red },
     gray:   { bg: "#F4F4F5", bd: C.border,  c: C.mid },
     amber:  { bg: C.amberBg, bd: C.amberBd, c: C.amber },
+    accent: { bg: C.accentBg, bd: C.accentBd, c: C.accent },
   };
   const s = m[color];
   return (

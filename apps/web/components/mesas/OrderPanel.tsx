@@ -1,0 +1,362 @@
+"use client";
+
+import { useState } from "react";
+import { apiFetch } from "@/lib/api";
+import { C } from "@/lib/theme";
+import { Spinner } from "@/components/ui";
+import { MesaBtn as Btn } from "./MesaBtn";
+import { PaymentModal } from "./PaymentModal";
+import { AddItemPanel } from "./AddItemPanel";
+import { Order, OrderLine, PaymentRow } from "./types";
+import { fmt, fmtTime, timeAgo } from "./helpers";
+
+interface OrderPanelProps {
+  order: Order;
+  tableName: string;
+  isCounter: boolean;
+  onRefresh: () => void;
+  onClose: () => void;
+  onOrderUpdate: (o: Order) => void;
+  canConsumoInterno?: boolean;
+}
+
+export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUpdate, canConsumoInterno }: OrderPanelProps) {
+  const [showAddItem, setShowAddItem] = useState(order.lines.length === 0);
+  const [showPayment, setShowPayment] = useState(false);
+  const [deletingLine, setDeletingLine] = useState<number | null>(null);
+  const [confirmDeleteLine, setConfirmDeleteLine] = useState<number | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [payLoading, setPayLoading] = useState(false);
+  const [payErr, setPayErr] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelErr, setCancelErr] = useState("");
+
+  async function cancelOrder() {
+    if (!confirm("\u00bfCerrar esta mesa sin cobrar?")) return;
+    setCancelling(true); setCancelErr("");
+    try {
+      await apiFetch(`/tables/orders/${order.id}/cancel/`, { method: "POST" });
+      onClose();
+      onRefresh();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al cancelar";
+      setCancelErr(msg);
+    } finally { setCancelling(false); }
+  }
+
+  const unpaidLines = order.lines.filter(l => !l.is_paid && !l.is_cancelled);
+  const cancelledLines = order.lines.filter(l => l.is_cancelled);
+  const paidLines = order.lines.filter(l => l.is_paid);
+
+  const [quickPayLine, setQuickPayLine] = useState<OrderLine | null>(null);
+
+  async function handlePrintPreCuenta() {
+    try {
+      const { getDefaultPrinter, printBytes, printHTML } = await import("@/lib/printer");
+      const { buildPreCuenta, buildPreCuentaHTML } = await import("@/lib/receipt-builder");
+      const printer = getDefaultPrinter();
+      const tenantData = await apiFetch("/core/settings/").catch(() => null);
+      const data = {
+        tableName: order.customer_name || tableName,
+        lines: unpaidLines.map(l => ({ name: l.product_name, qty: parseFloat(l.qty), total: parseFloat(l.line_total) })),
+        subtotal: parseFloat(order.subtotal_unpaid || "0"),
+        date: new Date(),
+        attendedBy: order.opened_by,
+        tenant: tenantData ? { name: tenantData.name, rut: tenantData.rut, address: tenantData.address, receipt_header: tenantData.receipt_header } : undefined,
+      };
+      if (printer && printer.type === "system") {
+        const { printSystemReceipt } = await import("@/lib/printer");
+        printSystemReceipt(buildPreCuentaHTML(data), printer);
+      } else if (printer) {
+        const paperWidth = printer.paperWidth || 80;
+        const bytes = buildPreCuenta(data, paperWidth);
+        await printBytes(bytes, printer);
+      } else {
+        printHTML(buildPreCuentaHTML(data));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al imprimir pre-cuenta";
+      setPayErr(msg);
+    }
+  }
+
+  async function deleteLine(lineId: number) {
+    if (!cancelReason.trim()) { setPayErr("Debes ingresar un motivo"); return; }
+    setDeletingLine(lineId);
+    try {
+      const data = await apiFetch(`/tables/orders/${order.id}/lines/${lineId}/`, {
+        method: "DELETE",
+        body: JSON.stringify({ reason: cancelReason.trim() }),
+      });
+      onOrderUpdate(data);
+      setConfirmDeleteLine(null);
+      setCancelReason("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al eliminar item";
+      setPayErr(msg);
+    } finally { setDeletingLine(null); }
+  }
+
+  const [lastSaleId, setLastSaleId] = useState<number | null>(null);
+
+  async function handleCheckout(payments: PaymentRow[], tip: number, mode: "all" | "partial", lineIds: number[], saleType?: string) {
+    setPayLoading(true); setPayErr("");
+    try {
+      const payArr = payments.map(r => ({ method: r.method, amount: Number(r.amount) }));
+      const res = await apiFetch(`/tables/orders/${order.id}/checkout/`, {
+        method: "POST",
+        body: JSON.stringify({
+          mode, line_ids: mode === "partial" ? lineIds : [],
+          payments: payArr, tip: tip > 0 ? tip : undefined,
+          sale_type: saleType || "VENTA",
+        }),
+      });
+      setShowPayment(false);
+      setLastSaleId(res?.sale_id || res?.id || null);
+      setSuccessMsg("\u00a1Cobro registrado!");
+      setTimeout(() => setSuccessMsg(""), 6000);
+      onRefresh();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al cobrar";
+      setPayErr(msg);
+    } finally { setPayLoading(false); }
+  }
+
+  async function handlePrintReceipt(saleId: number) {
+    try {
+      const { getDefaultPrinter, printBytes, printHTML } = await import("@/lib/printer");
+      const { buildReceipt, buildReceiptHTML } = await import("@/lib/receipt-builder");
+      const [sale, tenant] = await Promise.all([
+        apiFetch(`/sales/sales/${saleId}/`),
+        apiFetch("/core/settings/").catch(() => null),
+      ]);
+      const printer = getDefaultPrinter();
+      const receiptData = {
+        saleNumber: sale.sale_number || sale.id,
+        date: sale.created_at,
+        lines: (sale.lines || []).map((l: Record<string, unknown>) => ({
+          name: (l.product as Record<string, unknown>)?.name || "Producto",
+          qty: l.qty,
+          unitPrice: l.unit_price,
+          total: l.line_total,
+        })),
+        subtotal: parseFloat(sale.subtotal || "0"),
+        tip: parseFloat(sale.tip || "0"),
+        total: parseFloat(sale.total || "0"),
+        payments: (sale.payments || []).map((p: Record<string, unknown>) => ({ method: p.method, amount: p.amount })),
+        tenant: tenant ? {
+          name: tenant.name, rut: tenant.rut, address: tenant.address,
+          receipt_header: tenant.receipt_header, receipt_footer: tenant.receipt_footer,
+        } : undefined,
+      };
+      if (printer && printer.type === "system") {
+        const { printSystemReceipt } = await import("@/lib/printer");
+        printSystemReceipt(buildReceiptHTML(receiptData), printer);
+      } else if (printer) {
+        const bytes = buildReceipt(receiptData, printer.paperWidth || 80);
+        await printBytes(bytes, printer);
+      } else {
+        printHTML(buildReceiptHTML(receiptData));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al imprimir boleta";
+      setPayErr(msg);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Header */}
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span style={{ fontSize: 16 }}>{isCounter ? "\uD83D\uDCE6" : "\uD83E\uDE91"}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>
+            {order.customer_name || tableName}
+          </div>
+          <div style={{ fontSize: 10, color: C.mute }}>
+            {order.customer_name && <>{tableName} &middot; </>}
+            {order.opened_by} &middot; {fmtTime(order.opened_at)} &middot; {timeAgo(order.opened_at)}
+          </div>
+        </div>
+        {unpaidLines.length > 0 && (
+          <button onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            Pre-cuenta
+          </button>
+        )}
+      </div>
+
+      {successMsg && (
+        <div style={{ margin: "8px 16px 0", padding: "6px 10px", borderRadius: C.r, background: C.greenBg, border: `1px solid ${C.greenBd}`, color: C.green, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ flex: 1 }}>{successMsg}</span>
+          {lastSaleId && (
+            <button onClick={() => handlePrintReceipt(lastSaleId)}
+              style={{ background: C.green, color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              Imprimir
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Body */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "10px 16px" }}>
+        {/* Unpaid lines */}
+        {unpaidLines.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Pendiente ({unpaidLines.length})
+            </div>
+            {unpaidLines.map(l => (
+              <div key={l.id} style={{ borderBottom: `1px solid ${C.bg}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{l.product_name}</div>
+                    {l.note && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: C.amber, marginTop: 1, padding: "1px 6px", background: C.amberBg, borderRadius: 4, border: `1px solid ${C.amberBd}`, width: "fit-content" }}>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        {l.note}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: C.mute }}>{l.qty} &times; ${fmt(l.unit_price)}</div>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>${fmt(l.line_total)}</div>
+                  <button onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
+                    style={{ background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, cursor: "pointer", color: C.green, padding: "2px 4px", display: "flex", alignItems: "center" }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </button>
+                  <button onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", opacity: deletingLine === l.id ? 0.4 : 1 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                  </button>
+                </div>
+                {confirmDeleteLine === l.id && (
+                  <div style={{ padding: "6px 0 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <input
+                      value={cancelReason}
+                      onChange={e => setCancelReason(e.target.value)}
+                      placeholder="Motivo de cancelaci\u00f3n (obligatorio)"
+                      autoFocus
+                      style={{
+                        width: "100%", padding: "8px 10px", border: `1px solid ${C.redBd}`,
+                        borderRadius: C.r, fontSize: 12, background: C.redBg, outline: "none",
+                        fontFamily: "inherit", color: C.text,
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => { setConfirmDeleteLine(null); setCancelReason(""); }}
+                        style={{ padding: "4px 12px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: C.mid }}>
+                        Cancelar
+                      </button>
+                      <button onClick={() => deleteLine(l.id)} disabled={deletingLine === l.id || !cancelReason.trim()}
+                        style={{ padding: "4px 12px", borderRadius: C.r, border: "none", background: C.red, cursor: cancelReason.trim() ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: "#fff", opacity: cancelReason.trim() ? 1 : 0.5 }}>
+                        {deletingLine === l.id ? <Spinner size={10} /> : "Confirmar eliminaci\u00f3n"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: C.mid }}>Total pendiente</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>${fmt(order.subtotal_unpaid)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Cancelled lines */}
+        {cancelledLines.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Cancelado ({cancelledLines.length})
+            </div>
+            {cancelledLines.map(l => (
+              <div key={l.id} style={{ padding: "4px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.5 }}>
+                  <span style={{ flex: 1, fontSize: 11, color: C.red, textDecoration: "line-through" }}>{l.product_name}</span>
+                  <span style={{ fontSize: 11, color: C.red, textDecoration: "line-through" }}>${fmt(l.line_total)}</span>
+                </div>
+                {l.cancel_reason && (
+                  <div style={{ fontSize: 10, color: C.red, marginTop: 2, paddingLeft: 2, fontStyle: "italic", opacity: 0.7 }}>
+                    Motivo: {l.cancel_reason}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Paid lines */}
+        {paidLines.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Cobrado ({paidLines.length})
+            </div>
+            {paidLines.map(l => (
+              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", opacity: 0.4 }}>
+                <span style={{ flex: 1, fontSize: 11, color: C.mid, textDecoration: "line-through" }}>{l.product_name}</span>
+                <span style={{ fontSize: 11, color: C.mute, textDecoration: "line-through" }}>${fmt(l.line_total)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {order.lines.length === 0 && (
+          <div style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "20px 0" }}>Sin items — agrega productos.</div>
+        )}
+
+        {/* Add item toggle */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+          <button onClick={() => setShowAddItem(s => !s)} style={{
+            background: "none", border: `1px dashed ${C.borderMd}`, borderRadius: C.r,
+            width: "100%", padding: "8px", cursor: "pointer", color: C.mid, fontSize: 12,
+            fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            {showAddItem ? "Cerrar" : "Agregar items"}
+          </button>
+          {showAddItem && <div style={{ marginTop: 10 }}><AddItemPanel orderId={order.id} onAdded={() => { setShowAddItem(false); onRefresh(); }} /></div>}
+        </div>
+      </div>
+
+      {/* Footer */}
+      {(payErr || cancelErr) && <div style={{ margin: "0 16px 6px", padding: "6px 10px", borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 11 }}>{payErr || cancelErr}</div>}
+      <div style={{ padding: "10px 16px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
+        {unpaidLines.length === 0 && (
+          <Btn variant="danger" disabled={cancelling} onClick={cancelOrder}>
+            {cancelling ? <Spinner size={13} /> : null}
+            Cerrar mesa
+          </Btn>
+        )}
+        {unpaidLines.length > 0 && (
+          <Btn variant="primary" full size="lg" onClick={() => { setPayErr(""); setShowPayment(true); }}>
+            Cobrar ${fmt(order.subtotal_unpaid)}
+          </Btn>
+        )}
+      </div>
+
+      {showPayment && (
+        <PaymentModal total={Number(order.subtotal_unpaid)} tableName={order.customer_name || tableName}
+          unpaidLines={unpaidLines} onClose={() => setShowPayment(false)}
+          loading={payLoading} onConfirm={handleCheckout} canConsumoInterno={canConsumoInterno} error={payErr} />
+      )}
+      {quickPayLine && (
+        <PaymentModal total={Number(quickPayLine.line_total)} tableName={`${quickPayLine.product_name}`}
+          unpaidLines={[quickPayLine]} onClose={() => setQuickPayLine(null)}
+          loading={payLoading} onConfirm={(payments, tip, _mode, _lineIds) => {
+            handleCheckout(payments, tip, "partial", [quickPayLine.id]);
+            setQuickPayLine(null);
+          }} />
+      )}
+    </div>
+  );
+}
