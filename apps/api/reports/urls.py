@@ -5,6 +5,11 @@ from reports.exports import (
     LossesExportView,
     StockValuedExportView,
     AuditTrailExportView,
+    SalesSummaryPDFView,
+    StockValuedPDFView,
+    LossesPDFView,
+    AuditTrailPDFView,
+    ABCAnalysisPDFView,
 )
 
 urlpatterns = [
@@ -26,9 +31,16 @@ urlpatterns = [
     path("abc-analysis/", views.ABCAnalysisReportView.as_view(), name="report-abc-analysis"),
     path("inventory-health/", views.InventoryHealthView.as_view(), name="report-inventory-health"),
 
-    # Exports
+    # Exports — Excel
     path("sales-summary/export/", SalesSummaryExportView.as_view(), name="report-sales-summary-export"),
     path("losses/export/", LossesExportView.as_view(), name="report-losses-export"),
     path("stock-valued/export/", StockValuedExportView.as_view(), name="report-stock-valued-export"),
     path("audit-trail/export/", AuditTrailExportView.as_view(), name="report-audit-trail-export"),
+
+    # Exports — PDF
+    path("sales-summary/export-pdf/", SalesSummaryPDFView.as_view(), name="report-sales-summary-pdf"),
+    path("stock-valued/export-pdf/", StockValuedPDFView.as_view(), name="report-stock-valued-pdf"),
+    path("losses/export-pdf/", LossesPDFView.as_view(), name="report-losses-pdf"),
+    path("audit-trail/export-pdf/", AuditTrailPDFView.as_view(), name="report-audit-trail-pdf"),
+    path("abc-analysis/export-pdf/", ABCAnalysisPDFView.as_view(), name="report-abc-analysis-pdf"),
 ]

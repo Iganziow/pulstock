@@ -440,6 +440,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "forecast.tasks.evaluate_suggestion_outcomes",
         "schedule": crontab(hour=5, minute=0),
     },
+    # ── Weekly ABC report email ──────────────────────────
+    "reports-weekly-abc": {
+        "task": "reports.tasks.send_weekly_abc_report",
+        "schedule": crontab(hour=8, minute=0, day_of_week=1),  # Monday 8am
+    },
 }
 
 # ======================================================

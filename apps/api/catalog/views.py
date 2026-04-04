@@ -154,6 +154,10 @@ class ProductDetail(generics.RetrieveUpdateAPIView):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
 
+        # Snapshot for audit
+        old_price = str(instance.price)
+        old_name = instance.name
+
         write_ser = ProductWriteSerializer(instance, data=request.data, partial=partial, context={"request": request})
         write_ser.is_valid(raise_exception=True)
         self.perform_update(write_ser)
@@ -165,6 +169,17 @@ class ProductDetail(generics.RetrieveUpdateAPIView):
             .prefetch_related(_prefetch_barcodes_ordered())
             .first()
         )
+
+        # Audit log
+        from core.models import log_audit
+        detail = {}
+        if str(obj.price) != old_price:
+            detail["old_price"] = old_price
+            detail["new_price"] = str(obj.price)
+            log_audit(request, "price_change", "product", obj.pk, detail)
+        elif obj.name != old_name or request.data:
+            log_audit(request, "product_update", "product", obj.pk,
+                      {"fields": list(request.data.keys())})
 
         read_ser = ProductReadSerializer(obj)
         return Response(read_ser.data, status=status.HTTP_200_OK)

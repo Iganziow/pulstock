@@ -335,6 +335,11 @@ class SaleVoid(APIView):
         else:
             sale.save(update_fields=["status", "total_cost", "gross_profit"])
 
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "sale_void", "sale", sale.id,
+                  {"lines": len(lines), "reversed_cost": str(total_cost_reversed)})
+
         return Response(
             {"id": sale.id, "status": sale.status, "lines_count": len(lines), "reversed_cost": str(total_cost_reversed)},
             status=status.HTTP_200_OK,

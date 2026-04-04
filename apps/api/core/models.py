@@ -173,3 +173,57 @@ class AlertPreference(models.Model):
 
     def __str__(self) -> str:
         return f"AlertPrefs(user={self.user_id})"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUDIT LOG
+# ═══════════════════════════════════════════════════════════════════════════
+
+class AuditEntry(models.Model):
+    """Registro de auditoría para cambios de negocio relevantes."""
+    ACTION_CHOICES = [
+        ("price_change",    "Cambio de precio"),
+        ("sale_void",       "Anulación de venta"),
+        ("stock_adjust",    "Ajuste de stock"),
+        ("product_create",  "Producto creado"),
+        ("product_update",  "Producto actualizado"),
+        ("product_delete",  "Producto desactivado"),
+        ("purchase_post",   "Compra contabilizada"),
+        ("purchase_void",   "Compra anulada"),
+        ("transfer",        "Transferencia"),
+        ("user_change",     "Cambio de usuario"),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="audit_entries")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
+    entity_type = models.CharField(max_length=30)  # "product", "sale", "stockitem", etc.
+    entity_id = models.IntegerField()
+    detail = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = "core_auditentry"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["tenant", "-created_at"]),
+            models.Index(fields=["tenant", "action"]),
+            models.Index(fields=["tenant", "entity_type", "entity_id"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.action}] {self.entity_type}#{self.entity_id} by {self.user_id}"
+
+
+def log_audit(request, action, entity_type, entity_id, detail=None):
+    """Convenience helper to create an AuditEntry from a DRF request."""
+    AuditEntry.objects.create(
+        tenant_id=request.user.tenant_id,
+        user=request.user,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        detail=detail or {},
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )

@@ -260,6 +260,13 @@ class StockAdjust(APIView):
             value_delta=value_delta,
         )
 
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "stock_adjust", "stockitem", si.pk,
+                  {"product_id": product_id, "warehouse_id": warehouse_id,
+                   "qty_delta": str(qty), "note": note,
+                   "new_stock": str(si.on_hand)})
+
         return Response(
             {
                 "product_id": product_id,
@@ -772,6 +779,12 @@ class StockTransferCreate(APIView):
             )
 
             created_moves.append({"out_move_id": m_out.id, "in_move_id": m_in.id})
+
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "transfer", "stocktransfer", transfer.id,
+                  {"from_warehouse": from_id, "to_warehouse": to_id,
+                   "lines": len(created_lines)})
 
         return Response(
             {

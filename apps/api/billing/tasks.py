@@ -77,9 +77,11 @@ def process_renewals(self):
 # ─────────────────────────────────────────────────────────────
 # TASK 2: Enviar recordatorios de pago
 # ─────────────────────────────────────────────────────────────
-@shared_task(name="billing.tasks.send_payment_reminders",
+@shared_task(name="billing.tasks.send_payment_reminders", bind=True,
+             max_retries=3, autoretry_for=(Exception,),
+             retry_backoff=True, retry_backoff_max=600,
              soft_time_limit=120, time_limit=180)
-def send_payment_reminders():
+def send_payment_reminders(self):
     """
     Corre diariamente a las 9am.
     Envía emails de aviso 7, 3 y 1 día antes del vencimiento.
@@ -161,9 +163,11 @@ def send_payment_reminders():
 # ─────────────────────────────────────────────────────────────
 # TASK 3: Suspender suscripciones past_due sin pagar
 # ─────────────────────────────────────────────────────────────
-@shared_task(name="billing.tasks.suspend_overdue_subscriptions",
+@shared_task(name="billing.tasks.suspend_overdue_subscriptions", bind=True,
+             max_retries=3, autoretry_for=(Exception,),
+             retry_backoff=True, retry_backoff_max=600,
              soft_time_limit=120, time_limit=180)
-def suspend_overdue_subscriptions():
+def suspend_overdue_subscriptions(self):
     """
     Corre cada hora. Si una suscripción está en past_due
     y ya pasaron los días de gracia (3), la suspende.
@@ -244,9 +248,11 @@ def retry_failed_payments(self):
 # ─────────────────────────────────────────────────────────────
 # TASK 5: Convertir trials vencidos
 # ─────────────────────────────────────────────────────────────
-@shared_task(name="billing.tasks.expire_trials",
+@shared_task(name="billing.tasks.expire_trials", bind=True,
+             max_retries=3, autoretry_for=(Exception,),
+             retry_backoff=True, retry_backoff_max=600,
              soft_time_limit=300, time_limit=360)
-def expire_trials():
+def expire_trials(self):
     """
     Corre diariamente. Los trials vencidos sin método de pago
     pasan a FREE. Los que sí tienen método de pago, se cobran.
@@ -295,15 +301,20 @@ def _get_owner_email(sub) -> str | None:
     return owner["email"] if owner and owner["email"] else None
 
 
-def _send_email_safe(to: str, subject: str, body: str):
-    """Envía email con fallback silencioso."""
+def _send_email_safe(to: str, subject: str, body: str, html_message: str | None = None):
+    """Envía email con logging de errores. No silencia fallos."""
     if not to:
+        logger.warning("_send_email_safe: no recipient, skipping: %s", subject)
         return
     try:
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@inventario.pro")
-        send_mail(subject, body, from_email, [to], fail_silently=True)
+        send_mail(subject, body, from_email, [to],
+                  fail_silently=False, html_message=html_message)
+        logger.info("Email enviado a %s: %s", to, subject)
     except Exception as e:
-        logger.error("Error enviando email a %s: %s", to, e)
+        logger.error("Email FALLÓ a %s: %s — %s", to, subject, e)
+        # Re-raise para que Celery pueda reintentar la task
+        raise
 
 
 def _send_trial_reminder(sub, days_left: int):

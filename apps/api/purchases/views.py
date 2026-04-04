@@ -388,6 +388,11 @@ class PurchasePost(APIView):
         p.status = Purchase.STATUS_POSTED
         p.save(update_fields=["status"])
 
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "purchase_post", "purchase", p.id,
+                  {"warehouse_id": p.warehouse_id, "moves_count": len(moves)})
+
         return Response({"id": p.id, "status": p.status, "warehouse_id": p.warehouse_id, "moves_count": len(moves)}, status=status.HTTP_200_OK)
 
 # ======================================================
@@ -508,5 +513,10 @@ class PurchaseVoid(APIView):
 
         p.status = Purchase.STATUS_VOID
         p.save(update_fields=["status"])
+
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "purchase_void", "purchase", p.id,
+                  {"moves_count": len(moves)})
 
         return Response({"id": p.id, "status": p.status, "moves_count": len(moves)}, status=status.HTTP_200_OK)
