@@ -360,7 +360,7 @@ export default function LandingPage() {
               <a key={href} href={href} style={{ padding: "8px 12px", fontSize: 13, color: C.mid, textDecoration: "none", fontWeight: 500, borderRadius: 6 }}>{label}</a>
             ))}
             <button onClick={() => go("/login")} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, background: "transparent", color: C.accent, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", marginLeft: 4 }}>Ingresar</button>
-            <button onClick={() => go("/#precios")} className="l-btn" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 700, background: C.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Prueba gratis</button>
+            <button onClick={() => go("/#precios")} className="l-btn" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 700, background: C.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Ver planes</button>
           </div>
           <button className="mob-toggle" onClick={() => setMobileMenu(!mobileMenu)} style={{ display: "none", background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 4, color: C.text }}>
             {mobileMenu ? "\u2715" : "\u2630"}
@@ -373,7 +373,7 @@ export default function LandingPage() {
             ))}
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button onClick={() => go("/login")} style={{ flex: 1, padding: "10px 0", fontSize: 13, fontWeight: 600, background: "transparent", color: C.accent, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer" }}>Ingresar</button>
-              <button onClick={() => go("/#precios")} style={{ flex: 1, padding: "10px 0", fontSize: 13, fontWeight: 700, background: C.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Prueba gratis</button>
+              <button onClick={() => go("/#precios")} style={{ flex: 1, padding: "10px 0", fontSize: 13, fontWeight: 700, background: C.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Ver planes</button>
             </div>
           </div>
         )}
@@ -416,7 +416,7 @@ export default function LandingPage() {
               background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
               color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
               boxShadow: `0 4px 14px ${C.accent}40`,
-            }}>Prueba gratis 14 dias</button>
+            }}>Comenzar ahora</button>
             <a href="#como-funciona" className="l-btn" style={{
               padding: "16px 36px", fontSize: 16, fontWeight: 600,
               background: C.white, color: C.text, border: `1px solid ${C.border}`,
@@ -621,7 +621,7 @@ export default function LandingPage() {
         <div style={{ maxWidth: 1000, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Precios" title="Planes simples, sin letra chica"
-              subtitle="14 dias gratis en cualquier plan. Cancela cuando quieras." />
+              subtitle="Paga mensual, sin contratos. Cancela cuando quieras." />
           </RevealSection>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
             {PLANS.map((p, i) => (
@@ -658,7 +658,7 @@ export default function LandingPage() {
                     color: p.popular ? "#fff" : C.accent,
                     border: p.popular ? "none" : `1.5px solid ${C.accent}`, cursor: "pointer",
                     boxShadow: p.popular ? `0 4px 14px ${C.accent}30` : "none",
-                  }}>Empezar gratis</button>
+                  }}>Elegir plan</button>
                 </div>
               </RevealSection>
             ))}
@@ -734,14 +734,21 @@ export default function LandingPage() {
       }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle at 30% 50%, ${C.accent}12 0%, transparent 50%)` }} />
         <div style={{ maxWidth: 600, margin: "0 auto", position: "relative" }}>
-          <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, color: "#fff", margin: "0 0 12px" }}>Tu inventario te está costando plata.</h2>
-          <p style={{ fontSize: 16, color: "rgba(255,255,255,.6)", margin: "0 0 32px" }}>Descúbrelo gratis. 14 dias de prueba, sin tarjeta.</p>
-          <button onClick={() => go("/#precios")} className="l-btn" style={{
-            padding: "16px 40px", fontSize: 17, fontWeight: 800,
-            background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
-            color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
-            boxShadow: `0 4px 20px ${C.accent}50`,
-          }}>Empezar gratis</button>
+          <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, color: "#fff", margin: "0 0 12px" }}>Deja de adivinar. Empieza a decidir con datos.</h2>
+          <p style={{ fontSize: 16, color: "rgba(255,255,255,.6)", margin: "0 0 32px" }}>Elige tu plan y configura tu negocio en 5 minutos.</p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => go("/#precios")} className="l-btn" style={{
+              padding: "16px 40px", fontSize: 17, fontWeight: 800,
+              background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
+              color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
+              boxShadow: `0 4px 20px ${C.accent}50`,
+            }}>Ver planes</button>
+            <a href="#contacto" className="l-btn" style={{
+              padding: "16px 40px", fontSize: 17, fontWeight: 600,
+              background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.3)",
+              borderRadius: 12, cursor: "pointer", textDecoration: "none",
+            }}>Contactar ventas</a>
+          </div>
         </div>
       </section>
 
