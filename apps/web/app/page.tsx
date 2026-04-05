@@ -263,6 +263,179 @@ function DashboardMockup() {
    PAGE
    ═══════════════════════════════════════════════════════════════ */
 
+const DEMO_PRODUCTS = [
+  { name: "Arroz Grado 1", sku: "ARR-001", stock: 12, min: 50, daily: 8.5, days: 1, status: "critical" as const },
+  { name: "Aceite Vegetal 1L", sku: "ACE-002", stock: 28, min: 40, daily: 5.2, days: 5, status: "warning" as const },
+  { name: "Harina Sin Preparar", sku: "HAR-003", stock: 8, min: 30, daily: 3.8, days: 2, status: "critical" as const },
+  { name: "Azúcar Granulada", sku: "AZU-004", stock: 95, min: 60, daily: 6.1, days: 15, status: "ok" as const },
+  { name: "Sal de Mar 1KG", sku: "SAL-005", stock: 45, min: 20, daily: 2.3, days: 19, status: "ok" as const },
+];
+
+function LiveDemoWidget() {
+  const { ref, visible } = useScrollReveal();
+  const [step, setStep] = useState(0);
+  const [showSuggestion, setShowSuggestion] = useState(false);
+
+  // Auto-animate through steps
+  useEffect(() => {
+    if (!visible) return;
+    const timers = [
+      setTimeout(() => setStep(1), 800),
+      setTimeout(() => setStep(2), 2000),
+      setTimeout(() => setShowSuggestion(true), 3200),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [visible]);
+
+  const statusColors = {
+    critical: { bg: "#FEF2F2", bd: "#FECACA", text: "#DC2626", label: "Agotándose" },
+    warning: { bg: "#FFFBEB", bd: "#FDE68A", text: "#D97706", label: "Bajo" },
+    ok: { bg: "#ECFDF5", bd: "#A7F3D0", text: "#16A34A", label: "OK" },
+  };
+
+  return (
+    <section ref={ref} style={{ padding: "80px 24px", background: `linear-gradient(180deg, #F7F7F8 0%, ${C.white} 100%)` }}>
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>Demo en vivo</p>
+          <h2 style={{ fontSize: "clamp(26px, 4vw, 36px)", fontWeight: 900, margin: 0, lineHeight: 1.15 }}>
+            Así trabaja Pulstock por ti
+          </h2>
+          <p style={{ fontSize: 15, color: C.mid, marginTop: 10 }}>
+            Mira cómo detecta problemas y sugiere acciones automáticamente.
+          </p>
+        </div>
+
+        {/* Simulated dashboard */}
+        <div style={{
+          background: C.white, borderRadius: 16, overflow: "hidden",
+          boxShadow: "0 20px 60px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04)",
+          border: `1px solid ${C.border}`,
+        }}>
+          {/* Top bar */}
+          <div style={{ padding: "12px 20px", background: "#F9FAFB", borderBottom: `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LogoIcon size={24} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Dashboard de Inventario</span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, background: "#FEF2F2",
+                color: "#DC2626", fontWeight: 700, border: "1px solid #FECACA" }}>2 Críticos</span>
+              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10, background: "#FFFBEB",
+                color: "#D97706", fontWeight: 700, border: "1px solid #FDE68A" }}>1 Bajo</span>
+            </div>
+          </div>
+
+          {/* Product table */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#F9FAFB", borderBottom: `2px solid ${C.border}` }}>
+                  {["Producto", "SKU", "Stock", "Mínimo", "Venta/día", "Días restantes", "Estado"].map(h => (
+                    <th key={h} style={{ padding: "10px 14px", fontSize: 10, fontWeight: 700, color: C.mute,
+                      textTransform: "uppercase", letterSpacing: ".05em", textAlign: h === "Producto" ? "left" : "right" }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {DEMO_PRODUCTS.map((p, i) => {
+                  const sc = statusColors[p.status];
+                  const isHighlighted = step >= 1 && p.status === "critical";
+                  return (
+                    <tr key={p.sku} style={{
+                      borderBottom: `1px solid ${C.border}`,
+                      background: isHighlighted ? "#FEF2F240" : "transparent",
+                      transition: "background .5s ease",
+                    }}>
+                      <td style={{ padding: "12px 14px", fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", fontFamily: "monospace", color: C.mute, fontSize: 11 }}>{p.sku}</td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", fontWeight: 700,
+                        color: p.status === "critical" ? "#DC2626" : p.status === "warning" ? "#D97706" : C.text }}>
+                        {p.stock}
+                      </td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: C.mute }}>{p.min}</td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: C.mid }}>{p.daily}</td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", fontWeight: 700,
+                        color: p.days <= 3 ? "#DC2626" : p.days <= 7 ? "#D97706" : C.text }}>
+                        {p.days} días
+                      </td>
+                      <td style={{ padding: "12px 8px", textAlign: "right" }}>
+                        <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 10,
+                          fontSize: 10, fontWeight: 700, background: sc.bg, color: sc.text,
+                          border: `1px solid ${sc.bd}`,
+                          opacity: step >= 1 ? 1 : 0, transition: "opacity .5s ease",
+                          transitionDelay: `${i * 100}ms`,
+                        }}>{sc.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Alert banner — slides in */}
+          <div style={{
+            margin: "0 16px 16px", padding: step >= 2 ? "14px 18px" : "0 18px",
+            borderRadius: 12, background: "#FEF2F2", border: "1px solid #FECACA",
+            maxHeight: step >= 2 ? 80 : 0, overflow: "hidden",
+            transition: "all .6s cubic-bezier(.16,1,.3,1)",
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <span style={{ fontSize: 20 }}>🚨</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#DC2626" }}>
+                Arroz Grado 1 se agota en 1 día
+              </div>
+              <div style={{ fontSize: 11, color: C.mute }}>
+                Ventas promedio: 8.5 un/día · Stock actual: 12 · Mínimo: 50
+              </div>
+            </div>
+          </div>
+
+          {/* Suggestion card — slides in */}
+          <div style={{
+            margin: "0 16px 16px", padding: showSuggestion ? "14px 18px" : "0 18px",
+            borderRadius: 12, background: "#EEF2FF", border: `1px solid #C7D2FE`,
+            maxHeight: showSuggestion ? 100 : 0, overflow: "hidden",
+            transition: "all .6s cubic-bezier(.16,1,.3,1)",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 20 }}>📋</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>
+                  Sugerencia de compra generada
+                </div>
+                <div style={{ fontSize: 12, color: C.mid }}>
+                  Arroz Grado 1: <strong>comprar 50 KG</strong> · Harina: <strong>comprar 30 KG</strong>
+                </div>
+              </div>
+            </div>
+            <div style={{
+              padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: C.accent, color: "#fff", whiteSpace: "nowrap",
+            }}>
+              Aprobar pedido
+            </div>
+          </div>
+        </div>
+
+        {/* Caption */}
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <p style={{ fontSize: 13, color: C.mute, margin: 0 }}>
+            Todo esto pasa automáticamente. Solo tienes que aprobar.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 export default function LandingPage() {
   const router = useRouter();
   const [scrolled, setScrolled] = useState(false);
@@ -541,18 +714,21 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ COMPARISON TABLE — vs generic POS ═══ */}
+      {/* ═══ LIVE DEMO WIDGET ═══ */}
+      <LiveDemoWidget />
+
+      {/* ═══ COMPARISON TABLE — vs tu sistema actual ═══ */}
       <section style={{ padding: "80px 24px", background: C.white }}>
         <div style={{ maxWidth: 700, margin: "0 auto" }}>
           <RevealSection>
-            <SectionTitle tag="Comparativa" title="POS genérico vs Pulstock" />
+            <SectionTitle tag="Comparativa" title="Tu sistema actual vs Pulstock" subtitle="Compara lo que tienes hoy con lo que podrías tener." />
           </RevealSection>
           <RevealSection delay={100}>
             <div className="comparison-table" style={{ borderRadius: 16, overflow: "hidden", border: `1px solid ${C.border}` }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px", background: "#F9FAFB", borderBottom: `2px solid ${C.border}` }}>
                 <div style={{ padding: "12px 20px", fontSize: 12, fontWeight: 700, color: C.mute, textTransform: "uppercase" }}>Feature</div>
                 <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.accent, textAlign: "center" }}>Pulstock</div>
-                <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.mute, textAlign: "center" }}>POS genérico</div>
+                <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.mute, textAlign: "center" }}>Tu sistema actual</div>
               </div>
               {COMPARISON.map((row, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px", borderBottom: i < COMPARISON.length - 1 ? `1px solid ${C.border}` : "none",
