@@ -17,13 +17,26 @@ class StoreList(generics.ListAPIView):
     """
     GET /api/stores/
     Lista los locales del tenant del usuario.
+    Owners ven todos. Otros roles solo ven los asignados.
     """
     permission_classes = [IsAuthenticated, HasTenant]
     serializer_class = StoreSerializer
 
     def get_queryset(self):
-        t_id = self.request.user.tenant_id
-        return Store.objects.filter(tenant_id=t_id).order_by("name")
+        user = self.request.user
+        t_id = user.tenant_id
+        qs = Store.objects.filter(tenant_id=t_id, is_active=True).order_by("name")
+
+        # Owners see all stores
+        if getattr(user, "is_owner", False):
+            return qs
+
+        # Other roles: filter by UserStoreAccess
+        from core.models import UserStoreAccess
+        allowed_ids = UserStoreAccess.objects.filter(
+            user=user
+        ).values_list("store_id", flat=True)
+        return qs.filter(id__in=allowed_ids)
 
 
 class SetActiveStore(APIView):
@@ -32,25 +45,26 @@ class SetActiveStore(APIView):
     body: {"store_id": 123}
 
     Setea el local activo del usuario (active_store).
+    Validates user has access to the store.
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def post(self, request):
-        t_id = request.user.tenant_id
+        user = request.user
+        t_id = user.tenant_id
         store_id = request.data.get("store_id")
 
         if not store_id:
             return Response(
-                {"detail": "store_id is required"},
+                {"detail": "store_id es obligatorio."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # (Opcional) cast seguro: si viene string "123"
         try:
             store_id = int(store_id)
         except (TypeError, ValueError):
             return Response(
-                {"detail": "store_id must be an integer"},
+                {"detail": "store_id debe ser un número."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -61,13 +75,21 @@ class SetActiveStore(APIView):
         )
         if not store:
             return Response(
-                {"detail": "Store not found for this tenant"},
+                {"detail": "Local no encontrado."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Setear active_store del usuario
-        request.user.active_store = store
-        request.user.save(update_fields=["active_store"])
+        # Check access (owners bypass)
+        if not getattr(user, "is_owner", False):
+            from core.models import UserStoreAccess
+            if not UserStoreAccess.objects.filter(user=user, store=store).exists():
+                return Response(
+                    {"detail": "No tienes acceso a este local."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        user.active_store = store
+        user.save(update_fields=["active_store"])
 
         return Response(
             {

@@ -231,3 +231,25 @@ def log_audit(request, action, entity_type, entity_id, detail=None):
         detail=detail or {},
         ip_address=request.META.get("REMOTE_ADDR"),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STORE ACCESS CONTROL
+# ═══════════════════════════════════════════════════════════════════════════
+
+class UserStoreAccess(models.Model):
+    """Controls which stores a user can access. Owners bypass this."""
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="store_access_entries")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="store_access")
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, related_name="user_access")
+
+    class Meta:
+        db_table = "core_userstoreaccess"
+        unique_together = [("user", "store")]
+        indexes = [
+            models.Index(fields=["user", "store"]),
+            models.Index(fields=["tenant", "user"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"User {self.user_id} → Store {self.store_id}"

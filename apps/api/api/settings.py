@@ -445,6 +445,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "reports.tasks.send_weekly_abc_report",
         "schedule": crontab(hour=8, minute=0, day_of_week=1),  # Monday 8am
     },
+    # ── Daily low stock alerts ───────────────────────────
+    "inventory-low-stock-alerts": {
+        "task": "inventory.tasks.send_low_stock_alerts",
+        "schedule": crontab(hour=7, minute=30),  # Daily 7:30am
+    },
 }
 
 # ======================================================

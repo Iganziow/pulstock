@@ -87,3 +87,25 @@ class IsManagerOrReadOnly(BasePermission):
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
         return getattr(request.user, "is_manager", False)
+
+
+class HasStoreAccess(BasePermission):
+    """
+    Validates the user has access to the currently active store.
+    Owners bypass this check (they access all stores in their tenant).
+    """
+    message = "No tienes acceso a este local."
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        if getattr(user, "is_owner", False):
+            return True
+        store_id = getattr(user, "active_store_id", None)
+        if not store_id:
+            return False
+        from core.models import UserStoreAccess
+        return UserStoreAccess.objects.filter(
+            user=user, store_id=store_id
+        ).exists()

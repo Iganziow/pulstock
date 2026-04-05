@@ -415,8 +415,10 @@ class TestCashierMultiStore:
         r = c.patch(f"/api/core/stores/{store1.id}/", {"is_active": False}, format="json")
         assert r.status_code == 403
 
-    def test_cashier_can_switch_store(self, client_ms, subscription_ms, tenant_ms, store1):
-        """Cashier should be able to switch to any active store in their tenant."""
+    def test_cashier_can_switch_to_assigned_store(self, client_ms, subscription_ms, tenant_ms, store1):
+        """Cashier can switch to a store they have access to via UserStoreAccess."""
+        from core.models import UserStoreAccess
+
         r = client_ms.post("/api/core/stores/", {"name": "Local Cashier"}, format="json")
         store2 = Store.objects.get(id=r.json()["id"])
 
@@ -424,11 +426,34 @@ class TestCashierMultiStore:
             username="ms_cashier3", password="Test1234!",
             tenant=tenant_ms, active_store=store1, role="cashier",
         )
+        # Grant access to both stores
+        UserStoreAccess.objects.create(user=cashier, store=store1, tenant=tenant_ms)
+        UserStoreAccess.objects.create(user=cashier, store=store2, tenant=tenant_ms)
+
         cc = APIClient()
         cc.force_authenticate(user=cashier)
 
         r2 = cc.post("/api/stores/set-active/", {"store_id": store2.id}, format="json")
         assert r2.status_code == 200
+
+    def test_cashier_cannot_switch_to_unassigned_store(self, client_ms, subscription_ms, tenant_ms, store1):
+        """Cashier cannot switch to a store they don't have access to."""
+        r = client_ms.post("/api/core/stores/", {"name": "Local Blocked"}, format="json")
+        store2 = Store.objects.get(id=r.json()["id"])
+
+        cashier = User.objects.create_user(
+            username="ms_cashier4", password="Test1234!",
+            tenant=tenant_ms, active_store=store1, role="cashier",
+        )
+        # Only grant access to store1, not store2
+        from core.models import UserStoreAccess
+        UserStoreAccess.objects.create(user=cashier, store=store1, tenant=tenant_ms)
+
+        cc = APIClient()
+        cc.force_authenticate(user=cashier)
+
+        r2 = cc.post("/api/stores/set-active/", {"store_id": store2.id}, format="json")
+        assert r2.status_code == 403
 
 
 # ══════════════════════════════════════════════════════════════
