@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch, clearTokens } from "@/lib/api";
 import { C } from "@/lib/theme";
+import { LogoIcon } from "@/components/ui/Logo";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -184,18 +185,7 @@ export default function Sidebar() {
         gap: 12,
         borderBottom: `1px solid ${C.border}`,
       }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: 10,
-          background: "linear-gradient(135deg, #4F46E5, #7C3AED)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0,
-          boxShadow: "0 2px 8px rgba(79,70,229,0.25)",
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
-          </svg>
-        </div>
+        <LogoIcon size={36} />
         {!collapsed && (
           <div>
             <div style={{ fontSize: 16, fontWeight: 800, color: C.text, lineHeight: 1.1 }}>Pulstock</div>

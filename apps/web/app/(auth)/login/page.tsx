@@ -1,4 +1,5 @@
 "use client";
+import { LogoIcon } from "@/components/ui/Logo";
 
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
@@ -199,18 +200,8 @@ export default function LoginPage() {
 
           {/* Logo / Brand */}
           <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <div style={{
-              width: 56, height: 56, borderRadius: 14,
-              background: `linear-gradient(135deg, ${C.accent}, #7C3AED)`,
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              marginBottom: 16,
-              boxShadow: "0 4px 14px rgba(79,70,229,0.25)",
-            }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                <line x1="12" y1="22.08" x2="12" y2="12"/>
-              </svg>
+            <div style={{ marginBottom: 16 }}>
+              <LogoIcon size={56} />
             </div>
             <h1 style={{
               fontSize: 24, fontWeight: 800, color: C.text,
