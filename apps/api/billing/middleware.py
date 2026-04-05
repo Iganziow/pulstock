@@ -20,6 +20,7 @@ Cómo agregar a settings.py:
 import logging
 
 from django.core.cache import cache
+from django.db import DatabaseError, OperationalError
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 
@@ -80,7 +81,7 @@ class SubscriptionAccessMiddleware(MiddlewareMixin):
             except Subscription.DoesNotExist:
                 # Tenant sin suscripción → bloquear (no dar acceso gratis)
                 cached = {"allowed": False, "status": "no_subscription"}
-            except Exception:
+            except (DatabaseError, OperationalError):
                 # Error de DB u otro problema inesperado → denegar por seguridad,
                 # pero NO cachear para que el próximo request reintente la consulta.
                 logger.exception("Error consultando suscripción para tenant=%s", user.tenant_id)

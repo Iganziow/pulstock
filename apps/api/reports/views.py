@@ -71,7 +71,7 @@ def _to_decimal(s, default="0"):
         s = default
     try:
         return Decimal(str(s).replace(",", "."))
-    except Exception:
+    except (ValueError, ArithmeticError):
         raise ValidationError({"detail": f"Invalid decimal '{s}'."})
 
 

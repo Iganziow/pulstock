@@ -39,14 +39,14 @@ export function ImportRecipesModal({
         {/* Body */}
         <div style={{ padding: "20px 22px", display: "grid", gap: 14 }}>
           {importErr && (
-            <div style={{ padding: "10px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#DC2626", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ padding: "10px 14px", background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, fontSize: 13, color: C.red, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>{importErr}</span>
-              <button onClick={() => setImportErr(null)} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16, padding: 0 }}>&#x2715;</button>
+              <button type="button" aria-label="Cerrar" onClick={() => setImportErr(null)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 16, padding: 0 }}>&#x2715;</button>
             </div>
           )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button className="xb" onClick={downloadSample}
+            <button type="button" className="xb" onClick={downloadSample}
               style={{ background: "none", border: `1px solid ${C.accent}`, color: C.accent, borderRadius: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -83,7 +83,7 @@ export function ImportRecipesModal({
               </div>
               {importResult.errors?.length > 0 && (
                 <div style={{ borderTop: `1px solid ${C.border}` }}>
-                  <div style={{ padding: "9px 16px", fontWeight: 600, fontSize: 12, color: "#DC2626", background: "#FEF2F2" }}>
+                  <div style={{ padding: "9px 16px", fontWeight: 600, fontSize: 12, color: C.red, background: C.redBg }}>
                     Errores ({importResult.errors.length})
                   </div>
                   <div style={{ maxHeight: 200, overflowY: "auto" }}>
@@ -93,7 +93,7 @@ export function ImportRecipesModal({
                     {importResult.errors.map((x: any, idx: number) => (
                       <div key={idx} style={{ display: "grid", gridTemplateColumns: "64px 1fr", padding: "7px 16px", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
                         <span style={{ fontFamily: "'JetBrains Mono', monospace", color: C.mute }}>{x.line ?? "-"}</span>
-                        <span style={{ color: "#DC2626" }}>{x.error}</span>
+                        <span style={{ color: C.red }}>{x.error}</span>
                       </div>
                     ))}
                   </div>

@@ -1,4 +1,9 @@
+import logging
+
 from stores.models import Store
+
+logger = logging.getLogger(__name__)
+
 
 class StoreContextMiddleware:
     """
@@ -26,7 +31,7 @@ class StoreContextMiddleware:
             try:
                 request.store = Store.objects.get(id=int(store_id), tenant_id=t_id, is_active=True)
                 return self.get_response(request)
-            except Exception:
+            except (Store.DoesNotExist, ValueError, TypeError):
                 # si mandan uno malo, simplemente cae al fallback
                 pass
 
@@ -34,7 +39,7 @@ class StoreContextMiddleware:
             try:
                 request.store = Store.objects.get(id=user.active_store_id, tenant_id=t_id, is_active=True)
                 return self.get_response(request)
-            except Exception:
+            except Store.DoesNotExist:
                 pass
 
         request.store = Store.objects.filter(tenant_id=t_id, is_active=True).order_by("id").first()

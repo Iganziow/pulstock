@@ -6,7 +6,7 @@ Todos los endpoints requieren is_superuser=True.
 """
 
 from api.utils import safe_int
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 from django.db.models import Count, Sum, Q, F, Avg, FloatField
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import TruncDate, TruncMonth, Cast
@@ -676,7 +676,8 @@ class AdminUserCreateView(APIView):
                 role=role,
                 tenant=tenant,
             )
-        except Exception:
+        except (IntegrityError, ValueError) as e:
+            logger.warning("Error al crear usuario en superadmin: %s", e)
             return Response({"detail": "Error al crear el usuario. Verifica que los datos no estén duplicados."}, status=400)
 
         logger.info("Superadmin %s created user %s (tenant=%s)", request.user.email, email, tenant_id)

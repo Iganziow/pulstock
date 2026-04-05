@@ -5,9 +5,11 @@
 # POST /api/auth/complete-onboarding/ — Marcar onboarding como completado
 # ─────────────────────────────────────────────────────
 
+import logging
+
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import Q
 from django.utils.text import slugify
 from rest_framework.views import APIView
@@ -22,6 +24,8 @@ from api.throttles import RegisterRateThrottle
 
 from core.models import Tenant, User, Warehouse
 from stores.models import Store
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterView(APIView):
@@ -168,8 +172,8 @@ class RegisterView(APIView):
                 try:
                     from catalog.management.commands.seed_units import seed_units_for_tenant
                     seed_units_for_tenant(tenant)
-                except Exception:
-                    pass  # non-critical — units can be seeded later
+                except (ImportError, RuntimeError) as e:
+                    logger.warning("No se pudieron crear unidades por defecto: %s", e)
 
                 # 6. Create user
                 user = User.objects.create_user(
@@ -186,8 +190,8 @@ class RegisterView(APIView):
                 try:
                     user.role = "owner"
                     user.save(update_fields=["role"])
-                except Exception:
-                    pass  # role field might not exist yet
+                except (AttributeError, ValueError) as e:
+                    logger.warning("No se pudo asignar rol owner: %s", e)
 
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
@@ -217,9 +221,8 @@ class RegisterView(APIView):
             _set_token_cookies(response, access_str, refresh_str)
             return response
 
-        except Exception:
-            import logging
-            logging.getLogger("onboarding").exception("Error en registro de cuenta")
+        except (IntegrityError, ValueError, TypeError) as e:
+            logger.exception("Error en registro de cuenta")
             return Response(
                 {"detail": "No se pudo crear la cuenta. Por favor intenta de nuevo."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -269,8 +272,8 @@ class OnboardingStatusView(APIView):
         try:
             from caja.models import CashSession
             caja_opened = CashSession.objects.filter(tenant_id=tid).exists()
-        except Exception:
-            pass
+        except ImportError:
+            logger.warning("Módulo caja no disponible para onboarding status")
 
         # Step 7: First sale
         first_sale = Sale.objects.filter(tenant_id=tid, status="COMPLETED").exists()

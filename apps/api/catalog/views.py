@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q, Prefetch, Exists, OuterRef, Count, F, Case, When, Value
 from django.db.models.functions import Greatest
 from rest_framework import generics, serializers, status
@@ -13,10 +14,13 @@ from .serializers import (
 )
 import csv
 import io
+import logging
 from django.db import transaction
 
+logger = logging.getLogger(__name__)
 
-def tenant_id(request):
+
+def tenant_id(request) -> int | None:
     return request.user.tenant_id
 
 
@@ -28,7 +32,7 @@ def _check_product_limit(t_id):
         sub = Subscription.objects.select_related("plan").get(tenant_id=t_id)
         current = Product.objects.filter(tenant_id=t_id, is_active=True).count()
         return check_plan_limit(sub, "products", current)
-    except Exception:
+    except (ImportError, ObjectDoesNotExist):
         return {"allowed": True, "limit": -1, "current": 0}
 
 
@@ -354,7 +358,7 @@ class ProductImport(APIView):
         sample = text[:4096]
         try:
             dialect = csv.Sniffer().sniff(sample, delimiters=",;")
-        except Exception:
+        except csv.Error:
             dialect = csv.excel
             dialect.delimiter = ","
         return dialect
@@ -439,7 +443,7 @@ class ProductImport(APIView):
         else:
             try:
                 text = raw.decode("utf-8-sig")  # soporta BOM
-            except Exception:
+            except (UnicodeDecodeError, ValueError):
                 return Response({"detail": "Invalid encoding. Use UTF-8."}, status=status.HTTP_400_BAD_REQUEST)
 
         if not text.strip():

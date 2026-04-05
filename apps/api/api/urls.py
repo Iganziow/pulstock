@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
-from django.db import connection
+from django.db import connection, DatabaseError, OperationalError
 from django.conf import settings
 
 from api.auth_views import CookieTokenObtainView, CookieTokenRefreshView, CookieLogoutView
@@ -14,14 +14,14 @@ def health_check(request):
     try:
         connection.ensure_connection()
         checks["db"] = True
-    except Exception:
+    except (DatabaseError, OperationalError):
         checks["db"] = False
 
     try:
         from django.core.cache import cache
         cache.set("_health", "1", timeout=5)
         checks["redis"] = cache.get("_health") == "1"
-    except Exception:
+    except (ConnectionError, OSError, ValueError):
         checks["redis"] = False
 
     all_ok = all(checks.values())

@@ -54,6 +54,7 @@ export function CajaHistory({ history, histLoad, histPage, histTotal, onPageChan
       {histTotal > 20 && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
           <button
+            type="button"
             disabled={histPage <= 1}
             onClick={() => onPageChange(histPage - 1)}
             style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: histPage <= 1 ? "default" : "pointer", opacity: histPage <= 1 ? 0.4 : 1, fontSize: 13 }}
@@ -62,6 +63,7 @@ export function CajaHistory({ history, histLoad, histPage, histTotal, onPageChan
             Pagina {histPage} de {totalPages}
           </span>
           <button
+            type="button"
             disabled={histPage >= totalPages}
             onClick={() => onPageChange(histPage + 1)}
             style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: histPage >= totalPages ? "default" : "pointer", opacity: histPage >= totalPages ? 0.4 : 1, fontSize: 13 }}

@@ -72,7 +72,7 @@ export default function UsersTab({ users, me, onRefresh, flash }: UsersTabProps)
           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-.02em" }}>Usuarios</div>
           <div style={{ fontSize: 13, color: C.mute, marginTop: 2 }}>{users.length} usuario{users.length !== 1 ? "s" : ""} en tu negocio</div>
         </div>
-        <Btn onClick={() => setShowCreateUser(!showCreateUser)} style={{ padding: "8px 14px", fontSize: 12 }}>
+        <Btn onClick={() => setShowCreateUser(!showCreateUser)} size="sm">
           {showCreateUser ? "Cancelar" : "+ Nuevo usuario"}
         </Btn>
       </div>
@@ -106,8 +106,8 @@ export default function UsersTab({ users, me, onRefresh, flash }: UsersTabProps)
               </div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <Btn onClick={() => setShowCreateUser(false)} variant="outline" color={C.mute} style={{ padding: "9px 16px", fontSize: 13 }}>Cancelar</Btn>
-              <Btn onClick={createUser} disabled={saving || !nuUser || !nuPass} color={C.green}>
+              <Btn onClick={() => setShowCreateUser(false)} variant="secondary">Cancelar</Btn>
+              <Btn onClick={createUser} disabled={saving || !nuUser || !nuPass} variant="success">
                 {saving ? <><Spinner /> Creando...</> : "Crear usuario"}
               </Btn>
             </div>
@@ -183,8 +183,8 @@ export default function UsersTab({ users, me, onRefresh, flash }: UsersTabProps)
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <Btn onClick={() => { setEditUser(null); setEuCurrentPw(""); }} variant="outline" color={C.mute} style={{ padding: "8px 16px", fontSize: 13 }}>Cancelar</Btn>
-                  <Btn onClick={saveEditUser} disabled={saving}>{saving ? <><Spinner /> Guardando</> : "Guardar"}</Btn>
+                  <Btn onClick={() => { setEditUser(null); setEuCurrentPw(""); }} variant="secondary">Cancelar</Btn>
+                  <Btn onClick={saveEditUser} disabled={saving} variant="primary">{saving ? <><Spinner /> Guardando</> : "Guardar"}</Btn>
                 </div>
               </div>
             )}

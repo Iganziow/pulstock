@@ -28,7 +28,12 @@ export function ReceiveModal({ sel, whName, recQty, setRecQty, recCost, setRecCo
   const recOk = !isNaN(recQtyN) && recQtyN > 0 && (!recCost.trim() || (!isNaN(recCostN) && recCostN >= 0));
 
   return (
-    <Modal title="Recibir stock" subtitle={`Bodega: ${whName}`} onClose={onClose} disabled={recBusy} accentColor={C.green}>
+    <Modal title="Recibir stock" subtitle={`Bodega: ${whName}`} onClose={onClose} accentColor={C.green} footer={<>
+        <Btn variant="ghost" onClick={onClose} disabled={recBusy}>Cancelar</Btn>
+        <Btn variant="success" onClick={onSubmit} disabled={recBusy || !recOk}>
+          {recBusy ? <><Spinner size={13} />Guardando...</> : "Confirmar recepcion"}
+        </Btn>
+      </>}>
       <ProductCard row={sel} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Cantidad *" err={!isNaN(recQtyN) && recQtyN <= 0 && recQty.trim() ? "Debe ser > 0" : null}>
@@ -48,12 +53,6 @@ export function ReceiveModal({ sel, whName, recQty, setRecQty, recCost, setRecCo
         </FieldGroup>
       </div>
       {recErr && <ErrBanner msg={recErr} onClose={() => setRecErr(null)} />}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <Btn variant="ghost" onClick={onClose} disabled={recBusy}>Cancelar</Btn>
-        <Btn variant="success" onClick={onSubmit} disabled={recBusy || !recOk}>
-          {recBusy ? <><Spinner size={13} />Guardando...</> : "Confirmar recepcion"}
-        </Btn>
-      </div>
     </Modal>
   );
 }
@@ -79,7 +78,12 @@ export function IssueModal({ sel, whName, issQty, setIssQty, issReason, setIssRe
   const issOk = !isNaN(issQtyN) && issQtyN > 0 && !issNeg;
 
   return (
-    <Modal title="Egresar stock" subtitle={`Bodega: ${whName}`} onClose={onClose} disabled={issBusy} accentColor={C.red}>
+    <Modal title="Egresar stock" subtitle={`Bodega: ${whName}`} onClose={onClose} accentColor={C.red} footer={<>
+        <Btn variant="ghost" onClick={onClose} disabled={issBusy}>Cancelar</Btn>
+        <Btn variant="danger" onClick={onSubmit} disabled={issBusy || !issOk}>
+          {issBusy ? <><Spinner size={13} />Guardando...</> : "Confirmar salida"}
+        </Btn>
+      </>}>
       <ProductCard row={sel} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Cantidad *" err={issNeg ? "Stock insuficiente" : (!isNaN(issQtyN) && issQtyN <= 0 && issQty.trim() ? "Debe ser > 0" : null)}>
@@ -109,12 +113,6 @@ export function IssueModal({ sel, whName, issQty, setIssQty, issReason, setIssRe
         </FieldGroup>
       </div>
       {issErr && <ErrBanner msg={issErr} onClose={() => setIssErr(null)} />}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <Btn variant="ghost" onClick={onClose} disabled={issBusy}>Cancelar</Btn>
-        <Btn variant="danger" onClick={onSubmit} disabled={issBusy || !issOk}>
-          {issBusy ? <><Spinner size={13} />Guardando...</> : "Confirmar salida"}
-        </Btn>
-      </div>
     </Modal>
   );
 }
@@ -140,7 +138,12 @@ export function AdjustModal({ sel, whName, adjQty, setAdjQty, adjCost, setAdjCos
   const adjOk = !isNaN(adjDelta) && !adjNeg && (adjDelta !== 0 || adjCost.trim() !== "");
 
   return (
-    <Modal title="Ajustar stock" subtitle={`Bodega: ${whName}`} onClose={onClose} disabled={adjBusy} accentColor={C.accent}>
+    <Modal title="Ajustar stock" subtitle={`Bodega: ${whName}`} onClose={onClose} accentColor={C.accent} footer={<>
+        <Btn variant="ghost" onClick={onClose} disabled={adjBusy}>Cancelar</Btn>
+        <Btn variant="violet" onClick={onSubmit} disabled={adjBusy || !adjOk}>
+          {adjBusy ? <><Spinner size={13} />Guardando...</> : "Guardar ajuste"}
+        </Btn>
+      </>}>
       <ProductCard row={sel} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Delta de cantidad (opcional)" hint="Ej: 5 para agregar, -3 para descontar. Deja vacio si solo quieres cambiar el costo."
@@ -171,12 +174,6 @@ export function AdjustModal({ sel, whName, adjQty, setAdjQty, adjCost, setAdjCos
         </FieldGroup>
       </div>
       {adjErr && <ErrBanner msg={adjErr} onClose={() => setAdjErr(null)} />}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <Btn variant="ghost" onClick={onClose} disabled={adjBusy}>Cancelar</Btn>
-        <Btn variant="violet" onClick={onSubmit} disabled={adjBusy || !adjOk}>
-          {adjBusy ? <><Spinner size={13} />Guardando...</> : "Guardar ajuste"}
-        </Btn>
-      </div>
     </Modal>
   );
 }
@@ -202,7 +199,12 @@ export function TransferModal({ whName, warehouseId, activeWh, items, trTarget, 
   const trOk = !isNaN(trQtyN) && trQtyN > 0 && !!trTarget && trTarget !== warehouseId && !!trProdId;
 
   return (
-    <Modal title="Transferir stock" subtitle={`Desde: ${whName}`} onClose={onClose} disabled={trBusy} accentColor={C.sky}>
+    <Modal title="Transferir stock" subtitle={`Desde: ${whName}`} onClose={onClose} accentColor={C.sky} footer={<>
+        <Btn variant="ghost" onClick={onClose} disabled={trBusy}>Cancelar</Btn>
+        <Btn variant="sky" onClick={onSubmit} disabled={trBusy || !trOk}>
+          {trBusy ? <><Spinner size={13} />Procesando...</> : "Confirmar transferencia"}
+        </Btn>
+      </>}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Bodega destino *">
           <select value={trTarget ?? ""} onChange={e => setTrTarget(Number(e.target.value))} style={iS({ height: 36 })} disabled={trBusy}>
@@ -226,12 +228,6 @@ export function TransferModal({ whName, warehouseId, activeWh, items, trTarget, 
         </FieldGroup>
       </div>
       {trErr && <ErrBanner msg={trErr} onClose={() => setTrErr(null)} />}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-        <Btn variant="ghost" onClick={onClose} disabled={trBusy}>Cancelar</Btn>
-        <Btn variant="sky" onClick={onSubmit} disabled={trBusy || !trOk}>
-          {trBusy ? <><Spinner size={13} />Procesando...</> : "Confirmar transferencia"}
-        </Btn>
-      </div>
     </Modal>
   );
 }

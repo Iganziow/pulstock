@@ -204,7 +204,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
         <Divider />
 
         {!showAdd ? (
-          <Btn onClick={() => { setShowAdd(true); setAddType(null); setAddName(""); setAddAddress(""); }} color={C.accent}>
+          <Btn onClick={() => { setShowAdd(true); setAddType(null); setAddName(""); setAddAddress(""); }} variant="primary">
             + Agregar impresora
           </Btn>
         ) : (
@@ -269,10 +269,10 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
                     else if (addType === "usb") handleAddUSB();
                     else if (addType === "bluetooth") handleAddBluetooth();
                     else handleAddNetwork();
-                  }} disabled={pairing}>
+                  }} disabled={pairing} variant="primary">
                     {pairing ? "Conectando..." : (addType === "network" || addType === "system") ? "Agregar" : "Conectar y agregar"}
                   </Btn>
-                  <Btn onClick={() => { setShowAdd(false); setAddType(null); }} variant="outline" color={C.mid}>
+                  <Btn onClick={() => { setShowAdd(false); setAddType(null); }} variant="secondary">
                     Cancelar
                   </Btn>
                 </div>

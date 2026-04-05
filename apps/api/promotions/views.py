@@ -1,4 +1,5 @@
-from decimal import Decimal
+import logging
+from decimal import Decimal, InvalidOperation
 
 from django.db.models import Count
 from django.utils import timezone
@@ -8,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import HasTenant, IsManager
+
+logger = logging.getLogger(__name__)
 
 from catalog.models import Product
 from .models import Promotion, PromotionProduct
@@ -94,8 +97,8 @@ class PromotionListCreateView(APIView):
             if item["override"] is not None:
                 try:
                     kwargs["override_discount_value"] = Decimal(str(item["override"]))
-                except Exception:
-                    pass
+                except (InvalidOperation, ValueError, TypeError):
+                    logger.warning("Override discount value inválido: %s", item["override"])
             pp_objs.append(PromotionProduct(**kwargs))
         PromotionProduct.objects.bulk_create(pp_objs)
 
@@ -173,10 +176,9 @@ class PromotionDetailView(APIView):
                 kwargs = {"promotion": promo, "product_id": item["product_id"]}
                 if item["override"] is not None:
                     try:
-                        from decimal import Decimal as D
-                        kwargs["override_discount_value"] = D(str(item["override"]))
-                    except Exception:
-                        pass
+                        kwargs["override_discount_value"] = Decimal(str(item["override"]))
+                    except (InvalidOperation, ValueError, TypeError):
+                        logger.warning("Override discount value inválido en patch: %s", item["override"])
                 pp_objs.append(PromotionProduct(**kwargs))
             PromotionProduct.objects.bulk_create(pp_objs)
         elif product_ids is not None:

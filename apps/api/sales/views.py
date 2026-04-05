@@ -37,7 +37,7 @@ def _active_store_id(request):
 def _model_has_field(model_cls, field_name: str) -> bool:
     try:
         return any(getattr(f, "name", None) == field_name for f in model_cls._meta.get_fields())
-    except Exception:
+    except (AttributeError, LookupError):
         return False
 
 

@@ -1,9 +1,14 @@
+import logging
 from decimal import Decimal
+
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from .models import Sale, SaleLine, SalePayment
 from catalog.serializers import ProductReadSerializer
 from inventory.models import StockMove
+
+logger = logging.getLogger(__name__)
 
 
 # =========================
@@ -66,7 +71,7 @@ class SaleListSerializer(serializers.ModelSerializer):
         if obj.open_order_id:
             try:
                 return obj.open_order.table.name
-            except Exception:
+            except (AttributeError, ObjectDoesNotExist):
                 return None
         return None
 
@@ -189,12 +194,12 @@ class SaleLineSerializer(serializers.ModelSerializer):
         # 2) fallback: profit = line_total - line_cost
         try:
             line_total = Decimal(str(obj.line_total or "0"))
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             line_total = Decimal("0")
 
         try:
             line_cost = Decimal(str(self.get_line_cost(obj) or "0"))
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             line_cost = Decimal("0")
 
         return str((line_total - line_cost).quantize(Decimal("1")))

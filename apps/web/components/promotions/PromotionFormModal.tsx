@@ -67,7 +67,7 @@ export function PromotionFormModal({
           <h2 style={{ fontSize: 17, fontWeight: 700, color: C.text, margin: 0 }}>
             {editingId ? "Editar Oferta" : "Crear Oferta"}
           </h2>
-          <button onClick={onClose} style={{
+          <button type="button" aria-label="Cerrar" onClick={onClose} style={{
             background: "none", border: "none", cursor: "pointer",
             fontSize: 20, color: C.mute, padding: 4, lineHeight: 1,
           }}>&#x2715;</button>
@@ -196,11 +196,11 @@ export function PromotionFormModal({
                 Productos ({selectedIds.length} seleccionados)
               </label>
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAll} style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                <button type="button" onClick={selectAll} style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
                   Seleccionar todos ({filteredProducts.length})
                 </button>
                 <span style={{ color: C.mute }}>|</span>
-                <button onClick={deselectAll} style={{ fontSize: 11, color: C.mid, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                <button type="button" onClick={deselectAll} style={{ fontSize: 11, color: C.mid, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
                   Deseleccionar
                 </button>
               </div>

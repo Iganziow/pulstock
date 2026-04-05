@@ -1,6 +1,7 @@
 """
 tables/views.py — Table and open order management API.
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction
@@ -13,6 +14,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from core.permissions import HasTenant
+
+logger = logging.getLogger(__name__)
 
 from sales.services import SaleValidationError, StockShortageError
 
@@ -298,7 +301,7 @@ class AddLinesView(APIView):
                 qty = Decimal(str(raw_qty)) if raw_qty is not None else Decimal("1")
                 raw_price = item.get("unit_price")
                 unit_price = Decimal(str(raw_price)) if raw_price is not None else (p.price or Decimal("0"))
-            except Exception:
+            except (ValueError, ArithmeticError, TypeError):
                 return Response({"detail": "Invalid qty or unit_price"}, status=400)
             if qty <= 0:
                 return Response({"detail": "qty must be > 0"}, status=400)
@@ -372,7 +375,7 @@ class CheckoutView(APIView):
 
         try:
             tip = max(Decimal("0"), Decimal(str(request.data.get("tip") or 0)))
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             tip = Decimal("0")
 
         try:

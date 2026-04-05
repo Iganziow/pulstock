@@ -14,6 +14,7 @@ Endpoints:
   POST /api/billing/payment-link/         → generar link de pago manual
 """
 
+from django.db import IntegrityError
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -916,7 +917,7 @@ class CheckoutCompleteView(APIView):
             _set_token_cookies(response, access_str, refresh_str)
             return response
 
-        except Exception:
+        except (IntegrityError, ValueError, TypeError) as e:
             logger.exception("Error en checkout complete")
             return Response(
                 {"detail": "No se pudo crear la cuenta. Intenta de nuevo."},

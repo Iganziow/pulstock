@@ -1,6 +1,7 @@
 """
 caja/views.py — Cash register management API
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction
@@ -16,6 +17,8 @@ from rest_framework.permissions import IsAuthenticated
 from core.permissions import HasTenant
 
 from .models import CashRegister, CashSession, CashMovement
+
+logger = logging.getLogger(__name__)
 
 
 def _t(request):
@@ -184,7 +187,7 @@ class OpenSessionView(APIView):
             initial = Decimal(str(request.data.get("initial_amount") or 0))
             if initial < 0:
                 return Response({"detail": "El monto inicial no puede ser negativo."}, status=400)
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             initial = Decimal("0")
 
         session = CashSession.objects.create(
@@ -230,8 +233,8 @@ class AddMovementView(APIView):
         try:
             amount = Decimal(str(request.data.get("amount") or 0))
             if amount <= 0:
-                raise ValueError
-        except Exception:
+                raise ValueError("amount must be positive")
+        except (ValueError, ArithmeticError, TypeError):
             return Response({"detail": "amount must be > 0"}, status=400)
 
         description = (request.data.get("description") or "").strip()
@@ -267,7 +270,7 @@ class CloseSessionView(APIView):
             counted = Decimal(str(request.data.get("counted_cash") or 0))
             if counted < 0:
                 return Response({"detail": "counted_cash no puede ser negativo."}, status=400)
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             return Response({"detail": "counted_cash must be a number"}, status=400)
 
         note = (request.data.get("note") or "").strip()

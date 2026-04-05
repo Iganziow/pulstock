@@ -2,6 +2,8 @@
 
 import React from "react";
 import { C } from "@/lib/theme";
+import { Btn, Modal } from "@/components/ui";
+export { Btn, Modal };
 
 export type Warehouse = { id: number; name: string; is_active: boolean; warehouse_type?: string };
 export type StockRow = { product_id: number; sku: string | null; name: string; category: string | null; barcode: string | null; on_hand: string; avg_cost?: string | null };
@@ -32,24 +34,6 @@ export function iS(extra?: React.CSSProperties): React.CSSProperties {
   return { width: "100%", height: 36, padding: "0 10px", border: `1px solid ${C.border}`, borderRadius: C.r, fontSize: 13, background: C.surface, ...extra };
 }
 
-export type BtnV = "primary" | "secondary" | "ghost" | "danger" | "success" | "teal" | "sky" | "violet";
-export function Btn({ children, onClick, variant = "secondary", disabled, size = "md", full }: { children: React.ReactNode; onClick?: () => void; variant?: BtnV; disabled?: boolean; size?: "sm" | "md" | "lg"; full?: boolean }) {
-  const vs: Record<BtnV, React.CSSProperties> = {
-    primary: { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` },
-    secondary: { background: C.surface, color: C.text, border: `1px solid ${C.borderMd}` },
-    ghost: { background: "transparent", color: C.mid, border: "1px solid transparent" },
-    danger: { background: C.redBg, color: C.red, border: `1px solid ${C.redBd}` },
-    success: { background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` },
-    teal: { background: C.tealBg, color: C.teal, border: `1px solid ${C.tealBd}` },
-    sky: { background: C.skyBg || "#F0F9FF", color: C.sky || "#0EA5E9", border: `1px solid ${C.skyBd || "#BAE6FD"}` },
-    violet: { background: "#F5F3FF", color: "#7C3AED", border: "1px solid #DDD6FE" },
-  };
-  const h = size === "lg" ? 46 : size === "sm" ? 30 : 38;
-  const px = size === "lg" ? "0 20px" : size === "sm" ? "0 10px" : "0 14px";
-  const fs = size === "lg" ? 14 : size === "sm" ? 11 : 13;
-  return (<button type="button" onClick={onClick} disabled={disabled} className="xb" style={{ ...vs[variant], display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: h, padding: px, borderRadius: C.r, fontSize: fs, fontWeight: 600, letterSpacing: "0.01em", whiteSpace: "nowrap", width: full ? "100%" : undefined }}>{children}</button>);
-}
-
 export function StockBadge({ val }: { val: string }) {
   const n = toNum(val);
   const low = !isNaN(n) && n <= 5;
@@ -61,27 +45,6 @@ export function StockBadge({ val }: { val: string }) {
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 99, fontSize: 12, fontWeight: 700, border: `1px solid ${bd}`, background: bg, color, fontVariantNumeric: "tabular-nums", fontFamily: C.mono }}>
       {fQty(val)}
     </span>
-  );
-}
-
-export function Modal({ title, subtitle, onClose, disabled, accentColor, children }: { title: string; subtitle?: string; onClose: () => void; disabled?: boolean; accentColor?: string; children: React.ReactNode }) {
-  return (
-    <div className="bd-in" onMouseDown={e => { if (e.target === e.currentTarget && !disabled) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "grid", placeItems: "center", padding: 20, zIndex: 60 }}>
-      <div className="m-in" style={{ width: "min(520px,100%)", background: C.surface, borderRadius: C.rLg, border: `1px solid ${C.border}`, boxShadow: C.shLg, overflow: "hidden" }}>
-        <div style={{ height: 3, background: accentColor ?? C.accent }} />
-        <div style={{ padding: "18px 22px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{title}</div>
-              {subtitle && <div style={{ fontSize: 12, color: C.mute, marginTop: 3 }}>{subtitle}</div>}
-            </div>
-            <button onClick={onClose} disabled={disabled} className="xb" style={{ width: 28, height: 28, borderRadius: C.r, border: `1px solid ${C.border}`, background: C.bg, color: C.mute, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-          </div>
-          {children}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -114,7 +77,7 @@ export function ErrBanner({ msg, onClose }: { msg: string; onClose: () => void }
     <div style={{ padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.redBd}`, background: C.redBg, color: C.red, fontSize: 13, display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /></svg>
       <span style={{ flex: 1 }}>{msg}</span>
-      <button onClick={onClose} className="xb" style={{ background: "none", border: "none", color: C.red, fontSize: 15, cursor: "pointer", padding: 0, lineHeight: 1 }}>✕</button>
+      <button type="button" aria-label="Cerrar" onClick={onClose} className="xb" style={{ background: "none", border: "none", color: C.red, fontSize: 15, cursor: "pointer", padding: 0, lineHeight: 1 }}>✕</button>
     </div>
   );
 }

@@ -177,5 +177,8 @@ class Barcode(models.Model):
         unique_together = [("tenant", "code")]
         indexes = [
             models.Index(fields=["tenant", "code"]),
-            models.Index(fields=["tenant", "product"]),  # ← NUEVO
+            models.Index(fields=["tenant", "product"]),
         ]
+
+    def __str__(self) -> str:
+        return f"{self.code} ({self.barcode_type})"

@@ -23,7 +23,7 @@ export function MesaBtn({ children, onClick, variant = "secondary", disabled, fu
   const pad = size === "sm" ? "5px 10px" : size === "lg" ? "11px 22px" : "8px 16px";
   const fs = size === "sm" ? 12 : size === "lg" ? 15 : 13;
   return (
-    <button onClick={onClick} disabled={disabled} style={{
+    <button type="button" onClick={onClick} disabled={disabled} style={{
       ...vs[variant], padding: pad, borderRadius: C.r, fontSize: fs, fontWeight: 600,
       cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
       display: "inline-flex", alignItems: "center", gap: 6,

@@ -76,7 +76,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   const sepX = fcStart >= 0 ? xp(fcStart) : null;
 
   return (
-    <div style={{ padding: mob ? "14px 12px" : "18px 22px", borderBottom: `1px solid ${C.border}`, background: "#FAFAFA" }}>
+    <div style={{ padding: mob ? "14px 12px" : "18px 22px", borderBottom: `1px solid ${C.border}`, background: C.bg }}>
 
       {/* RESUMEN */}
       <div style={{
@@ -133,7 +133,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           <svg width={W} height={H} style={{ display: "block" }}>
             {yTicks.map(t => (
               <g key={t.v}>
-                <line x1={pL} x2={W - pR} y1={t.y} y2={t.y} stroke="#E4E4E7" strokeWidth={.5} />
+                <line x1={pL} x2={W - pR} y1={t.y} y2={t.y} stroke={C.border} strokeWidth={.5} />
                 <text x={pL - 6} y={t.y + 3} fontSize={9} fill={C.mute} textAnchor="end">{t.v}</text>
               </g>
             ))}

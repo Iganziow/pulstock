@@ -37,7 +37,7 @@ export default function CompanyTab({ form, f, set, onSave, saving, mob }: Compan
         <div style={FL}><Label>URL del logo</Label><input value={f("logo_url")} onChange={e => set("logo_url", e.target.value)} style={iS} /><Hint>Se usa en boletas y el encabezado del sistema</Hint></div>
       </div>
       <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
-        <Btn onClick={onSave} disabled={saving}>{saving ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
+        <Btn onClick={onSave} disabled={saving} variant="primary">{saving ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
       </div>
     </Card>
   );

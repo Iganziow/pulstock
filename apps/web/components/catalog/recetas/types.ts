@@ -11,7 +11,7 @@ export type UnitType = {
 export type RecipeLine = {
   id?: number; ingredient_id: number;
   ingredient_name?: string; ingredient_sku?: string; ingredient_unit?: string;
-  ingredient_unit_family?: string;
+  ingredient_unit_family?: string | null;
   qty: string;
   unit_id?: number | null; unit_code?: string | null;
 };

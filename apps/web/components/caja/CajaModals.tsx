@@ -25,7 +25,7 @@ export function AddMovementModal({ moveType, setMoveType, moveAmt, setMoveAmt, m
             <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Tipo</div>
             <div style={{ display: "flex", gap: 8 }}>
               {(["IN", "OUT"] as const).map(t => (
-                <button key={t} onClick={() => setMoveType(t)} style={{
+                <button type="button" key={t} onClick={() => setMoveType(t)} style={{
                   flex: 1, padding: "8px 0", borderRadius: C.r, fontSize: 13, fontWeight: 600, cursor: "pointer",
                   background: moveType === t ? (t === "IN" ? C.greenBg : C.redBg) : C.bg,
                   border: `1px solid ${moveType === t ? (t === "IN" ? C.greenBd : C.redBd) : C.border}`,

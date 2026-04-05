@@ -96,7 +96,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
               {assigned > 0 && <span style={{ color: C.green, fontWeight: 600, marginLeft: 6 }}>{assigned} asignados</span>}
             </div>
           </div>
-          <button onClick={onClose} className="ib" style={{
+          <button type="button" aria-label="Cerrar" onClick={onClose} className="ib" style={{
             width: 30, height: 30, borderRadius: C.r, border: `1px solid ${C.border}`,
             background: C.surface, color: C.mid, fontSize: 14,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,

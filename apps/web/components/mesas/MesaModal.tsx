@@ -21,7 +21,7 @@ export function MesaModal({ title, onClose, children, width = 500 }: MesaModalPr
       <div style={{ background: C.surface, borderRadius: C.rMd, width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto", boxShadow: C.shMd, animation: "fadeIn 0.15s ease" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{title}</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 4, display: "flex", borderRadius: 4 }}>
+          <button type="button" aria-label="Cerrar" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 4, display: "flex", borderRadius: 4 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>

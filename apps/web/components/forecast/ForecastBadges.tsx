@@ -8,7 +8,7 @@ export function Pill({ color, children }: { color: "red" | "amber" | "green" | "
     amber: { bg: C.amberBg, bd: C.amberBd, fg: C.amber },
     green: { bg: C.greenBg, bd: C.greenBd, fg: C.green },
     accent: { bg: C.accentBg, bd: C.accentBd, fg: C.accent },
-    gray: { bg: "#F4F4F5", bd: "#D4D4D8", fg: C.mid },
+    gray: { bg: C.bg, bd: "#D4D4D8", fg: C.mid },
   };
   const c = m[color] || m.gray;
   return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: c.bg, border: `1px solid ${c.bd}`, color: c.fg, whiteSpace: "nowrap" }}>{children}</span>;
@@ -34,7 +34,7 @@ export function UrgencyBar({ days, style: s }: { days: number | null; style?: Re
     else { pct = 10; color = C.green; }
   } else { pct = 5; }
   return (
-    <div style={{ height: 4, borderRadius: 2, background: "#E4E4E7", overflow: "hidden", width: "100%", ...s }}>
+    <div style={{ height: 4, borderRadius: 2, background: C.border, overflow: "hidden", width: "100%", ...s }}>
       <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, transition: "width .3s" }} />
     </div>
   );

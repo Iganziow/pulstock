@@ -2,27 +2,8 @@
 
 import React from "react";
 import { C } from "@/lib/theme";
-import { Spinner } from "@/components/ui";
+import { Btn, Spinner } from "@/components/ui";
 import { REASONS } from "./SalidasLinesTable";
-
-type BtnV = "primary" | "secondary" | "ghost" | "danger" | "success";
-function Btn({ children, onClick, variant = "secondary", disabled, size = "md", full }: { children: React.ReactNode; onClick?: () => void; variant?: BtnV; disabled?: boolean; size?: "sm" | "md" | "lg"; full?: boolean }) {
-  const vs: Record<BtnV, React.CSSProperties> = {
-    primary: { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` },
-    secondary: { background: C.surface, color: C.text, border: `1px solid ${C.borderMd}` },
-    ghost: { background: "transparent", color: C.mid, border: "1px solid transparent" },
-    danger: { background: C.redBg, color: C.red, border: `1px solid ${C.redBd}` },
-    success: { background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}` },
-  };
-  const h = size === "lg" ? 46 : size === "sm" ? 30 : 38;
-  const px = size === "lg" ? "0 20px" : size === "sm" ? "0 10px" : "0 14px";
-  const fs = size === "lg" ? 14 : size === "sm" ? 11 : 13;
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className="xb" style={{ ...vs[variant], display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: h, padding: px, borderRadius: C.r, fontSize: fs, fontWeight: 600, letterSpacing: "0.01em", whiteSpace: "nowrap", width: full ? "100%" : undefined }}>
-      {children}
-    </button>
-  );
-}
 
 interface SalidasSummaryProps {
   mob: boolean;

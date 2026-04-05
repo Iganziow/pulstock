@@ -52,16 +52,16 @@ export function TransferSheetFilters({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={onLoad} disabled={loading} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
+          <button type="button" onClick={onLoad} disabled={loading} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
             {loading ? "Cargando..." : "Refrescar"}
           </button>
-          <button onClick={onCopySuggested} disabled={rowsCount === 0} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
+          <button type="button" onClick={onCopySuggested} disabled={rowsCount === 0} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
             Copiar sugerido → pedir
           </button>
-          <button onClick={onExportCSV} disabled={rowsCount === 0} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
+          <button type="button" onClick={onExportCSV} disabled={rowsCount === 0} className="px-4 py-2 rounded-xl border font-extrabold bg-white hover:bg-gray-50 disabled:opacity-60">
             Export CSV
           </button>
-          <button onClick={onPrint} className="px-4 py-2 rounded-xl border font-extrabold bg-black text-white hover:opacity-90">
+          <button type="button" onClick={onPrint} className="px-4 py-2 rounded-xl border font-extrabold bg-black text-white hover:opacity-90">
             Imprimir
           </button>
         </div>

@@ -118,7 +118,7 @@ export function RecipeEditor({
               {recipeErr && (
                 <div style={{ padding: "10px 14px", background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: C.r, fontSize: 13, color: C.red, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span>{recipeErr}</span>
-                  <button onClick={() => setRecipeErr(null)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 16, padding: 0 }}>&#x2715;</button>
+                  <button type="button" aria-label="Cerrar" onClick={() => setRecipeErr(null)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 16, padding: 0 }}>&#x2715;</button>
                 </div>
               )}
 
@@ -148,7 +148,7 @@ export function RecipeEditor({
                 {ingResults.length > 0 && (
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: C.r, overflow: "hidden", background: C.surface, boxShadow: C.shMd }}>
                     {ingResults.map(ing => (
-                      <button key={ing.id}
+                      <button type="button" key={ing.id}
                         onClick={() => addIngredient(ing)}
                         disabled={recipeSaving || recipeLines.some(l => l.ingredient_id === ing.id)}
                         style={{
@@ -232,7 +232,7 @@ export function RecipeEditor({
                             {l.unit_code ?? l.ingredient_unit ?? "UN"}
                           </span>
                         )}
-                        <button onClick={() => setRecipeLines(prev => prev.filter((_, j) => j !== i))}
+                        <button type="button" aria-label="Eliminar" onClick={() => setRecipeLines(prev => prev.filter((_, j) => j !== i))}
                           disabled={recipeSaving}
                           style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 18, padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
                           &#x2715;

@@ -87,7 +87,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
               </svg>
               Imprimir
             </Link>
-            <button onClick={onClose} className="xb" style={{
+            <button type="button" aria-label="Cerrar" onClick={onClose} className="xb" style={{
               width:mob?36:30, height:mob?36:30, borderRadius:C.r, border:`1px solid ${C.border}`,
               background:C.bg, color:C.mute, fontSize:mob?20:16, display:"flex", alignItems:"center", justifyContent:"center",
             }}>{mob?"\u2190 Volver":"\u2715"}</button>

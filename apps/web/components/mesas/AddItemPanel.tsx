@@ -111,14 +111,14 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <button onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}
+                <button type="button" aria-label="Disminuir cantidad" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}
                   style={{ width: 22, height: 22, borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>{"\u2212"}</button>
                 <span style={{ width: 24, textAlign: "center", fontSize: 13, fontWeight: 700 }}>{c.qty}</span>
-                <button onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: x.qty + 1 } : x))}
+                <button type="button" aria-label="Aumentar cantidad" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: x.qty + 1 } : x))}
                   style={{ width: 22, height: 22, borderRadius: 4, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
               </div>
               <div style={{ fontWeight: 700, fontSize: 12, color: C.text, minWidth: 50, textAlign: "right" }}>${fmt(Number(c.unit_price) * c.qty)}</div>
-              <button onClick={() => setCart(prev => prev.filter((_, j) => j !== i))}
+              <button type="button" aria-label="Eliminar" onClick={() => setCart(prev => prev.filter((_, j) => j !== i))}
                 style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>

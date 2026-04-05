@@ -126,7 +126,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
             {stores.length} tienda{stores.length !== 1 ? "s" : ""} · {stores.reduce((acc, s) => acc + s.warehouses.length, 0)} bodega{stores.reduce((acc, s) => acc + s.warehouses.length, 0) !== 1 ? "s" : ""} en total
           </div>
         </div>
-        <Btn onClick={() => { setShowAddStore(!showAddStore); setEditingStoreId(null); }} style={{ padding: "8px 14px", fontSize: 12 }}>
+        <Btn onClick={() => { setShowAddStore(!showAddStore); setEditingStoreId(null); }} size="sm">
           {showAddStore ? "Cancelar" : "+ Nueva tienda"}
         </Btn>
       </div>
@@ -146,8 +146,8 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
               <Hint>Puedes agregar más bodegas después</Hint>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <Btn onClick={() => setShowAddStore(false)} variant="outline" color={C.mute} style={{ padding: "9px 16px", fontSize: 13 }}>Cancelar</Btn>
-              <Btn onClick={createStore} disabled={saving || !newStoreName.trim()} color={C.green}>
+              <Btn onClick={() => setShowAddStore(false)} variant="secondary">Cancelar</Btn>
+              <Btn onClick={createStore} disabled={saving || !newStoreName.trim()} variant="success">
                 {saving ? <><Spinner /> Creando...</> : "Crear tienda"}
               </Btn>
             </div>
@@ -223,8 +223,8 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <Btn onClick={() => setEditingStoreId(null)} variant="outline" color={C.mute} style={{ padding: "7px 14px", fontSize: 12 }}>Cancelar</Btn>
-                    <Btn onClick={() => saveStoreEdit(s.id)} disabled={saving || !editingStoreName.trim()} color={C.green} style={{ padding: "7px 14px", fontSize: 12 }}>
+                    <Btn onClick={() => setEditingStoreId(null)} variant="secondary" size="sm">Cancelar</Btn>
+                    <Btn onClick={() => saveStoreEdit(s.id)} disabled={saving || !editingStoreName.trim()} variant="success" size="sm">
                       {saving ? <Spinner /> : "Guardar"}
                     </Btn>
                   </div>
@@ -255,10 +255,10 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
                             autoFocus
                             onKeyDown={e => { if (e.key === "Enter") saveWarehouseEdit(w.id); if (e.key === "Escape") setEditingWHId(null); }}
                           />
-                          <Btn onClick={() => saveWarehouseEdit(w.id)} disabled={saving || !editingWHName.trim()} color={C.green} style={{ padding: "6px 12px", fontSize: 12 }}>
+                          <Btn onClick={() => saveWarehouseEdit(w.id)} disabled={saving || !editingWHName.trim()} variant="success" size="sm">
                             {saving ? <Spinner /> : "✓"}
                           </Btn>
-                          <Btn onClick={() => setEditingWHId(null)} variant="ghost" color={C.mute} style={{ padding: "6px 10px", fontSize: 12 }}>✕</Btn>
+                          <Btn onClick={() => setEditingWHId(null)} variant="ghost" size="sm">✕</Btn>
                         </>
                       ) : (
                         <>
@@ -298,10 +298,10 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
                       <option value="storage">Bodega</option>
                       <option value="sales_floor">Sala de venta</option>
                     </select>
-                    <Btn onClick={() => addWarehouse(s.id)} disabled={saving || !newWHNameForStore.trim()} color={C.green} style={{ padding: "8px 14px", fontSize: 12 }}>
+                    <Btn onClick={() => addWarehouse(s.id)} disabled={saving || !newWHNameForStore.trim()} variant="success" size="sm">
                       {saving ? <Spinner /> : "Crear"}
                     </Btn>
-                    <Btn onClick={() => setAddWHForStore(null)} variant="outline" color={C.mute} style={{ padding: "8px 12px", fontSize: 12 }}>
+                    <Btn onClick={() => setAddWHForStore(null)} variant="secondary" size="sm">
                       Cancelar
                     </Btn>
                   </div>
@@ -340,8 +340,8 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
                       <option value="storage">Bodega</option>
                       <option value="sales_floor">Sala de venta</option>
                     </select>
-                    <Btn onClick={() => addWarehouse(s.id)} disabled={saving || !newWHNameForStore.trim()} color={C.green} style={{ padding: "8px 14px", fontSize: 12 }}>{saving ? <Spinner /> : "Crear"}</Btn>
-                    <Btn onClick={() => setAddWHForStore(null)} variant="outline" color={C.mute} style={{ padding: "8px 12px", fontSize: 12 }}>Cancelar</Btn>
+                    <Btn onClick={() => addWarehouse(s.id)} disabled={saving || !newWHNameForStore.trim()} variant="success" size="sm">{saving ? <Spinner /> : "Crear"}</Btn>
+                    <Btn onClick={() => setAddWHForStore(null)} variant="secondary" size="sm">Cancelar</Btn>
                   </div>
                 )}
               </div>
@@ -355,7 +355,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
           <div style={{ fontSize: 36, marginBottom: 10 }}>🏪</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.mid, marginBottom: 4 }}>No hay tiendas todavía</div>
           <div style={{ fontSize: 13, marginBottom: 14 }}>Crea tu primera tienda para empezar a operar</div>
-          <Btn onClick={() => setShowAddStore(true)}>+ Crear primera tienda</Btn>
+          <Btn onClick={() => setShowAddStore(true)} variant="primary">+ Crear primera tienda</Btn>
         </div>
       )}
     </div>

@@ -1,5 +1,7 @@
 "use client";
 import { C } from "@/lib/theme";
+import { Btn, Spinner } from "@/components/ui";
+export { Btn, Spinner };
 
 /* ── Settings-specific shared types ── */
 
@@ -46,27 +48,6 @@ export function Label({ children, req }: { children: React.ReactNode; req?: bool
 
 export function Hint({ children }: { children: React.ReactNode }) {
   return <span style={{ fontSize: 11, color: C.mute, marginTop: 1 }}>{children}</span>;
-}
-
-export function Spinner() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: "spin .7s linear infinite", verticalAlign: "middle" }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>;
-}
-
-export function Btn({ onClick, disabled, children, color = C.accent, variant = "solid", style: s }: {
-  onClick?: () => void; disabled?: boolean; children: React.ReactNode;
-  color?: string; variant?: "solid" | "outline" | "ghost"; style?: React.CSSProperties;
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} className="cfg-btn" style={{
-      padding: "9px 18px", fontSize: 13, fontWeight: 700,
-      cursor: disabled ? "default" : "pointer", fontFamily: C.font,
-      border: variant === "solid" ? "none" : `1.5px solid ${color}`,
-      borderRadius: 8,
-      background: variant === "solid" ? color : variant === "ghost" ? "transparent" : "transparent",
-      color: variant === "solid" ? "#fff" : color,
-      opacity: disabled ? .5 : 1, ...s,
-    }}>{children}</button>
-  );
 }
 
 export function SectionHeader({ icon, title, desc }: { icon: string; title: string; desc?: string }) {

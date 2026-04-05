@@ -7,6 +7,7 @@ import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
+import { formatCLP as _formatCLP } from "@/lib/format";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,9 +44,7 @@ type DashboardData = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatCLP(v: string | number): string {
-  const n = typeof v === "string" ? Number(v) : v;
-  if (!Number.isFinite(n)) return "$0";
-  return "$" + Math.round(n).toLocaleString("es-CL");
+  return "$" + _formatCLP(v);
 }
 
 function formatNum(v: string | number): string {

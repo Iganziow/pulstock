@@ -65,7 +65,7 @@ export function SuggestionCard({ s, expanded, onToggle, mob, acting, onConfirmAc
               <span style={{ fontSize: 14 }}>{priorityIcon(s.priority)}</span>
               <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{priorityShort(s.priority)}</span>
               {isApproved && <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: C.greenBg, color: C.green }}>Aprobado</span>}
-              {s.status === "DISMISSED" && <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: "#F4F4F5", color: C.mute }}>Descartado</span>}
+              {s.status === "DISMISSED" && <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: C.bg, color: C.mute }}>Descartado</span>}
             </div>
             <div style={{ fontSize: 14, color: C.mute }}>{priorityDesc(s.priority, s.lines_count, critLines.length)}</div>
           </div>
@@ -113,9 +113,9 @@ export function SuggestionCard({ s, expanded, onToggle, mob, acting, onConfirmAc
 
           {isPending && (
             <div style={{ padding: mob ? "16px" : "20px 24px", background: C.surface, display: "flex", justifyContent: "flex-end", gap: 12, borderTop: `1px solid ${C.border}` }}>
-              <button onClick={e => { e.stopPropagation(); onConfirmAction({ id: s.id, action: "dismiss" }); }} disabled={isActing} className="btn-dismiss"
+              <button type="button" onClick={e => { e.stopPropagation(); onConfirmAction({ id: s.id, action: "dismiss" }); }} disabled={isActing} className="btn-dismiss"
                 style={{ padding: "10px 20px", fontSize: 14, fontWeight: 500, cursor: "pointer", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.mid, transition: "all .2s" }}>Descartar</button>
-              <button onClick={e => { e.stopPropagation(); onConfirmAction({ id: s.id, action: "approve" }); }} disabled={isActing} className="btn-approve"
+              <button type="button" onClick={e => { e.stopPropagation(); onConfirmAction({ id: s.id, action: "approve" }); }} disabled={isActing} className="btn-approve"
                 style={{ padding: "10px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer", background: C.accent, border: "none", borderRadius: 8, color: "#fff", display: "inline-flex", alignItems: "center", gap: 8, transition: "all .2s" }}>
                 {isActing ? <><Spinner size={16} /> Procesando...</> : "Aprobar pedido"}
               </button>
@@ -159,8 +159,8 @@ export function SuggestionConfirmModal({ suggestion, action, mob, acting, onClos
           {isApprove ? `Crearemos un borrador de compra por ${fmtMoney(suggestion.total_estimated)}. Podras revisarlo antes de enviarlo.` : "Ocultaremos esta sugerencia. El sistema generara una nueva si el stock vuelve a ser critico."}
         </div>
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
-          <button onClick={onClose} style={{ padding: "10px 16px", fontSize: 14, fontWeight: 500, background: "transparent", border: "none", color: C.mute, cursor: "pointer", flex: mob ? "1 1 auto" : "initial" }}>Cancelar</button>
-          <button onClick={() => isApprove ? onApprove(suggestion.id) : onDismiss(suggestion.id)} disabled={acting === suggestion.id} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600, background: isApprove ? C.accent : C.red, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flex: mob ? "1 1 auto" : "initial" }}>
+          <button type="button" onClick={onClose} style={{ padding: "10px 16px", fontSize: 14, fontWeight: 500, background: "transparent", border: "none", color: C.mute, cursor: "pointer", flex: mob ? "1 1 auto" : "initial" }}>Cancelar</button>
+          <button type="button" onClick={() => isApprove ? onApprove(suggestion.id) : onDismiss(suggestion.id)} disabled={acting === suggestion.id} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600, background: isApprove ? C.accent : C.red, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flex: mob ? "1 1 auto" : "initial" }}>
             {acting === suggestion.id ? <><Spinner size={16} /> Cargando...</> : isApprove ? "Confirmar" : "Si, descartar"}
           </button>
         </div>

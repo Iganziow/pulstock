@@ -67,7 +67,7 @@ export function CascadeSelect({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {levels.map((lvl, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {i > 0 && <span style={{ fontSize: 10, color: "#A1A1AA", marginLeft: i * 8 }}>{"\u21b3"}</span>}
+          {i > 0 && <span style={{ fontSize: 10, color: C.mute, marginLeft: i * 8 }}>{"\u21b3"}</span>}
           <select
             value={lvl.selected}
             onChange={e => handleChange(i, e.target.value ? Number(e.target.value) : "")}
@@ -82,7 +82,7 @@ export function CascadeSelect({
         </div>
       ))}
       {levels.length > 0 && value !== "" && (
-        <div style={{ fontSize: 10, color: "#A1A1AA" }}>
+        <div style={{ fontSize: 10, color: C.mute }}>
           {getChain(value).map(id => categories.find(c => c.id === id)?.name).join(" \u2192 ")}
         </div>
       )}

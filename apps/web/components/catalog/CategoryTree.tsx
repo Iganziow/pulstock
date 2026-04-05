@@ -84,10 +84,10 @@ export function CategoryTree({
           display: "flex", alignItems: "center", gap: 6,
           padding: "7px 8px", paddingLeft: 8 + depth * 20,
           borderBottom: `1px solid ${C.border}`, fontSize: 13,
-          background: isEditing ? "#EEF2FF" : "transparent",
+          background: isEditing ? C.accentBg : "transparent",
         }}>
           {/* Expand toggle */}
-          <button onClick={() => hasKids && toggle(cat.id)} style={{
+          <button type="button" onClick={() => hasKids && toggle(cat.id)} style={{
             width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center",
             background: "none", border: "none", cursor: hasKids ? "pointer" : "default",
             color: hasKids ? C.mid : "#ddd", fontSize: 11, flexShrink: 0,
@@ -101,11 +101,11 @@ export function CategoryTree({
               <input value={editName} onChange={e => setEditName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleRename(cat.id)}
                 style={{ ...iS, flex: 1, padding: "4px 8px", fontSize: 12 }} autoFocus disabled={busy} />
-              <button onClick={() => handleRename(cat.id)} disabled={busy || !editName.trim()} style={{
+              <button type="button" onClick={() => handleRename(cat.id)} disabled={busy || !editName.trim()} style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
                 background: C.accent, color: "#fff", border: "none", borderRadius: 4,
               }}>OK</button>
-              <button onClick={() => { setEditingId(null); setEditName(""); }} style={{
+              <button type="button" aria-label="Cerrar" onClick={() => { setEditingId(null); setEditName(""); }} style={{
                 padding: "4px 8px", fontSize: 11, cursor: "pointer",
                 background: "none", border: `1px solid ${C.border}`, borderRadius: 4, color: C.mid,
               }}>{"\u2715"}</button>
@@ -125,11 +125,11 @@ export function CategoryTree({
           {/* Actions */}
           {!isEditing && (
             <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-              <button onClick={() => { setAddingTo(cat.id); setNewName(""); setNewCode(""); }} title="Agregar sub"
+              <button type="button" onClick={() => { setAddingTo(cat.id); setNewName(""); setNewCode(""); }} title="Agregar sub" aria-label="Agregar sub"
                 style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.accent }}>{"\uff0b"}</button>
-              <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); }} title="Renombrar"
+              <button type="button" onClick={() => { setEditingId(cat.id); setEditName(cat.name); }} title="Renombrar" aria-label="Renombrar"
                 style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.mid }}>{"\u270f\ufe0f"}</button>
-              <button onClick={() => handleToggleActive(cat)} title={cat.is_active !== false ? "Desactivar" : "Activar"}
+              <button type="button" onClick={() => handleToggleActive(cat)} title={cat.is_active !== false ? "Desactivar" : "Activar"} aria-label={cat.is_active !== false ? "Desactivar" : "Activar"}
                 style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: cat.is_active !== false ? C.green : C.red }}>
                 {cat.is_active !== false ? "\u25cf" : "\u25cb"}
               </button>
@@ -141,18 +141,18 @@ export function CategoryTree({
         {addingTo === cat.id && (
           <div style={{
             display: "flex", gap: 4, padding: "6px 8px", paddingLeft: 28 + depth * 20,
-            borderBottom: `1px solid ${C.border}`, background: "#FAFAFA",
+            borderBottom: `1px solid ${C.border}`, background: C.bg,
           }}>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre subcategor\u00eda"
               onKeyDown={e => e.key === "Enter" && handleCreate(cat.id)}
               style={{ ...iS, flex: 1, padding: "4px 8px", fontSize: 12 }} autoFocus disabled={busy} />
             <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="C\u00f3d."
               style={{ ...iS, width: 60, padding: "4px 6px", fontSize: 11, fontFamily: "monospace" }} disabled={busy} />
-            <button onClick={() => handleCreate(cat.id)} disabled={busy || !newName.trim()} style={{
+            <button type="button" onClick={() => handleCreate(cat.id)} disabled={busy || !newName.trim()} style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
               background: C.accent, color: "#fff", border: "none", borderRadius: 4,
             }}>Crear</button>
-            <button onClick={() => setAddingTo(null)} style={{
+            <button type="button" aria-label="Cerrar" onClick={() => setAddingTo(null)} style={{
               padding: "4px 8px", fontSize: 11, cursor: "pointer",
               background: "none", border: `1px solid ${C.border}`, borderRadius: 4, color: C.mid,
             }}>{"\u2715"}</button>
@@ -168,9 +168,9 @@ export function CategoryTree({
   return (
     <div>
       {error && (
-        <div style={{ padding: "8px 12px", marginBottom: 8, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, color: C.red }}>
+        <div style={{ padding: "8px 12px", marginBottom: 8, background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 6, fontSize: 12, color: C.red }}>
           {error}
-          <button onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.red }}>{"\u2715"}</button>
+          <button type="button" aria-label="Cerrar" onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.red }}>{"\u2715"}</button>
         </div>
       )}
 
@@ -183,17 +183,17 @@ export function CategoryTree({
               style={{ ...iS, flex: 1, padding: "6px 10px", fontSize: 13 }} autoFocus disabled={busy} />
             <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="C\u00f3d."
               style={{ ...iS, width: 60, padding: "6px 6px", fontSize: 12, fontFamily: "monospace" }} disabled={busy} />
-            <button onClick={() => handleCreate(null)} disabled={busy || !newName.trim()} style={{
+            <button type="button" onClick={() => handleCreate(null)} disabled={busy || !newName.trim()} style={{
               padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
               background: C.accent, color: "#fff", border: "none", borderRadius: 6,
             }}>Crear</button>
-            <button onClick={() => setAddingTo(null)} style={{
+            <button type="button" aria-label="Cerrar" onClick={() => setAddingTo(null)} style={{
               padding: "6px 10px", fontSize: 12, cursor: "pointer",
               background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.mid,
             }}>{"\u2715"}</button>
           </>
         ) : (
-          <button onClick={() => { setAddingTo("root"); setNewName(""); setNewCode(""); }} style={{
+          <button type="button" onClick={() => { setAddingTo("root"); setNewName(""); setNewCode(""); }} style={{
             padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
             background: "none", border: `1px dashed ${C.border}`, borderRadius: 6,
             color: C.accent, width: "100%",

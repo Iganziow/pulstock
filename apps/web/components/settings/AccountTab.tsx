@@ -77,7 +77,7 @@ export default function AccountTab({ me, onSave, saving, mob }: AccountTabProps)
         <Hint>Deja en blanco si no quieres cambiarla</Hint>
       </div>
       <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
-        <Btn onClick={handleSave} disabled={isBusy}>{isBusy ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
+        <Btn onClick={handleSave} disabled={isBusy} variant="primary">{isBusy ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
       </div>
     </Card>
   );

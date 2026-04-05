@@ -2,6 +2,8 @@
 
 import React from "react";
 import { C } from "@/lib/theme";
+import { Btn } from "@/components/ui";
+export { Btn };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 export type Register = { id: number; name: string; is_active: boolean; has_open_session: boolean };
@@ -26,30 +28,6 @@ export function fmt(v: string | number) {
 }
 export function fmtDate(iso: string) {
   return new Date(iso).toLocaleString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-// ─── Btn ─────────────────────────────────────────────────────────────────────
-export function Btn({ children, onClick, variant = "secondary", disabled, full }: {
-  children: React.ReactNode; onClick?: () => void;
-  variant?: "primary" | "secondary" | "danger" | "ghost"; disabled?: boolean; full?: boolean;
-}) {
-  const vs = {
-    primary: { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` },
-    secondary: { background: C.surface, color: C.text, border: `1px solid ${C.borderMd}` },
-    danger: { background: C.redBg, color: C.red, border: `1px solid ${C.redBd}` },
-    ghost: { background: "transparent", color: C.mid, border: "1px solid transparent" },
-  }[variant];
-  return (
-    <button onClick={onClick} disabled={disabled} style={{
-      ...vs, padding: "9px 18px", borderRadius: C.r, fontSize: 14, fontWeight: 600,
-      cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
-      display: "inline-flex", alignItems: "center", gap: 6,
-      width: full ? "100%" : undefined, justifyContent: full ? "center" : undefined,
-      transition: "all 0.13s ease",
-    }}>
-      {children}
-    </button>
-  );
 }
 
 // ─── FlowRow ─────────────────────────────────────────────────────────────────

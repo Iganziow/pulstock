@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { C } from "@/lib/theme";
 
 export function Modal({ onClose, width = 560, accentColor, title, subtitle, footer, children }: {
@@ -5,6 +6,12 @@ export function Modal({ onClose, width = 560, accentColor, title, subtitle, foot
   title: React.ReactNode; subtitle?: React.ReactNode;
   footer: React.ReactNode; children: React.ReactNode;
 }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
     <div className="bd-in" onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 60,

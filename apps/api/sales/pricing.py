@@ -3,15 +3,18 @@ Sales pricing and discount calculation.
 
 Builds SaleLine objects with per-line and global discounts applied.
 """
+import logging
 from decimal import Decimal
 
 from .models import SaleLine
+
+logger = logging.getLogger(__name__)
 
 
 def _model_has_field(model_cls, field_name: str) -> bool:
     try:
         return any(getattr(f, "name", None) == field_name for f in model_cls._meta.get_fields())
-    except Exception:
+    except (AttributeError, LookupError):
         return False
 
 
@@ -131,8 +134,8 @@ def build_sale_lines(
                 promo_fk = Promotion.objects.filter(id=line_promo_id, tenant_id=tenant_id).first()
                 if promo_fk:
                     sl_kwargs["promotion"] = promo_fk
-            except Exception:
-                pass
+            except (ImportError, ValueError, TypeError) as e:
+                logger.warning("No se pudo vincular promoción %s: %s", line_promo_id, e)
 
         sale_lines.append(SaleLine(**sl_kwargs))
         total_cost += line_cost

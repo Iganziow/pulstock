@@ -109,6 +109,7 @@ export function SalidasSearchDropdown({ searchRef, searchQ, setSearchQ, searchRe
             const alreadyAdded = lines.some(l => l.product_id === row.product_id);
             return (
               <button
+                type="button"
                 key={row.product_id}
                 onClick={() => addProduct(row)}
                 style={{
@@ -238,6 +239,8 @@ export function SalidasLinesTable({ lines, flashId, mob, updateLine, removeLine 
             />
 
             <button
+              type="button"
+              aria-label="Eliminar"
               onClick={() => removeLine(idx)}
               className="xb"
               style={{ width: 32, height: 32, borderRadius: C.r, border: `1px solid ${C.border}`, background: C.bg, color: C.mute, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, alignSelf: mob ? "flex-end" : undefined }}

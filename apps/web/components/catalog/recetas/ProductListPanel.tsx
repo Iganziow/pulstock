@@ -32,7 +32,7 @@ export function ProductListPanel({
           style={{ flex: 1, border: "none", background: "transparent", fontSize: 13, outline: "none" }}
         />
         {searchQ && (
-          <button onClick={() => setSearchQ("")}
+          <button type="button" aria-label="Cerrar" onClick={() => setSearchQ("")}
             style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 15, padding: 0, lineHeight: 1 }}>&#x2715;</button>
         )}
       </div>

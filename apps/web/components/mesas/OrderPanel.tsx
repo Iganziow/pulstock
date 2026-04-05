@@ -169,7 +169,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}>
+        <button type="button" aria-label="Volver" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <span style={{ fontSize: 16 }}>{isCounter ? "\uD83D\uDCE6" : "\uD83E\uDE91"}</span>
@@ -183,7 +183,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </div>
         </div>
         {unpaidLines.length > 0 && (
-          <button onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
+          <button type="button" onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
             style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
@@ -197,7 +197,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         <div style={{ margin: "8px 16px 0", padding: "6px 10px", borderRadius: C.r, background: C.greenBg, border: `1px solid ${C.greenBd}`, color: C.green, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ flex: 1 }}>{successMsg}</span>
           {lastSaleId && (
-            <button onClick={() => handlePrintReceipt(lastSaleId)}
+            <button type="button" onClick={() => handlePrintReceipt(lastSaleId)}
               style={{ background: C.green, color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
@@ -230,11 +230,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
                     <div style={{ fontSize: 10, color: C.mute }}>{l.qty} &times; ${fmt(l.unit_price)}</div>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>${fmt(l.line_total)}</div>
-                  <button onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
+                  <button type="button" onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
                     style={{ background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, cursor: "pointer", color: C.green, padding: "2px 4px", display: "flex", alignItems: "center" }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                   </button>
-                  <button onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
+                  <button type="button" aria-label="Eliminar" onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
                     style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", opacity: deletingLine === l.id ? 0.4 : 1 }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                   </button>
@@ -253,11 +253,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
                       }}
                     />
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button onClick={() => { setConfirmDeleteLine(null); setCancelReason(""); }}
+                      <button type="button" onClick={() => { setConfirmDeleteLine(null); setCancelReason(""); }}
                         style={{ padding: "4px 12px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: C.mid }}>
                         Cancelar
                       </button>
-                      <button onClick={() => deleteLine(l.id)} disabled={deletingLine === l.id || !cancelReason.trim()}
+                      <button type="button" onClick={() => deleteLine(l.id)} disabled={deletingLine === l.id || !cancelReason.trim()}
                         style={{ padding: "4px 12px", borderRadius: C.r, border: "none", background: C.red, cursor: cancelReason.trim() ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: "#fff", opacity: cancelReason.trim() ? 1 : 0.5 }}>
                         {deletingLine === l.id ? <Spinner size={10} /> : "Confirmar eliminaci\u00f3n"}
                       </button>
@@ -316,7 +316,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
         {/* Add item toggle */}
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-          <button onClick={() => setShowAddItem(s => !s)} style={{
+          <button type="button" onClick={() => setShowAddItem(s => !s)} style={{
             background: "none", border: `1px dashed ${C.borderMd}`, borderRadius: C.r,
             width: "100%", padding: "8px", cursor: "pointer", color: C.mid, fontSize: 12,
             fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,

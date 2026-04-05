@@ -47,7 +47,7 @@ export default function ReceiptTab({ f, set, onSave, saving }: ReceiptTabProps) 
         </div>
       </div>
       <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
-        <Btn onClick={onSave} disabled={saving}>{saving ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
+        <Btn onClick={onSave} disabled={saving} variant="primary">{saving ? <><Spinner /> Guardando</> : "Guardar cambios"}</Btn>
       </div>
     </Card>
   );

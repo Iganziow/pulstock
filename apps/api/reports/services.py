@@ -37,7 +37,7 @@ def _margin_pct(profit, revenue):
 def _ceil_to_int_str(d):
     try:
         d = Decimal(d)
-    except Exception:
+    except (ValueError, ArithmeticError, TypeError):
         return "0"
     if d <= 0:
         return "0"

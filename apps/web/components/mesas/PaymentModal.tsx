@@ -63,7 +63,7 @@ export function PaymentModal({
       {/* Mode selector */}
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {(["all", "partial"] as const).map(m => (
-          <button key={m} onClick={() => setCheckoutMode(m)} style={{
+          <button type="button" key={m} onClick={() => setCheckoutMode(m)} style={{
             flex: 1, padding: "8px", borderRadius: C.r, fontSize: 12, fontWeight: 600,
             border: `2px solid ${checkoutMode === m ? C.accent : C.border}`,
             background: checkoutMode === m ? C.accentBg : C.surface,
@@ -143,7 +143,7 @@ export function PaymentModal({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.05em" }}>Forma de pago</span>
           {rows.length < PAY_METHODS.length && (
-            <button onClick={addRow} style={{
+            <button type="button" onClick={addRow} style={{
               display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: C.r,
               border: `1px dashed ${C.borderMd}`, background: "transparent", cursor: "pointer",
               fontSize: 11, fontWeight: 600, color: C.accent, fontFamily: "inherit",
@@ -175,12 +175,12 @@ export function PaymentModal({
                 border: `1px solid ${Number(row.amount) > 0 ? C.accentBd : C.border}`,
                 borderRadius: C.r, fontSize: 13, fontFamily: "inherit", outline: "none",
               }} />
-            <button onClick={() => quickFill(i)} title="Completar"
+            <button type="button" aria-label="Completar" onClick={() => quickFill(i)} title="Completar"
               style={{ width: 28, height: 28, borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, fontWeight: 700, fontSize: 13, fontFamily: "inherit", flexShrink: 0 }}>
               →
             </button>
             {rows.length > 1 && (
-              <button onClick={() => removeRow(i)} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", flexShrink: 0 }}>
+              <button type="button" aria-label="Eliminar" onClick={() => removeRow(i)} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", flexShrink: 0 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             )}

@@ -50,7 +50,7 @@ class StockShortageError(Exception):
 def _model_has_field(model_cls, field_name: str) -> bool:
     try:
         return any(getattr(f, "name", None) == field_name for f in model_cls._meta.get_fields())
-    except Exception:
+    except (AttributeError, LookupError):
         return False
 
 
@@ -207,7 +207,7 @@ def create_sale(
             ).first()
             if open_session:
                 sale_create_kwargs["cash_session"] = open_session
-        except Exception as e:
+        except (ImportError, LookupError) as e:
             logger.warning("Error obteniendo sesión de caja: %s", e)
 
     try:
@@ -282,7 +282,7 @@ def create_sale(
         method = (p.get("method") or "").strip().lower()
         try:
             amount = Decimal(str(p.get("amount") or 0))
-        except Exception:
+        except (ValueError, ArithmeticError, TypeError):
             continue
         if method in valid_methods and amount > 0:
             payment_rows.append(SalePayment(sale=sale, tenant_id=tenant_id, method=method, amount=amount))

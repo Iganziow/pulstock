@@ -1,10 +1,13 @@
 """
 tables/services.py — Checkout service for open table orders.
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 from sales.services import create_sale, SaleValidationError, StockShortageError
 
@@ -90,8 +93,8 @@ def checkout_order(
     try:
         sale.open_order = order
         sale.save(update_fields=["open_order"])
-    except Exception:
-        pass
+    except (AttributeError, ValueError) as e:
+        logger.warning("No se pudo vincular sale con open_order: %s", e)
 
     # Mark lines as paid
     line_pks = [l.pk for l in lines]
