@@ -50,7 +50,6 @@ const HOW_IT_WORKS = [
 const BENEFITS = [
   { icon: "🔮", title: "Predicción de demanda con IA", desc: "11 algoritmos (Holt-Winters, Theta, ETS, Croston) compiten para predecir la demanda de cada producto. Se auto-selecciona el mejor.", tag: "Solo en Pulstock" },
   { icon: "🚨", title: "Alertas antes del quiebre", desc: "Sabes 7 días antes qué productos se van a agotar. Con nivel de confianza y sugerencia de cantidad a comprar.", tag: "Automático" },
-  { icon: "📋", title: "Órdenes de compra inteligentes", desc: "El sistema genera la orden de compra por ti. Solo aprueba y envía a tu proveedor.", tag: "Solo en Pulstock" },
   { icon: "📊", title: "Análisis ABC semanal", desc: "Cada lunes recibes un email con tus productos A (los que generan el 80% del ingreso), los B y los C.", tag: "Automático" },
   { icon: "💰", title: "Margen real por producto", desc: "Costo promedio ponderado (PPP) se recalcula con cada compra. Sabes el margen real de cada venta, no un estimado.", tag: "Tiempo real" },
   { icon: "🏪", title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
@@ -84,7 +83,6 @@ const COMPARISON = [
   { feature: "Inventario básico", us: true, them: true },
   { feature: "Predicción de demanda (11 algoritmos)", us: true, them: false },
   { feature: "Alertas de quiebre 7 días antes", us: true, them: false },
-  { feature: "Sugerencias de compra automáticas", us: true, them: false },
   { feature: "Análisis ABC semanal por email", us: true, them: false },
   { feature: "Multi-bodega con costo PPP", us: true, them: false },
   { feature: "Reportes de margen real", us: true, them: false },
