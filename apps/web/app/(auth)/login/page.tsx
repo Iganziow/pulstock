@@ -1,13 +1,9 @@
 "use client";
 import { LogoIcon } from "@/components/ui/Logo";
-
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
-
-// ─── Design tokens (consistent with dashboard/POS) ───────────────────────────
-
 
 const LOGIN_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -18,7 +14,6 @@ body{font-family:'DM Sans','Helvetica Neue',system-ui,sans-serif;background:#F7F
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-@keyframes pulse{0%,100%{opacity:0.4}50%{opacity:0.8}}
 
 .login-card{animation:fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both}
 .login-field{animation:fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) both}
@@ -36,15 +31,16 @@ body{font-family:'DM Sans','Helvetica Neue',system-ui,sans-serif;background:#F7F
 .login-input:hover:not(:focus){border-color:#D1D1D6}
 
 .login-btn{
-  width:100%;padding:14px 24px;border:none;border-radius:10px;
+  width:100%;padding:15px 24px;border:none;border-radius:10px;
   font-size:15px;font-weight:700;font-family:'DM Sans',system-ui,sans-serif;
-  color:#fff;background:#4F46E5;cursor:pointer;
+  color:#fff;background:linear-gradient(135deg,#4F46E5,#4338CA);cursor:pointer;
   transition:all 0.15s cubic-bezier(0.4,0,0.2,1);
   position:relative;overflow:hidden;
+  box-shadow:0 2px 8px rgba(79,70,229,0.25);
 }
-.login-btn:hover:not(:disabled){background:#4338CA;transform:translateY(-1px);box-shadow:0 4px 16px rgba(79,70,229,0.3)}
+.login-btn:hover:not(:disabled){background:linear-gradient(135deg,#4338CA,#3730A3);transform:translateY(-1px);box-shadow:0 4px 16px rgba(79,70,229,0.35)}
 .login-btn:active:not(:disabled){transform:scale(0.98);box-shadow:none}
-.login-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+.login-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;box-shadow:none}
 .login-btn::after{
   content:'';position:absolute;top:0;left:0;right:0;bottom:0;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent);
@@ -77,8 +73,6 @@ function useLoginStyles() {
     document.head.appendChild(el);
   }, []);
 }
-
-// ─── SVG Icons ────────────────────────────────────────────────────────────────
 
 function UserIcon() {
   return (
@@ -114,8 +108,6 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function LoginPage() {
   useLoginStyles();
 
@@ -124,7 +116,6 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -145,7 +136,6 @@ export default function LoginPage() {
         throw new Error(data?.detail || "Usuario o contraseña incorrectos");
       }
 
-      // Superadmin sin tenant → redirigir al panel de administración
       if (!data.tenant_id && data.role === "") {
         localStorage.setItem("access", data.access);
         localStorage.setItem("is_superuser", "true");
@@ -155,8 +145,8 @@ export default function LoginPage() {
 
       localStorage.setItem("access", data.access);
       window.location.href = "/dashboard";
-    } catch (e: any) {
-      setErr(e?.message ?? "Error de conexión");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Error de conexión");
     } finally {
       setLoading(false);
     }
@@ -171,17 +161,13 @@ export default function LoginPage() {
       position: "relative",
       overflow: "hidden",
     }}>
-      {/* Grid background */}
       <div className="grid-bg" />
 
-      {/* Floating decorative icons */}
       <span className="floating-icon" style={{ top: "12%", left: "8%", animationDelay: "0s" }}>📦</span>
       <span className="floating-icon" style={{ top: "25%", right: "12%", animationDelay: "0.5s" }}>🏷️</span>
       <span className="floating-icon" style={{ bottom: "20%", left: "15%", animationDelay: "1s" }}>📊</span>
       <span className="floating-icon" style={{ bottom: "30%", right: "8%", animationDelay: "1.5s" }}>🛒</span>
-      <span className="floating-icon" style={{ top: "60%", left: "5%", animationDelay: "2s" }}>📋</span>
 
-      {/* Center card */}
       <div style={{
         margin: "auto",
         width: "100%",
@@ -192,27 +178,31 @@ export default function LoginPage() {
       }}>
         <div className="login-card" style={{
           background: C.surface,
-          borderRadius: "16px",
+          borderRadius: 20,
           border: `1px solid ${C.border}`,
-          boxShadow: C.shLg,
-          padding: "32px 20px 28px",
+          boxShadow: "0 20px 60px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.02)",
+          padding: "40px 32px 36px",
         }}>
 
-          {/* Logo / Brand */}
-          <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <div style={{ marginBottom: 16 }}>
-              <LogoIcon size={56} />
+          {/* Logo + Brand */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 36 }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: 16,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              marginBottom: 16,
+            }}>
+              <LogoIcon size={64} />
             </div>
             <h1 style={{
-              fontSize: 24, fontWeight: 800, color: C.text,
-              letterSpacing: "-0.02em", margin: 0,
+              fontSize: 26, fontWeight: 800, color: C.text,
+              letterSpacing: "-0.03em", margin: 0,
             }}>
               Pulstock
             </h1>
             <p style={{
-              fontSize: 13, color: C.mute, marginTop: 6, fontWeight: 400,
+              fontSize: 14, color: C.mute, marginTop: 6, fontWeight: 400,
             }}>
-              Ingresa a tu cuenta para continuar
+              Ingresa a tu cuenta
             </p>
           </div>
 
@@ -220,7 +210,7 @@ export default function LoginPage() {
           {err && (
             <div className="error-bar" style={{
               display: "flex", alignItems: "center", gap: 10,
-              padding: "12px 14px", borderRadius: C.rMd,
+              padding: "12px 16px", borderRadius: 12,
               background: C.redBg, border: `1px solid ${C.redBd}`,
               marginBottom: 20,
             }}>
@@ -232,13 +222,12 @@ export default function LoginPage() {
           )}
 
           {/* Form */}
-          <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
+          <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
 
-            {/* Username */}
             <div className="login-field">
               <label style={{
                 display: "block", fontSize: 12, fontWeight: 600,
-                color: C.mid, marginBottom: 6, letterSpacing: "0.02em",
+                color: C.mid, marginBottom: 7, letterSpacing: "0.02em",
               }}>
                 Usuario
               </label>
@@ -261,11 +250,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password */}
             <div className="login-field">
               <label style={{
                 display: "block", fontSize: 12, fontWeight: 600,
-                color: C.mid, marginBottom: 6, letterSpacing: "0.02em",
+                color: C.mid, marginBottom: 7, letterSpacing: "0.02em",
               }}>
                 Contraseña
               </label>
@@ -302,8 +290,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Submit */}
-            <div className="login-btn-wrap" style={{ marginTop: 4 }}>
+            <div className="login-btn-wrap" style={{ marginTop: 6 }}>
               <button className="login-btn" type="submit" disabled={loading || !username || !password}>
                 {loading ? (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -320,12 +307,11 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* Footer */}
         <p style={{
           textAlign: "center", fontSize: 12, color: C.mute,
-          marginTop: 20, fontWeight: 400,
+          marginTop: 24, fontWeight: 400,
         }}>
-          Sistema de inventario y punto de venta · Pulstock
+          Sistema de inventario inteligente · Pulstock
         </p>
       </div>
     </div>
