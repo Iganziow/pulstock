@@ -16,17 +16,16 @@ export function FloorPlan({ tables, selectedId, onSelectTable }: FloorPlanProps)
     <div style={{
       position: "relative",
       width: "100%",
-      paddingBottom: "62.5%", // 16:10 aspect ratio
+      minHeight: 480,
       background: C.surface,
       border: `1px solid ${C.border}`,
-      borderRadius: 12,
+      borderRadius: 14,
       overflow: "hidden",
       boxShadow: "inset 0 2px 8px rgba(0,0,0,.03)",
     }}>
       {/* Grid background */}
       <div style={{
-        position: "absolute",
-        inset: 0,
+        position: "absolute", inset: 0,
         backgroundImage: `
           linear-gradient(rgba(0,0,0,.03) 1px, transparent 1px),
           linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px)
@@ -46,16 +45,11 @@ export function FloorPlan({ tables, selectedId, onSelectTable }: FloorPlanProps)
           return (
             <div key={zone} style={{
               position: "absolute",
-              left: `${avgX}%`,
-              top: `${Math.max(1, minY - 6)}%`,
+              left: `${avgX}%`, top: `${Math.max(2, minY - 6)}%`,
               transform: "translateX(-50%)",
-              fontSize: 10,
-              fontWeight: 700,
-              color: C.mute,
-              textTransform: "uppercase",
-              letterSpacing: ".06em",
-              pointerEvents: "none",
-              opacity: 0.6,
+              fontSize: 11, fontWeight: 700, color: C.mute,
+              textTransform: "uppercase", letterSpacing: ".06em",
+              pointerEvents: "none", opacity: 0.5,
             }}>
               {zone}
             </div>
@@ -65,16 +59,13 @@ export function FloorPlan({ tables, selectedId, onSelectTable }: FloorPlanProps)
 
       {/* Tables */}
       {regularTables.map(table => (
-        <div
-          key={table.id}
-          style={{
-            position: "absolute",
-            left: `${table.position_x}%`,
-            top: `${table.position_y}%`,
-            transform: "translate(-50%, -50%)",
-            zIndex: selectedId === table.id ? 10 : 1,
-          }}
-        >
+        <div key={table.id} style={{
+          position: "absolute",
+          left: `${table.position_x}%`, top: `${table.position_y}%`,
+          transform: "translate(-50%, -50%)",
+          zIndex: selectedId === table.id ? 10 : 1,
+          transition: "transform .15s",
+        }}>
           <TableShape
             table={table}
             selected={selectedId === table.id}
@@ -86,15 +77,13 @@ export function FloorPlan({ tables, selectedId, onSelectTable }: FloorPlanProps)
       {/* Empty state */}
       {regularTables.length === 0 && (
         <div style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: C.mute,
-          fontSize: 14,
+          position: "absolute", inset: 0,
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          color: C.mute, fontSize: 14, gap: 8,
         }}>
-          No hay mesas configuradas. Ve a Config para crear mesas.
+          <div style={{ fontSize: 32 }}>🪑</div>
+          <div>No hay mesas configuradas. Ve a Config para crear mesas.</div>
         </div>
       )}
     </div>

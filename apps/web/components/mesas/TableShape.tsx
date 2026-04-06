@@ -1,13 +1,12 @@
 "use client";
 import { C } from "@/lib/theme";
 import type { Table } from "./types";
-import { timeAgo, fmt } from "./helpers";
+import { timeAgo } from "./helpers";
 
 interface TableShapeProps {
   table: Table;
   selected?: boolean;
   onClick?: () => void;
-  size?: number; // scale multiplier
 }
 
 const STATUS_STYLES = {
@@ -16,38 +15,42 @@ const STATUS_STYLES = {
   SELECTED: { bg: "#EEF2FF", border: "#4F46E5", dot: "#4F46E5" },
 } as const;
 
-export function TableShape({ table, selected, onClick, size = 1 }: TableShapeProps) {
+export function TableShape({ table, selected, onClick }: TableShapeProps) {
   const s = selected ? STATUS_STYLES.SELECTED : STATUS_STYLES[table.status] || STATUS_STYLES.FREE;
   const isOccupied = table.status === "OPEN" && table.active_order;
-  const w = table.width * size;
-  const h = (table.shape === "rect" ? table.height * 0.65 : table.height) * size;
+
+  // Fixed pixel sizes based on shape
+  const w = table.shape === "rect" ? 100 : 72;
+  const h = table.shape === "rect" ? 56 : 72;
 
   return (
     <div
       onClick={onClick}
       style={{
-        width: `${w}%`,
-        height: `${h}%`,
-        borderRadius: table.shape === "round" ? "50%" : 8,
+        width: w,
+        height: h,
+        borderRadius: table.shape === "round" ? "50%" : 10,
         background: s.bg,
-        border: `2px solid ${s.border}`,
-        boxShadow: selected ? `0 0 0 3px ${s.border}40, 0 4px 12px rgba(0,0,0,.1)` : "0 2px 6px rgba(0,0,0,.06)",
+        border: `2.5px solid ${s.border}`,
+        boxShadow: selected
+          ? `0 0 0 3px ${s.border}40, 0 6px 16px rgba(0,0,0,.12)`
+          : "0 2px 8px rgba(0,0,0,.08)",
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
-        transition: "box-shadow .15s, border-color .15s",
-        transform: table.rotation ? `rotate(${table.rotation}deg)` : undefined,
-        overflow: "visible",
+        transition: "box-shadow .15s, border-color .15s, transform .15s",
+        transform: `${table.rotation ? `rotate(${table.rotation}deg)` : ""} ${selected ? "scale(1.08)" : ""}`.trim() || undefined,
         userSelect: "none",
+        overflow: "visible",
       }}
     >
       {/* Table name */}
       <div style={{
-        fontSize: Math.max(9, 11 * size),
-        fontWeight: 700,
+        fontSize: 12,
+        fontWeight: 800,
         color: s.border,
         lineHeight: 1.1,
         textAlign: "center",
@@ -58,47 +61,34 @@ export function TableShape({ table, selected, onClick, size = 1 }: TableShapePro
 
       {/* Capacity */}
       <div style={{
-        fontSize: Math.max(7, 9 * size),
+        fontSize: 9,
         color: C.mute,
-        marginTop: 1,
+        marginTop: 2,
+        fontWeight: 600,
         transform: table.rotation ? `rotate(-${table.rotation}deg)` : undefined,
       }}>
-        {table.capacity}p
+        {table.capacity} pers.
       </div>
 
       {/* Occupied badge */}
       {isOccupied && table.active_order && (
         <div style={{
           position: "absolute",
-          top: -6,
-          right: -6,
+          top: -8,
+          right: -8,
           background: s.border,
           color: "#fff",
-          fontSize: 8,
+          fontSize: 9,
           fontWeight: 700,
-          padding: "2px 5px",
-          borderRadius: 6,
-          lineHeight: 1,
+          padding: "2px 6px",
+          borderRadius: 8,
+          lineHeight: 1.2,
           whiteSpace: "nowrap",
-          boxShadow: "0 1px 4px rgba(0,0,0,.15)",
-          animation: "pulse 2s ease-in-out infinite",
+          boxShadow: "0 2px 6px rgba(0,0,0,.2)",
         }}>
           {timeAgo(table.active_order.opened_at)} · {table.active_order.items_count}
         </div>
       )}
-
-      {/* Status dot */}
-      <div style={{
-        position: "absolute",
-        bottom: -3,
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: 6,
-        height: 6,
-        borderRadius: "50%",
-        background: s.dot,
-        boxShadow: `0 0 4px ${s.dot}60`,
-      }} />
     </div>
   );
 }
