@@ -88,14 +88,16 @@ function TableFormModal({
   const [name, setName] = useState(table?.name || "");
   const [capacity, setCapacity] = useState(String(table?.capacity || 4));
   const [zone, setZone] = useState(table?.zone || "");
+  const [shape, setShape] = useState<"round" | "square" | "rect">(table?.shape || "square");
   const [isCounter, setIsCounter] = useState(table?.is_counter || false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState("");
 
   async function save() {
     if (!name.trim()) { setErr("El nombre es requerido"); return; }
     setSaving(true); setErr("");
-    const body = { name: name.trim(), capacity: Number(capacity) || 4, zone: zone.trim(), is_counter: isCounter };
+    const body = { name: name.trim(), capacity: Number(capacity) || 4, zone: zone.trim(), is_counter: isCounter, shape };
     try {
       if (isEdit) {
         await apiFetch(`/tables/tables/${table!.id}/`, { method: "PATCH", body: JSON.stringify(body) });
@@ -159,13 +161,47 @@ function TableFormModal({
             <div style={{ fontSize: 11, color: C.mute }}>Para pedidos de mostrador / para llevar</div>
           </div>
         </label>
+        {/* Shape selector */}
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.mid, display: "block", marginBottom: 6 }}>Forma en el plano</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {([["round", "Redonda", "⬤"], ["square", "Cuadrada", "⬛"], ["rect", "Rectangular", "▬"]] as const).map(([sh, label, icon]) => (
+              <button key={sh} type="button" onClick={() => setShape(sh)} style={{
+                flex: 1, padding: "10px 0", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                border: `2px solid ${shape === sh ? C.accent : C.border}`,
+                background: shape === sh ? C.accentBg : C.surface,
+                color: shape === sh ? C.accent : C.mid,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+              }}>
+                <span style={{ fontSize: 18 }}>{icon}</span>
+                <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {err && <div style={{ fontSize: 12, color: C.red }}>{err}</div>}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" disabled={saving} onClick={save}>
-            {saving ? <Spinner size={14} /> : null}
-            {saving ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear mesa"}
-          </Btn>
+        <div style={{ display: "flex", gap: 8, justifyContent: isEdit ? "space-between" : "flex-end" }}>
+          {isEdit && (
+            <Btn variant="danger" disabled={deleting || table!.status === "OPEN"} onClick={async () => {
+              if (!confirm(`¿Eliminar "${table!.name}"? Esta acción no se puede deshacer.`)) return;
+              setDeleting(true);
+              try {
+                await apiFetch(`/tables/tables/${table!.id}/`, { method: "PATCH", body: JSON.stringify({ is_active: false }) });
+                onSaved(); onClose();
+              } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Error al eliminar"); }
+              finally { setDeleting(false); }
+            }}>
+              {deleting ? "Eliminando…" : "Eliminar"}
+            </Btn>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
+            <Btn variant="primary" disabled={saving} onClick={save}>
+              {saving ? <Spinner size={14} /> : null}
+              {saving ? "Guardando…" : isEdit ? "Guardar" : "Crear mesa"}
+            </Btn>
+          </div>
         </div>
       </div>
     </Modal>
@@ -286,8 +322,8 @@ export default function MesasConfigPage() {
         ) : (
           <>
             {/* Header row */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 80px 90px 80px 100px", gap: 0, padding: "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.bg, minWidth: mob ? 580 : undefined }}>
-              {["Nombre", "Zona", "Capacidad", "Estado", "Activa", "Acciones"].map(h => (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px 70px 80px 70px 120px", gap: 0, padding: "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.bg, minWidth: mob ? 680 : undefined }}>
+              {["Nombre", "Zona", "Capacidad", "Forma", "Estado", "Activa", "Acciones"].map(h => (
                 <div key={h} style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</div>
               ))}
             </div>
@@ -298,7 +334,7 @@ export default function MesasConfigPage() {
               const isToggling = togglingId === t.id;
               return (
                 <div key={t.id} style={{
-                  display: "grid", gridTemplateColumns: "1fr 100px 80px 90px 80px 100px",
+                  display: "grid", gridTemplateColumns: "1fr 100px 70px 70px 80px 70px 120px",
                   alignItems: "center", gap: 0,
                   padding: "14px 20px",
                   borderBottom: i < tables.length - 1 ? `1px solid ${C.border}` : "none",
@@ -325,6 +361,11 @@ export default function MesasConfigPage() {
 
                   {/* Capacity */}
                   <div style={{ fontSize: 13, color: C.mid }}>{t.capacity} pers.</div>
+
+                  {/* Shape */}
+                  <div style={{ fontSize: 12, color: C.mute }}>
+                    {t.shape === "round" ? "⬤" : t.shape === "rect" ? "▬" : "⬛"}
+                  </div>
 
                   {/* Status */}
                   <div>
