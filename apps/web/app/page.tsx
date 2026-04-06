@@ -261,6 +261,104 @@ function DashboardMockup() {
    PAGE
    ═══════════════════════════════════════════════════════════════ */
 
+const FAQ_ITEMS = [
+  {
+    q: "¿Ya tengo mis datos en Excel, puedo importarlos?",
+    a: "Sí. Pulstock importa productos desde Excel (.xlsx) o CSV en un solo paso. Categorías, SKU, precios, costos y barcodes se mapean automáticamente.",
+  },
+  {
+    q: "¿Cuánto demora configurar todo?",
+    a: "Si importas desde Excel, en 10 minutos ya estás vendiendo. Si partes de cero, el asistente de configuración te guía paso a paso: negocio, local, bodega, y tus primeros productos.",
+  },
+  {
+    q: "¿Funciona con boleta electrónica del SII?",
+    a: "Pulstock se enfoca en gestión de inventario y POS interno. Para facturación electrónica puedes conectarlo con tu sistema de boletas actual. Estamos trabajando en integración directa con el SII.",
+  },
+  {
+    q: "¿Qué pasa con mis datos si cancelo?",
+    a: "Tus datos se conservan por 30 días después de cancelar. Puedes exportar todo a Excel en cualquier momento desde Reportes. No hay penalidad por cancelar.",
+  },
+  {
+    q: "¿Cómo funciona la predicción de demanda?",
+    a: "El sistema analiza tu historial de ventas con 11 algoritmos de forecasting. Automáticamente elige el mejor para cada producto según su patrón de demanda (estacional, intermitente, lineal). No necesitas configurar nada.",
+  },
+  {
+    q: "¿Puedo usar Pulstock en varios locales?",
+    a: "Sí. Cada local tiene sus propias bodegas, stock y usuarios. Puedes transferir productos entre locales con trazabilidad completa y costeo automático.",
+  },
+  {
+    q: "¿Necesito instalar algo?",
+    a: "No. Pulstock es 100% en la nube. Funciona desde cualquier navegador en computador, tablet o celular. También puedes instalarlo como app desde Chrome.",
+  },
+  {
+    q: "¿Mis datos están seguros?",
+    a: "Sí. Usamos HTTPS con cifrado TLS, autenticación JWT con tokens seguros, y cada negocio tiene sus datos completamente aislados (multi-tenant). Los respaldos son automáticos.",
+  },
+];
+
+function FAQSection() {
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+
+  return (
+    <section id="faq" style={{ padding: "100px 24px", background: C.white }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <RevealSection>
+          <SectionTitle tag="Preguntas frecuentes" title="Todo lo que necesitas saber"
+            subtitle="Si no encuentras tu respuesta, escríbenos." />
+        </RevealSection>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {FAQ_ITEMS.map((item, i) => {
+            const isOpen = openIdx === i;
+            return (
+              <RevealSection key={i} delay={i * 40}>
+                <div style={{
+                  background: isOpen ? "#FAFAFE" : C.white,
+                  border: `1px solid ${isOpen ? C.accent + "30" : C.border}`,
+                  borderRadius: 12, overflow: "hidden",
+                  transition: "all .2s ease",
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenIdx(isOpen ? null : i)}
+                    style={{
+                      width: "100%", padding: "18px 22px",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      gap: 16, background: "none", border: "none", cursor: "pointer",
+                      textAlign: "left", fontFamily: "inherit",
+                    }}
+                  >
+                    <span style={{ fontSize: 15, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>
+                      {item.q}
+                    </span>
+                    <span style={{
+                      fontSize: 18, color: C.accent, flexShrink: 0,
+                      transform: isOpen ? "rotate(45deg)" : "none",
+                      transition: "transform .2s ease",
+                      fontWeight: 300, lineHeight: 1,
+                    }}>+</span>
+                  </button>
+                  <div style={{
+                    maxHeight: isOpen ? 200 : 0,
+                    overflow: "hidden",
+                    transition: "max-height .3s cubic-bezier(.16,1,.3,1)",
+                  }}>
+                    <p style={{
+                      margin: 0, padding: "0 22px 18px",
+                      fontSize: 14, color: C.mid, lineHeight: 1.7,
+                    }}>
+                      {item.a}
+                    </p>
+                  </div>
+                </div>
+              </RevealSection>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const DEMO_PRODUCTS = [
   { name: "Arroz Grado 1", sku: "ARR-001", stock: 12, min: 50, daily: 8.5, days: 1, status: "critical" as const },
   { name: "Aceite Vegetal 1L", sku: "ACE-002", stock: 28, min: 40, daily: 5.2, days: 5, status: "warning" as const },
@@ -527,7 +625,7 @@ export default function LandingPage() {
             <span style={{ fontSize: 18, fontWeight: 800 }}>Pulstock</span>
           </div>
           <div className="desk-nav" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#contacto","Contacto"]].map(([href,label]) => (
+            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#faq","FAQ"],["#contacto","Contacto"]].map(([href,label]) => (
               <a key={href} href={href} style={{ padding: "8px 12px", fontSize: 13, color: C.mid, textDecoration: "none", fontWeight: 500, borderRadius: 6 }}>{label}</a>
             ))}
             <button onClick={() => go("/login")} style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600, background: "transparent", color: C.accent, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", marginLeft: 4 }}>Ingresar</button>
@@ -539,7 +637,7 @@ export default function LandingPage() {
         </div>
         {mobileMenu && (
           <div className="mob-menu" style={{ background: C.white, borderTop: `1px solid ${C.border}`, padding: "12px 24px" }}>
-            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#contacto","Contacto"]].map(([href,label]) => (
+            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#faq","FAQ"],["#contacto","Contacto"]].map(([href,label]) => (
               <a key={href} href={href} onClick={() => setMobileMenu(false)} style={{ display: "block", padding: "10px 0", fontSize: 14, color: C.mid, textDecoration: "none" }}>{label}</a>
             ))}
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -840,6 +938,9 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ═══ FAQ ═══ */}
+      <FAQSection />
+
       {/* ═══ 6. CONTACTO ═══ */}
       <section id="contacto" style={{ padding: "100px 24px", background: "#F7F7F8" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
@@ -934,7 +1035,7 @@ export default function LandingPage() {
             <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,.8)" }}>Pulstock</span>
           </div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#contacto","Contacto"]].map(([href,label]) => (
+            {[["#problema","Problema"],["#como-funciona","Cómo funciona"],["#beneficios","Beneficios"],["#negocios","Tu negocio"],["#precios","Precios"],["#faq","FAQ"],["#contacto","Contacto"]].map(([href,label]) => (
               <a key={href} href={href} style={{ fontSize: 13, color: "rgba(255,255,255,.5)", textDecoration: "none" }}>{label}</a>
             ))}
           </div>
