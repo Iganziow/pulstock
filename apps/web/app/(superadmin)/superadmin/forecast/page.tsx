@@ -169,9 +169,11 @@ export default function ForecastMetricsPage() {
       const res = await apiFetch("/superadmin/forecast/train/", {
         method: "POST", body: JSON.stringify(body),
       });
-      setTrainMsg({ type: "ok", text: res.message || "Entrenamiento iniciado" });
-    } catch (e: any) {
-      setTrainMsg({ type: "err", text: e?.message || "Error al iniciar entrenamiento" });
+      const msg = res.detail ? `${res.message}\n${res.detail}` : res.message || "Entrenamiento completado";
+      setTrainMsg({ type: "ok", text: msg });
+      load(); // Refresh metrics
+    } catch (e: unknown) {
+      setTrainMsg({ type: "err", text: e instanceof Error ? e.message : "Error en entrenamiento" });
     } finally { setTraining(false); }
   }
 

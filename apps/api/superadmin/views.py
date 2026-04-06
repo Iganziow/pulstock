@@ -1031,9 +1031,9 @@ class AdminForecastTrainView(APIView):
     permission_classes = PERMS
 
     def post(self, request):
-        import threading
         from django.core.management import call_command
         from io import StringIO
+        import time
 
         tenant_id = request.data.get("tenant_id")
         product_id = request.data.get("product_id")
@@ -1044,26 +1044,37 @@ class AdminForecastTrainView(APIView):
         if product_id:
             args += ["--product", str(product_id)]
 
-        def run_training():
-            try:
-                out = StringIO()
-                call_command("train_forecast_models", *args, stdout=out)
-                logger.info("Superadmin training completed: %s", out.getvalue()[-200:])
-            except Exception as e:
-                logger.error("Superadmin training failed: %s", e)
-
-        thread = threading.Thread(target=run_training, daemon=True)
-        thread.start()
-
-        scope = f"tenant={tenant_id}" if tenant_id else "all tenants"
+        scope = f"tenant={tenant_id}" if tenant_id else "todos los tenants"
         if product_id:
             scope += f", product={product_id}"
 
         logger.info("Superadmin %s triggered forecast training: %s", request.user.email, scope)
-        return Response({
-            "ok": True,
-            "message": f"Entrenamiento iniciado ({scope}). Revisa los logs en unos minutos.",
-        })
+
+        start = time.time()
+        try:
+            out = StringIO()
+            call_command("train_forecast_models", *args, stdout=out)
+            elapsed = round(time.time() - start, 1)
+            output = out.getvalue()
+            logger.info("Training completed in %.1fs: %s", elapsed, output[-300:])
+
+            # Parse output for summary numbers
+            lines = output.strip().split("\n")
+            summary = lines[-1] if lines else ""
+
+            return Response({
+                "ok": True,
+                "message": f"Entrenamiento completado en {elapsed}s ({scope}).",
+                "detail": summary,
+                "elapsed": elapsed,
+            })
+        except Exception as e:
+            elapsed = round(time.time() - start, 1)
+            logger.error("Training failed after %.1fs: %s", elapsed, e)
+            return Response({
+                "ok": False,
+                "message": f"Error en entrenamiento ({elapsed}s): {str(e)[:200]}",
+            }, status=500)
 
 
 # ─────────────────────────────────────────────────────────────
