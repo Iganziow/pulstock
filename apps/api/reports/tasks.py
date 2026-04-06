@@ -93,14 +93,14 @@ def send_weekly_abc_report(self):
             f"Reporte ABC Semanal — {tenant.name}\n\n"
             f"Productos A: {len(a_items)}, B: {len(b_items)}, C: {len(c_items)}\n"
             f"Revenue total: ${total_revenue:,.0f} CLP\n"
-            f"Ver detalle en https://app.inventario.pro/dashboard/reports\n"
+            f"Ver detalle en https://app.pulstock.cl/dashboard/reports\n"
         )
 
         send_mail(
             subject=f"Reporte ABC Semanal — {tenant.name}",
             message=plain,
             html_message=html,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@inventario.pro"),
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Pulstock <noreply@pulstock.cl>"),
             recipient_list=[owner["email"]],
             fail_silently=False,
         )
@@ -196,7 +196,7 @@ def _render_abc_html(*, name, tenant_name, a_items, b_items, c_items,
 
             <!-- CTA -->
             <div style="text-align:center;margin:24px 0 12px;">
-                <a href="https://app.inventario.pro/dashboard/reports" style="display:inline-block;padding:10px 28px;background:#4F46E5;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:6px;">
+                <a href="https://app.pulstock.cl/dashboard/reports" style="display:inline-block;padding:10px 28px;background:#4F46E5;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:6px;">
                     Ver reporte completo
                 </a>
             </div>

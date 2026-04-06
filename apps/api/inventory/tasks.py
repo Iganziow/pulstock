@@ -80,7 +80,7 @@ def send_low_stock_alerts(self):
         plain = (
             f"Alerta de Stock Bajo — {tenant.name}\n\n"
             f"{len(critical)} productos agotados, {len(low)} con stock bajo.\n"
-            f"Ver detalle en https://app.inventario.pro/dashboard/inventory/stock\n"
+            f"Ver detalle en https://app.pulstock.cl/dashboard/inventory/stock\n"
         )
 
         try:
@@ -88,7 +88,7 @@ def send_low_stock_alerts(self):
                 subject=f"{'🚨' if critical else '⚠️'} Stock bajo — {len(low_items)} productos ({tenant.name})",
                 message=plain,
                 html_message=html,
-                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@inventario.pro"),
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Pulstock <noreply@pulstock.cl>"),
                 recipient_list=[owner.email],
                 fail_silently=False,
             )
@@ -188,7 +188,7 @@ def _render_low_stock_email(*, name, tenant_name, critical_items, low_items):
             ''' if low_items else ''}
 
             <div style="text-align:center;margin:24px 0 12px;">
-                <a href="https://app.inventario.pro/dashboard/inventory/stock" style="display:inline-block;padding:10px 28px;background:#4F46E5;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:6px;">
+                <a href="https://app.pulstock.cl/dashboard/inventory/stock" style="display:inline-block;padding:10px 28px;background:#4F46E5;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:6px;">
                     Ver inventario completo
                 </a>
             </div>
