@@ -46,23 +46,31 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
 
   const zoneColor = ZONE_COLORS[zones.indexOf(activeZone) % ZONE_COLORS.length] || ZONE_COLORS[0];
 
-  // Sync positions when tables change + auto-distribute if all at origin
+  // Sync positions when tables change + auto-distribute unpositioned tables per zone
   useEffect(() => {
     const map: Record<number, { x: number; y: number; rotation: number; shape: TShape }> = {};
-    let allAtOrigin = true;
     regularTables.forEach(t => {
       map[t.id] = positions[t.id] || { x: t.position_x, y: t.position_y, rotation: t.rotation, shape: t.shape };
-      if (t.position_x > 1 || t.position_y > 1) allAtOrigin = false;
     });
 
-    // Auto-distribute if all tables are at (0,0) — first time setup
-    if (allAtOrigin && regularTables.length > 0) {
-      const cols = Math.ceil(Math.sqrt(regularTables.length));
-      const spacing = 70 / Math.max(cols, 1);
-      regularTables.forEach((t, i) => {
+    // For each zone, auto-distribute tables that are at (0,0)
+    const allZones = [...new Set(regularTables.map(t => t.zone))];
+    for (const z of allZones) {
+      const zt = regularTables.filter(t => t.zone === z);
+      const unpositioned = zt.filter(t => t.position_x <= 1 && t.position_y <= 1 && !(positions[t.id]?.x > 1));
+      if (unpositioned.length === 0) continue;
+
+      const cols = Math.max(1, Math.ceil(Math.sqrt(unpositioned.length)));
+      const spacing = Math.min(25, 70 / Math.max(cols, 1));
+      unpositioned.forEach((t, i) => {
         const col = i % cols;
         const row = Math.floor(i / cols);
-        map[t.id] = { x: 15 + col * spacing, y: 20 + row * spacing, rotation: 0, shape: t.shape };
+        map[t.id] = {
+          x: 30 + col * spacing,
+          y: 30 + row * spacing,
+          rotation: 0,
+          shape: t.shape,
+        };
       });
     }
 
