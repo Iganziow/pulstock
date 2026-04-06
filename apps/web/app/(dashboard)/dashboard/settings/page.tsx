@@ -203,7 +203,7 @@ export default function SettingsPage() {
       )}
 
       {tab === "usuarios" && isOwner && me && (
-        <UsersTab users={users} me={me} onRefresh={reloadUsers} flash={flash} />
+        <UsersTab users={users} me={me} stores={stores} onRefresh={reloadUsers} flash={flash} />
       )}
 
       {tab === "alertas" && (

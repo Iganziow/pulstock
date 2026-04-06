@@ -15,9 +15,11 @@ export type Tenant = {
 
 export type Warehouse = { id: number; name: string; is_active: boolean; warehouse_type?: string };
 export type Store = { id: number; name: string; code: string; is_active: boolean; warehouses: Warehouse[] };
+export type StoreAccess = { store_id: number; store_name: string };
 export type User = {
   id: number; username: string; email: string; first_name: string; last_name: string;
   role: string; role_label: string; is_active: boolean; active_store_id: number | null;
+  store_access: StoreAccess[];
   date_joined: string; last_login: string | null;
 };
 

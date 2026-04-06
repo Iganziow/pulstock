@@ -323,9 +323,21 @@ class TenantUsersView(APIView):
         return []
 
     def get(self, request):
+        from core.models import UserStoreAccess
+
         users = User.objects.filter(
             tenant_id=request.user.tenant_id
         ).order_by("role", "first_name", "username")
+
+        # Pre-fetch store access for all users
+        access_map: dict[int, list[dict]] = {}
+        for sa in UserStoreAccess.objects.filter(
+            tenant_id=request.user.tenant_id
+        ).select_related("store"):
+            access_map.setdefault(sa.user_id, []).append({
+                "store_id": sa.store_id,
+                "store_name": sa.store.name,
+            })
 
         return Response([
             {
@@ -338,6 +350,7 @@ class TenantUsersView(APIView):
                 "role_label": dict(User.Role.choices).get(u.role, u.role),
                 "is_active": u.is_active,
                 "active_store_id": u.active_store_id,
+                "store_access": access_map.get(u.id, []),
                 "date_joined": u.date_joined.isoformat(),
                 "last_login": u.last_login.isoformat() if u.last_login else None,
             }
@@ -377,16 +390,34 @@ class TenantUsersView(APIView):
         if User.objects.filter(username=username).exists():
             return Response({"detail": "Ese nombre de usuario ya existe."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Determine store(s) to assign
+        store_ids = data.get("store_ids") or []
+        if not store_ids and request.user.active_store_id:
+            store_ids = [request.user.active_store_id]
+
         user = User.objects.create_user(
             username=username,
             password=password,
             email=(data.get("email") or "").strip(),
             first_name=(data.get("first_name") or "").strip(),
             last_name=(data.get("last_name") or "").strip(),
-            tenant_id=request.user.tenant_id,
-            active_store_id=request.user.active_store_id,
+            tenant_id=t_id,
+            active_store_id=store_ids[0] if store_ids else request.user.active_store_id,
             role=role,
         )
+
+        # Create store access for non-owner users
+        from core.models import UserStoreAccess
+        if role == "owner":
+            # Owners get access to ALL stores
+            from stores.models import Store
+            for store in Store.objects.filter(tenant_id=t_id, is_active=True):
+                UserStoreAccess.objects.get_or_create(
+                    user=user, store=store, defaults={"tenant_id": t_id})
+        else:
+            for sid in store_ids:
+                UserStoreAccess.objects.get_or_create(
+                    user=user, store_id=sid, defaults={"tenant_id": t_id})
 
         return Response({
             "id": user.id, "username": user.username, "role": user.role,
@@ -487,6 +518,26 @@ class TenantUserDetailView(APIView):
                     )
             target.active_store_id = store_id
             updated.append("active_store_id")
+
+        # Store access list — replace all access entries
+        if "store_ids" in data:
+            from core.models import UserStoreAccess
+            from stores.models import Store
+            new_ids = data["store_ids"] or []
+            t_id = request.user.tenant_id
+            # Validate all stores belong to tenant
+            valid = set(Store.objects.filter(
+                id__in=new_ids, tenant_id=t_id, is_active=True
+            ).values_list("id", flat=True))
+            # Replace access
+            UserStoreAccess.objects.filter(user=target, tenant_id=t_id).delete()
+            for sid in valid:
+                UserStoreAccess.objects.create(user=target, store_id=sid, tenant_id=t_id)
+            # Set active_store to first if current isn't in the new list
+            if target.active_store_id not in valid and valid:
+                target.active_store_id = next(iter(valid))
+                if "active_store_id" not in updated:
+                    updated.append("active_store_id")
 
         if updated:
             save_fields = [f for f in updated if f != "password"]

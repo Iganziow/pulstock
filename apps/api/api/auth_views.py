@@ -92,8 +92,8 @@ class CookieTokenObtainView(TokenObtainPairView):
             if user:
                 response.data["role"] = getattr(user, "role", "")
                 response.data["tenant_id"] = getattr(user, "tenant_id", None)
-                # is_superuser NOT exposed in response for security
-                # Frontend detects superadmin via /superadmin/ routes
+                if user.is_superuser:
+                    response.data["is_superuser"] = True
         return response
 
 
