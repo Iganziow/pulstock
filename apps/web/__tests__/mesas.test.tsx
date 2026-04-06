@@ -18,8 +18,8 @@ const { default: MesasPage } = await import(
 const ME_RESPONSE = { id: 1, email: "t@t.cl", role: "owner", active_store_id: 1 };
 
 const TABLES_RESPONSE = [
-  { id: 1, name: "Mesa 1", capacity: 4, status: "FREE", zone: "salon", is_active: true, is_counter: false, active_order: null },
-  { id: 2, name: "Mesa 2", capacity: 2, status: "OPEN", zone: "salon", is_active: true, is_counter: false, active_order: { id: 10, opened_at: "2026-04-03T10:00:00Z", items_count: 2, subtotal: "5000", customer_name: "" } },
+  { id: 1, name: "Mesa 1", capacity: 4, status: "FREE", zone: "salon", is_active: true, is_counter: false, active_order: null, position_x: 20, position_y: 30, shape: "square", width: 8, height: 8, rotation: 0 },
+  { id: 2, name: "Mesa 2", capacity: 2, status: "OPEN", zone: "salon", is_active: true, is_counter: false, active_order: { id: 10, opened_at: "2026-04-03T10:00:00Z", items_count: 2, subtotal: "5000", customer_name: "" }, position_x: 50, position_y: 30, shape: "round", width: 8, height: 8, rotation: 0 },
 ];
 
 function setupMocks(tables = TABLES_RESPONSE) {

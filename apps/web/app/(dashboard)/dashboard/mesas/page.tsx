@@ -16,6 +16,7 @@ import {
   PAGE_CSS,
   fmt,
 } from "@/components/mesas";
+import { FloorPlan } from "@/components/mesas/FloorPlan";
 import type { Table, Order } from "@/components/mesas";
 
 function useStyles() {
@@ -43,6 +44,10 @@ export default function MesasPage() {
   const [counterLoading, setCounterLoading] = useState(false);
   const [allOrders, setAllOrders] = useState<Record<number, Order>>({});
   const [showCounterModal, setShowCounterModal] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "plan">(() => {
+    if (typeof window !== "undefined") return (localStorage.getItem("mesas_view") as "grid" | "plan") || "plan";
+    return "plan";
+  });
   const [counterName, setCounterName] = useState("");
   const [userRole, setUserRole] = useState("");
 
@@ -140,6 +145,7 @@ export default function MesasPage() {
       const ct: Table = {
         id: data.table_id, name: data.table_name, capacity: 1, status: "OPEN",
         is_active: true, zone: "", is_counter: true,
+        position_x: 0, position_y: 0, shape: "square", width: 8, height: 8, rotation: 0,
         active_order: { id: data.id, opened_at: data.opened_at, items_count: 0, subtotal: "0", customer_name: customerName.trim() },
       };
       setSelectedTable(ct);
@@ -187,12 +193,27 @@ export default function MesasPage() {
               {counterOrders.length > 0 && <> &middot; <span style={{ fontWeight: 600 }}>{counterOrders.length}</span> para llevar</>}
             </div>
           </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {/* View toggle */}
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
+              <button type="button" onClick={() => { setViewMode("plan"); localStorage.setItem("mesas_view", "plan"); }}
+                style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: C.font,
+                  background: viewMode === "plan" ? C.accent : C.surface, color: viewMode === "plan" ? "#fff" : C.mid }}>
+                Plano
+              </button>
+              <button type="button" onClick={() => { setViewMode("grid"); localStorage.setItem("mesas_view", "grid"); }}
+                style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: C.font,
+                  background: viewMode === "grid" ? C.accent : C.surface, color: viewMode === "grid" ? "#fff" : C.mid }}>
+                Grid
+              </button>
+            </div>
           <a href="/dashboard/mesas/config" style={{ textDecoration: "none" }}>
             <Btn variant="secondary" size="sm">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               Config
             </Btn>
           </a>
+          </div>
         </div>
 
         {/* Zone tabs */}
@@ -245,8 +266,19 @@ export default function MesasPage() {
             </div>
           ) : (
             <>
-              {/* Table grid */}
-              {filteredTables.length > 0 ? (
+              {/* Floor plan or grid view */}
+              {viewMode === "plan" && regularTables.some(t => t.position_x > 0 || t.position_y > 0) ? (
+                <FloorPlan
+                  tables={tables}
+                  selectedId={selectedTable?.id ?? null}
+                  onSelectTable={selectTable}
+                />
+              ) : viewMode === "plan" && regularTables.length > 0 ? (
+                <div style={{ textAlign: "center", padding: 24, color: C.mute, fontSize: 12 }}>
+                  Las mesas no tienen posición asignada.{" "}
+                  <a href="/dashboard/mesas/config" style={{ color: C.accent, fontWeight: 600 }}>Distribuir en Config</a>
+                </div>
+              ) : filteredTables.length > 0 ? (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
                   {filteredTables.map(t => (
                     <TableCard key={t.id} table={t} selected={selectedTable?.id === t.id} onClick={() => selectTable(t)} />

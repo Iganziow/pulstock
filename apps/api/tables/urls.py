@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     TableListCreate,
     TableDetail,
+    SaveTableLayout,
     OpenOrderView,
     OrderDetail,
     AddLinesView,
@@ -14,6 +15,7 @@ from .views import (
 
 urlpatterns = [
     path("tables/",                                 TableListCreate.as_view(),   name="table-list"),
+    path("tables/save-layout/",                      SaveTableLayout.as_view(),   name="table-save-layout"),
     path("tables/<int:pk>/",                        TableDetail.as_view(),       name="table-detail"),
     path("tables/<int:pk>/open/",                   OpenOrderView.as_view(),     name="table-open-order"),
     path("tables/<int:pk>/order/",                  ActiveOrderByTable.as_view(),name="table-active-order"),

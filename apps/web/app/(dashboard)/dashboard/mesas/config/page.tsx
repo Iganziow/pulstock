@@ -24,7 +24,8 @@ function useStyles() {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Table = { id: number; name: string; capacity: number; status: "FREE" | "OPEN"; is_active: boolean; zone: string; is_counter: boolean; active_order: unknown };
+import type { Table } from "@/components/mesas/types";
+import { FloorPlanEditor } from "@/components/mesas/FloorPlanEditor";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,6 +184,7 @@ export default function MesasConfigPage() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [err, setErr] = useState("");
+  const [configTab, setConfigTab] = useState<"list" | "layout">("list");
 
   const loadTables = useCallback(async () => {
     try {
@@ -247,7 +249,27 @@ export default function MesasConfigPage() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+        <button type="button" onClick={() => setConfigTab("list")} style={{
+          padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+          background: configTab === "list" ? C.accent : C.surface, color: configTab === "list" ? "#fff" : C.mid,
+          border: configTab === "list" ? "none" : `1px solid ${C.border}`,
+        }}>Lista de mesas</button>
+        <button type="button" onClick={() => setConfigTab("layout")} style={{
+          padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+          background: configTab === "layout" ? C.accent : C.surface, color: configTab === "layout" ? "#fff" : C.mid,
+          border: configTab === "layout" ? "none" : `1px solid ${C.border}`,
+        }}>Distribuir mesas</button>
+      </div>
+
+      {/* Layout editor */}
+      {configTab === "layout" && !loading && (
+        <FloorPlanEditor tables={tables} onRefresh={loadTables} />
+      )}
+
+      {/* Table list */}
+      {configTab === "list" && (<>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, boxShadow: C.sh, overflow: "hidden" }}>
        <div style={{ overflowX: "auto" }}>
         {loading ? (
@@ -359,6 +381,7 @@ export default function MesasConfigPage() {
           Las mesas inactivas no aparecen en la vista de comandas. No se puede desactivar una mesa con comanda abierta.
         </div>
       )}
+      </>)}
 
       {/* Form modal (create or edit) */}
       {showFormModal && (

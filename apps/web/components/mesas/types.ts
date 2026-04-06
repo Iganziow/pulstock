@@ -8,6 +8,8 @@ export interface TableActiveOrder {
   customer_name?: string;
 }
 
+export type TableShape = "round" | "square" | "rect";
+
 export interface Table {
   id: number;
   name: string;
@@ -17,6 +19,12 @@ export interface Table {
   zone: string;
   is_counter: boolean;
   active_order: TableActiveOrder | null;
+  position_x: number;
+  position_y: number;
+  shape: TableShape;
+  width: number;
+  height: number;
+  rotation: number;
 }
 
 export interface OrderLine {

@@ -57,6 +57,12 @@ def _table_data(table):
         "zone":         table.zone,
         "is_counter":   table.is_counter,
         "active_order": active_order,
+        "position_x":   table.position_x,
+        "position_y":   table.position_y,
+        "shape":        table.shape,
+        "width":        table.width,
+        "height":       table.height,
+        "rotation":     table.rotation,
     }
 
 
@@ -145,9 +151,24 @@ class TableListCreate(APIView):
         if Table.objects.filter(tenant_id=t_id, store_id=s_id, name=name).exists():
             return Response({"detail": "Table with this name already exists"}, status=409)
 
+        # Floor plan fields
+        shape = request.data.get("shape", "square")
+        if shape not in ("round", "square", "rect"):
+            shape = "square"
+        try:
+            pos_x = float(request.data.get("position_x", 0))
+            pos_y = float(request.data.get("position_y", 0))
+            w = float(request.data.get("width", 8))
+            h = float(request.data.get("height", 8))
+            rot = float(request.data.get("rotation", 0))
+        except (ValueError, TypeError):
+            pos_x = pos_y = 0; w = h = 8; rot = 0
+
         table = Table.objects.create(
             tenant_id=t_id, store_id=s_id, name=name, capacity=capacity,
             zone=zone, is_counter=is_counter,
+            shape=shape, position_x=pos_x, position_y=pos_y,
+            width=w, height=h, rotation=rot,
         )
         return Response(_table_data(table), status=201)
 
@@ -189,9 +210,62 @@ class TableDetail(APIView):
             table.is_counter = bool(request.data["is_counter"])
             update_fields.append("is_counter")
 
+        # Floor plan fields
+        for field in ("position_x", "position_y", "rotation", "width", "height"):
+            if field in request.data:
+                try:
+                    setattr(table, field, float(request.data[field]))
+                    update_fields.append(field)
+                except (ValueError, TypeError):
+                    pass
+        if "shape" in request.data:
+            shape = request.data["shape"]
+            if shape in ("round", "square", "rect"):
+                table.shape = shape
+                update_fields.append("shape")
+
         if update_fields:
             table.save(update_fields=update_fields)
         return Response(_table_data(table))
+
+
+class SaveTableLayout(APIView):
+    """POST /tables/tables/save-layout/ — bulk update table positions."""
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def post(self, request):
+        t_id = _t(request); s_id = _s(request)
+        positions = request.data.get("positions", [])
+        if not positions:
+            return Response({"detail": "positions es requerido."}, status=400)
+
+        updated = 0
+        for pos in positions:
+            tid = pos.get("id")
+            if not tid:
+                continue
+            try:
+                table = Table.objects.get(id=tid, tenant_id=t_id, store_id=s_id)
+            except Table.DoesNotExist:
+                continue
+
+            fields = []
+            for f in ("position_x", "position_y", "rotation", "width", "height"):
+                if f in pos:
+                    try:
+                        setattr(table, f, float(pos[f]))
+                        fields.append(f)
+                    except (ValueError, TypeError):
+                        pass
+            if "shape" in pos and pos["shape"] in ("round", "square", "rect"):
+                table.shape = pos["shape"]
+                fields.append("shape")
+
+            if fields:
+                table.save(update_fields=fields)
+                updated += 1
+
+        return Response({"ok": True, "updated": updated})
 
 
 class OpenOrderView(APIView):

@@ -25,6 +25,15 @@ class Table(models.Model):
     is_counter = models.BooleanField(default=False,
                     help_text="True para posiciones de mostrador/para llevar")
 
+    # Floor plan positioning
+    SHAPE_CHOICES = [("round", "Redonda"), ("square", "Cuadrada"), ("rect", "Rectangular")]
+    position_x = models.FloatField(default=0, help_text="X position in floor plan (0-100)")
+    position_y = models.FloatField(default=0, help_text="Y position in floor plan (0-100)")
+    shape      = models.CharField(max_length=10, choices=SHAPE_CHOICES, default="square")
+    width      = models.FloatField(default=8, help_text="Width in floor plan units")
+    height     = models.FloatField(default=8, help_text="Height in floor plan units")
+    rotation   = models.FloatField(default=0, help_text="Rotation in degrees (0-360)")
+
     class Meta:
         unique_together = [("tenant", "store", "name")]
         indexes = [
