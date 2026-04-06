@@ -46,12 +46,26 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
 
   const zoneColor = ZONE_COLORS[zones.indexOf(activeZone) % ZONE_COLORS.length] || ZONE_COLORS[0];
 
-  // Sync positions when tables change
+  // Sync positions when tables change + auto-distribute if all at origin
   useEffect(() => {
     const map: Record<number, { x: number; y: number; rotation: number; shape: TShape }> = {};
+    let allAtOrigin = true;
     regularTables.forEach(t => {
       map[t.id] = positions[t.id] || { x: t.position_x, y: t.position_y, rotation: t.rotation, shape: t.shape };
+      if (t.position_x > 1 || t.position_y > 1) allAtOrigin = false;
     });
+
+    // Auto-distribute if all tables are at (0,0) — first time setup
+    if (allAtOrigin && regularTables.length > 0) {
+      const cols = Math.ceil(Math.sqrt(regularTables.length));
+      const spacing = 70 / Math.max(cols, 1);
+      regularTables.forEach((t, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        map[t.id] = { x: 15 + col * spacing, y: 20 + row * spacing, rotation: 0, shape: t.shape };
+      });
+    }
+
     setPositions(map);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tables]);

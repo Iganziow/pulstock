@@ -10,7 +10,15 @@ interface FloorPlanProps {
 }
 
 export function FloorPlan({ tables, selectedId, onSelectTable }: FloorPlanProps) {
-  const regularTables = tables.filter(t => !t.is_counter);
+  const rawTables = tables.filter(t => !t.is_counter);
+
+  // Auto-distribute if all at origin (never positioned)
+  const allAtOrigin = rawTables.length > 0 && rawTables.every(t => t.position_x <= 1 && t.position_y <= 1);
+  const regularTables = allAtOrigin ? rawTables.map((t, i) => {
+    const cols = Math.ceil(Math.sqrt(rawTables.length));
+    const spacing = 70 / Math.max(cols, 1);
+    return { ...t, position_x: 15 + (i % cols) * spacing, position_y: 20 + Math.floor(i / cols) * spacing };
+  }) : rawTables;
 
   return (
     <div style={{
