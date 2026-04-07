@@ -425,7 +425,7 @@ function LiveDemoWidget() {
 
           {/* Product table */}
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <table className="demo-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB", borderBottom: `2px solid ${C.border}` }}>
                   {["Producto", "SKU", "Stock", "Mínimo", "Venta/día", "Días restantes", "Estado"].map(h => (
@@ -591,8 +591,9 @@ export default function LandingPage() {
         .l-step:hover { background: #EEF2FF !important; }
         .biz-tab { transition: all .2s; cursor: pointer; border: none; background: none; }
         .biz-tab:hover { background: #EEF2FF; }
+        .comp-row { grid-template-columns: 1fr 100px 100px; }
         html { scroll-behavior: smooth; }
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
           .desk-nav { display: none !important; }
           .mob-toggle { display: flex !important; }
           .steps-grid { grid-template-columns: 1fr !important; }
@@ -600,12 +601,16 @@ export default function LandingPage() {
           .mockup-sidebar { display: none !important; }
           .mockup-kpis { grid-template-columns: 1fr 1fr !important; }
           .benefits-grid { grid-template-columns: 1fr !important; }
-          .comparison-table { font-size: 12px !important; }
+          .comparison-table { font-size: 11px !important; }
+          .comp-row { grid-template-columns: 1fr 65px 65px !important; }
+          .comparison-table { margin: 0 -8px !important; }
           .biz-tabs { flex-wrap: wrap !important; }
           .impact-grid { grid-template-columns: 1fr 1fr !important; }
           .footer-inner { flex-direction: column !important; text-align: center; }
+          .demo-table { font-size: 11px !important; }
+          .demo-table th:nth-child(n+5), .demo-table td:nth-child(n+5) { display: none !important; }
         }
-        @media (min-width: 769px) {
+        @media (min-width: 901px) {
           .mob-toggle { display: none !important; }
           .mob-menu { display: none !important; }
         }
@@ -668,14 +673,14 @@ export default function LandingPage() {
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />
             No es otro POS — es inteligencia de inventario
           </div>
-          <h1 style={{ fontSize: "clamp(34px, 5.5vw, 58px)", fontWeight: 900, lineHeight: 1.08, margin: "0 0 20px", letterSpacing: "-.025em" }}>
+          <h1 style={{ fontSize: "clamp(28px, 4.5vw, 58px)", fontWeight: 900, lineHeight: 1.08, margin: "0 0 20px", letterSpacing: "-.025em" }}>
             Tu inventario te cuesta plata.
             <br />
             <span style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
               Nosotros lo hacemos rentable.
             </span>
           </h1>
-          <p style={{ fontSize: "clamp(16px, 2vw, 19px)", color: C.mid, lineHeight: 1.6, maxWidth: 580, margin: "0 auto 36px" }}>
+          <p style={{ fontSize: "clamp(15px, 2vw, 19px)", color: C.mid, lineHeight: 1.6, maxWidth: "min(580px, 90vw)", margin: "0 auto 36px" }}>
             Pulstock predice tu demanda, te avisa antes de quedarte sin stock,
             y te dice exactamente qué comprar y cuándo. Para pymes chilenas que quieren crecer con datos, no con intuición.
           </p>
@@ -815,19 +820,19 @@ export default function LandingPage() {
 
       {/* ═══ COMPARISON TABLE — vs tu sistema actual ═══ */}
       <section style={{ padding: "80px 24px", background: C.white }}>
-        <div style={{ maxWidth: 700, margin: "0 auto" }}>
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Comparativa" title="Tu sistema actual vs Pulstock" subtitle="Compara lo que tienes hoy con lo que podrías tener." />
           </RevealSection>
           <RevealSection delay={100}>
             <div className="comparison-table" style={{ borderRadius: 16, overflow: "hidden", border: `1px solid ${C.border}` }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px", background: "#F9FAFB", borderBottom: `2px solid ${C.border}` }}>
+              <div className="comp-row" style={{ display: "grid", background: "#F9FAFB", borderBottom: `2px solid ${C.border}` }}>
                 <div style={{ padding: "12px 20px", fontSize: 12, fontWeight: 700, color: C.mute, textTransform: "uppercase" }}>Feature</div>
                 <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.accent, textAlign: "center" }}>Pulstock</div>
-                <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.mute, textAlign: "center" }}>Tu sistema actual</div>
+                <div style={{ padding: "12px 8px", fontSize: 12, fontWeight: 700, color: C.mute, textAlign: "center" }}>Tu sistema</div>
               </div>
               {COMPARISON.map((row, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px", borderBottom: i < COMPARISON.length - 1 ? `1px solid ${C.border}` : "none",
+                <div key={i} className="comp-row" style={{ display: "grid", borderBottom: i < COMPARISON.length - 1 ? `1px solid ${C.border}` : "none",
                   background: !row.them ? "#FAFAFE" : C.white }}>
                   <div style={{ padding: "11px 20px", fontSize: 13, color: C.mid, fontWeight: !row.them ? 600 : 400 }}>{row.feature}</div>
                   <div style={{ padding: "11px 8px", textAlign: "center", fontSize: 16, color: C.green }}>&#10003;</div>
