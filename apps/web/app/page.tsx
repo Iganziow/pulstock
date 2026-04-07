@@ -36,7 +36,7 @@ const PROBLEMS = [
     icon: "🎲", title: "Compras a ciegas",
     cost: "Compras por intuición, no por datos",
     desc: "Sin historial ni predicción, cada orden de compra es una apuesta. A veces aciertas, muchas veces no.",
-    solution: "Genera órdenes de compra automáticas basadas en tu demanda real.",
+    solution: "Te dice exactamente qué comprar y cuánto, basado en tu historial de ventas.",
   },
 ];
 
