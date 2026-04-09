@@ -1232,7 +1232,7 @@ class ProductRecipeView(APIView):
         ])
 
         recipe.refresh_from_db()
-        recipe_out = Recipe.objects.prefetch_related("lines__ingredient", "lines__unit").get(pk=recipe.pk)
+        recipe_out = Recipe.objects.prefetch_related("lines__ingredient__unit_obj", "lines__unit").get(pk=recipe.pk)
         return Response(RecipeReadSerializer(recipe_out).data, status=status.HTTP_200_OK)
 
     @transaction.atomic

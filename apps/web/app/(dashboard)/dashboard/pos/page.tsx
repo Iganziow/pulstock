@@ -36,8 +36,14 @@ function saveCartDraft(d: CartDraft) {
 function loadCartDraft(): CartDraft | null {
   try {
     const raw = localStorage.getItem(POS_CART_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (!draft?.cart || !Array.isArray(draft.cart)) return null;
+    return draft;
+  } catch {
+    localStorage.removeItem(POS_CART_STORAGE_KEY);
+    return null;
+  }
 }
 function clearCartDraft() {
   try { localStorage.removeItem(POS_CART_STORAGE_KEY); } catch {}
@@ -224,6 +230,7 @@ export default function PosPage() {
         .map(r => ({ method: r.method, amount: Number(r.amount) }));
 
       const payload: any = {
+        idempotency_key: crypto.randomUUID(),
         warehouse_id: warehouseId,
         lines: cart.map((l) => ({
           product_id: l.product.id,

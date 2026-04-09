@@ -284,11 +284,17 @@ def create_sale(
             amount = Decimal(str(p.get("amount") or 0))
         except (ValueError, ArithmeticError, TypeError):
             continue
-        if method in valid_methods and amount > 0:
+        if amount <= 0:
+            logger.warning("Pago con monto no positivo ignorado: method=%s amount=%s sale=%s", method, amount, sale.id)
+            continue
+        if method in valid_methods:
             payment_rows.append(SalePayment(sale=sale, tenant_id=tenant_id, method=method, amount=amount))
             total_paid += amount
     if payment_rows:
         SalePayment.objects.bulk_create(payment_rows)
+
+    if payment_rows and total_paid < subtotal:
+        logger.warning("Pago insuficiente: total_paid=%s subtotal=%s sale=%s", total_paid, subtotal, sale.id)
 
     # ── 10. Save final totals ────────────────────────────────────────
     sale.subtotal = subtotal

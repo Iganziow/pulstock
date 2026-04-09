@@ -408,6 +408,9 @@ class StockIssue(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        # Safe: si was obtained via select_for_update() in _get_or_create_stockitem_locked,
+        # so avg_cost is read from the locked row within this transaction.atomic block.
+        # No other transaction can modify avg_cost between this read and the F() update below.
         cost_snapshot = c3(si.avg_cost or Decimal("0.000"))
         out_value = v3(qty * cost_snapshot)  # valor absoluto
         value_delta = -out_value

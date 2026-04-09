@@ -134,9 +134,9 @@ class RecipeLineReadSerializer(serializers.ModelSerializer):
     ingredient_sku  = serializers.CharField(source="ingredient.sku",  read_only=True)
     ingredient_unit = serializers.CharField(source="ingredient.unit", read_only=True)
     ingredient_unit_obj_id = serializers.IntegerField(source="ingredient.unit_obj_id", read_only=True, default=None)
-    ingredient_unit_family = serializers.CharField(source="ingredient.unit_obj.family", read_only=True, default=None)
+    ingredient_unit_family = serializers.CharField(source="ingredient.unit_obj.family", read_only=True, default=None, allow_null=True)
     unit_id   = serializers.IntegerField(source="unit.id",   read_only=True, default=None)
-    unit_code = serializers.CharField(source="unit.code", read_only=True, default=None)
+    unit_code = serializers.CharField(source="unit.code", read_only=True, default=None, allow_null=True)
 
     class Meta:
         model  = RecipeLine

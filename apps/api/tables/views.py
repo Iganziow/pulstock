@@ -177,10 +177,11 @@ class TableDetail(APIView):
     """PATCH /tables/tables/<id>/ — update name/capacity/is_active."""
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @transaction.atomic
     def patch(self, request, pk):
         t_id = _t(request); s_id = _s(request)
         try:
-            table = Table.objects.get(id=pk, tenant_id=t_id, store_id=s_id)
+            table = Table.objects.select_for_update().get(id=pk, tenant_id=t_id, store_id=s_id)
         except Table.DoesNotExist:
             return Response({"detail": "Not found"}, status=404)
 
@@ -452,6 +453,34 @@ class CheckoutView(APIView):
         except (ValueError, ArithmeticError, TypeError):
             tip = Decimal("0")
 
+        # Validate payment amounts sum >= order total (for non-consumo)
+        if payments_in and sale_type != "CONSUMO_INTERNO":
+            try:
+                pay_total = sum(Decimal(str(p.get("amount") or 0)) for p in payments_in)
+            except (ValueError, ArithmeticError, TypeError):
+                pay_total = Decimal("0")
+            # Fetch order total for validation
+            try:
+                order_for_check = OpenOrder.objects.get(
+                    id=pk, tenant_id=t_id, store_id=s_id, status=OpenOrder.STATUS_OPEN
+                )
+                unpaid_lines = order_for_check.lines.filter(is_paid=False, is_cancelled=False)
+                order_total = sum(
+                    (l.qty * l.unit_price).quantize(Decimal("0.01")) for l in unpaid_lines
+                )
+                if mode == "partial" and line_ids:
+                    partial_lines = unpaid_lines.filter(pk__in=line_ids)
+                    order_total = sum(
+                        (l.qty * l.unit_price).quantize(Decimal("0.01")) for l in partial_lines
+                    )
+                if pay_total < order_total:
+                    return Response(
+                        {"detail": f"Pago insuficiente: {pay_total} < {order_total}"},
+                        status=400,
+                    )
+            except OpenOrder.DoesNotExist:
+                pass  # Will be caught by checkout_order
+
         try:
             result = checkout_order(
                 order_id=pk,
@@ -502,7 +531,7 @@ class CancelOrderView(APIView):
         if active_unpaid.exists():
             return Response({"detail": "Hay ítems pendientes. Cancélalos o cóbralos antes de cerrar."}, status=409)
 
-        order.lines.filter(is_paid=False).delete()
+        order.lines.filter(is_paid=False, is_cancelled=False).delete()
         order.status = OpenOrder.STATUS_CLOSED
         order.closed_at = timezone.now()
         order.save(update_fields=["status", "closed_at"])
