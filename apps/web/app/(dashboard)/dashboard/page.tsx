@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Spinner } from "@/components/ui";
+import { Spinner, SkeletonPage } from "@/components/ui";
 import { formatCLP as _formatCLP } from "@/lib/format";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  if (loading && !data) return <div style={{ background: C.bg, minHeight: "100vh", padding: 24 }}><Spinner /></div>;
+  if (loading && !data) return <div style={{ background: C.bg, minHeight: "100vh", padding: 24 }}><SkeletonPage cards={4} rows={5} /></div>;
 
   if (error && !data) {
     return (

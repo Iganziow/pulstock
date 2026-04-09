@@ -143,12 +143,12 @@ describe("DashboardPage", () => {
     });
   });
 
-  it("shows loading spinner initially", () => {
-    mockFetch.mockImplementation(() => new Promise(() => {})); // never resolves
-    render(<DashboardPage />);
-    // The Spinner component renders an SVG with animation
-    const container = document.querySelector("svg");
-    expect(container).toBeTruthy();
+  it("shows loading skeleton initially", () => {
+    mockFetch.mockImplementation(() => new Promise(() => {}));
+    const { container } = render(<DashboardPage />);
+    // SkeletonPage renders shimmer divs instead of SVG spinner
+    const skeletons = container.querySelectorAll("div[style*='shimmer']");
+    expect(skeletons.length).toBeGreaterThan(0);
   });
 
   it("handles API error gracefully", async () => {

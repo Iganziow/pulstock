@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import type { Me } from "@/lib/me";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-import { Spinner } from "@/components/ui";
+import { Spinner, SkeletonPage } from "@/components/ui";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos,
@@ -264,7 +264,7 @@ export default function StockPage() {
             <div style={{ textAlign: "right" }}>Acciones</div>
           </div>
 
-          {loading && <div style={{ padding: "48px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: C.mute }}><Spinner size={16} /><span style={{ fontSize: 13 }}>Cargando stock...</span></div>}
+          {loading && <SkeletonPage cards={0} rows={8} />}
           {err && <div style={{ padding: "18px" }}><div style={{ padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.redBd}`, background: C.redBg, color: C.red, fontSize: 13 }}>{err}</div></div>}
           {!loading && !err && items.length === 0 && !meErr && (
             <div style={{ padding: "52px 24px", textAlign: "center" }}>

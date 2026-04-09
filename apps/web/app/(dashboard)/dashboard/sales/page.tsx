@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Btn, Spinner } from "@/components/ui";
+import { Btn, Spinner, SkeletonPage } from "@/components/ui";
 import { SaleStatusBadge } from "@/components/sales/SaleStatusBadge";
 import { SaleStatCard } from "@/components/sales/SaleStatCard";
 import { DetailPanel } from "@/components/sales/DetailPanel";
@@ -238,11 +238,7 @@ export default function SalesPage() {
               <div style={{ textAlign:"center" }}>Estado</div>
             </div>
 
-            {loading && (
-              <div style={{ padding:"52px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, color:C.mute }}>
-                <Spinner size={16}/><span style={{ fontSize:13 }}>Cargando ventas\u2026</span>
-              </div>
-            )}
+            {loading && <SkeletonPage cards={0} rows={6} />}
 
             {err && (
               <div style={{ padding:"20px 18px" }}>

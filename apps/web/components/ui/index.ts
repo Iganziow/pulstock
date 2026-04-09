@@ -7,3 +7,4 @@ export { StatCard } from "./StatCard";
 export { ErrBox } from "./ErrBox";
 export { Badge } from "./Badge";
 export type { BadgeColor } from "./Badge";
+export { Skeleton, SkeletonRow, SkeletonCard, SkeletonPage } from "./Skeleton";

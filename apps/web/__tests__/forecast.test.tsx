@@ -55,11 +55,11 @@ describe("ForecastPage", () => {
     });
   });
 
-  it("shows loading spinner initially", async () => {
+  it("shows loading skeleton initially", async () => {
     mockFetch.mockImplementation(() => new Promise(() => {}));
     const { container } = render(<ForecastPage />);
     await waitFor(() => {
-      expect(container.querySelector("svg")).toBeInTheDocument();
+      expect(container.querySelectorAll("div[style*='shimmer']").length).toBeGreaterThan(0);
     });
   });
 

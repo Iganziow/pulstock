@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Spinner } from "@/components/ui";
+import { Spinner, SkeletonPage } from "@/components/ui";
 import { ForecastStatusBadge, UrgencyBar } from "@/components/forecast/ForecastBadges";
 import { ForecastDetailPanel } from "@/components/forecast/ForecastDetailPanel";
 import { fmt, fmtDec, fmtMoney } from "@/components/forecast/helpers";
@@ -110,11 +110,7 @@ export default function ForecastPage() {
         </div>
       )}
 
-      {loading && (
-        <div style={{ padding: "48px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: C.mute }}>
-          <Spinner /><span style={{ fontSize: 13 }}>Analizando tu inventario\u2026</span>
-        </div>
-      )}
+      {loading && <SkeletonPage cards={3} rows={6} />}
 
       {kpis && kpis.imminent_3d > 0 && (
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: C.r, padding: mob ? "12px 14px" : "14px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>

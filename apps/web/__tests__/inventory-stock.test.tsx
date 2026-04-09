@@ -147,9 +147,10 @@ describe("StockPage", () => {
     });
   });
 
-  it("shows loading spinner initially", () => {
-    render(<StockPage />);
-    expect(screen.getByText("Cargando stock...")).toBeInTheDocument();
+  it("shows loading skeleton initially", () => {
+    const { container } = render(<StockPage />);
+    const skeletons = container.querySelectorAll("div[style*='shimmer']");
+    expect(skeletons.length).toBeGreaterThan(0);
   });
 
   it("renders stat cards with metrics", async () => {

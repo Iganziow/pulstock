@@ -7,7 +7,7 @@ import { C } from "@/lib/theme";
 import { formatCLP } from "@/lib/format";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-import { Btn } from "@/components/ui";
+import { Btn, Skeleton } from "@/components/ui";
 import type { Me } from "@/lib/me";
 
 import { SearchBar } from "@/components/pos/SearchBar";
@@ -283,6 +283,19 @@ export default function PosPage() {
   const selectedWarehouseName = warehouses.find((w) => w.id === warehouseId)?.name ?? "—";
 
   // ─────────────────────────────── RENDER ──────────────────────────────────
+
+  if (!me && !meErr) return (
+    <div style={{ fontFamily:C.font, background:C.bg, minHeight:"100vh", padding:mob?"16px 12px":"24px 28px", display:"flex", flexDirection:"column", gap:16 }}>
+      <Skeleton style={{ height:40, borderRadius:8 }} />
+      <div style={{ display:"grid", gridTemplateColumns:mob?"1fr":"1fr 360px", gap:16 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <Skeleton style={{ height:48, borderRadius:8 }} />
+          <Skeleton style={{ height:300, borderRadius:8 }} />
+        </div>
+        <Skeleton style={{ height:360, borderRadius:8 }} />
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily:C.font, color:C.text, background:C.bg, minHeight:"100vh", padding:mob?"16px 12px":"24px 28px", display:"flex", flexDirection:"column", gap:16 }}>

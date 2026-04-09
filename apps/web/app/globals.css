@@ -1,3 +1,148 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ═══ Global animations for Pulstock UX ═══ */
+
+/* Page entrance */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Pulse for alerts/badges */
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Slide in from right (modals, panels) */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Slide in from bottom (toasts, banners) */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Scale in (cards, badges on appear) */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ═══ Utility classes for animations ═══ */
+
+.animate-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-right {
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Stagger children animations */
+.stagger-children > * {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.04s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.06s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.08s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.10s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.12s; }
+.stagger-children > *:nth-child(7) { animation-delay: 0.14s; }
+.stagger-children > *:nth-child(8) { animation-delay: 0.16s; }
+
+/* ═══ Interactive states ═══ */
+
+/* Buttons — smooth press effect */
+.xb {
+  transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.xb:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.xb:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+.xb:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Interactive rows — hover highlight */
+.prow {
+  transition: background 0.12s ease;
+}
+.prow:hover {
+  background: #FAFAFE !important;
+}
+
+/* Cards — lift on hover */
+.sc {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sc:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Icon buttons */
+.ib {
+  transition: all 0.1s ease;
+}
+.ib:hover {
+  background: #F4F4F5 !important;
+}
+
+/* Success flash */
+@keyframes successFlash {
+  0% { background: #ECFDF5; }
+  100% { background: transparent; }
+}
+
+.success-flash {
+  animation: successFlash 1.5s ease;
+}
+
+/* ═══ Smooth scrolling ═══ */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ═══ Focus styles for accessibility ═══ */
+:focus-visible {
+  outline: 2px solid #4F46E5;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Remove default focus ring when using mouse */
+:focus:not(:focus-visible) {
+  outline: none;
+}

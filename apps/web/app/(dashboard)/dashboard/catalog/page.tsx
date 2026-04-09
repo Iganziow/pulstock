@@ -6,7 +6,7 @@ import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { formatCLP, extractErr } from "@/lib/format";
-import { Btn, Spinner, Modal, Badge, Toggle, StatCard, ErrBox, FLabel, Hint, iS, tS, FL, G2 } from "@/components/ui";
+import { Btn, Spinner, SkeletonPage, Modal, Badge, Toggle, StatCard, ErrBox, FLabel, Hint, iS, tS, FL, G2 } from "@/components/ui";
 import { BarcodeAssignModal } from "@/components/catalog/BarcodeAssignModal";
 import { CategoryTree } from "@/components/catalog/CategoryTree";
 import { CascadeSelect } from "@/components/catalog/CascadeSelect";
@@ -377,11 +377,7 @@ export default function CatalogPage() {
       {err && <ErrBox msg={err} onClose={()=>setErr(null)}/>}
 
       {/* LOADING */}
-      {loading && (
-        <div style={{ padding:"52px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:10, color:C.mute }}>
-          <Spinner size={16}/><span style={{ fontSize:13 }}>Cargando\u2026</span>
-        </div>
-      )}
+      {loading && <SkeletonPage cards={4} rows={8} />}
 
       {/* TABLE */}
       {!loading && !err && (
