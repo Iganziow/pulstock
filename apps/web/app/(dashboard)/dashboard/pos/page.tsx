@@ -31,7 +31,7 @@ type CartDraft = {
 };
 
 function saveCartDraft(d: CartDraft) {
-  try { localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(d)); } catch {}
+  try { localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(d)); } catch (e) { console.error("POS: error guardando borrador del carrito:", e); }
 }
 function loadCartDraft(): CartDraft | null {
   try {
@@ -40,13 +40,14 @@ function loadCartDraft(): CartDraft | null {
     const draft = JSON.parse(raw);
     if (!draft?.cart || !Array.isArray(draft.cart)) return null;
     return draft;
-  } catch {
+  } catch (e) {
+    console.error("POS: error leyendo borrador del carrito:", e);
     localStorage.removeItem(POS_CART_STORAGE_KEY);
     return null;
   }
 }
 function clearCartDraft() {
-  try { localStorage.removeItem(POS_CART_STORAGE_KEY); } catch {}
+  try { localStorage.removeItem(POS_CART_STORAGE_KEY); } catch (e) { console.error("POS: error limpiando borrador del carrito:", e); }
 }
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -148,8 +149,8 @@ export default function PosPage() {
         const hasDefault = me.default_warehouse_id && list.some((w) => w.id === me.default_warehouse_id);
         const nextId     = hasStored ? storedId! : hasDefault ? me.default_warehouse_id! : list[0].id;
         setWarehouseId(nextId);
-        try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(nextId)); } catch {}
-      } catch { setWarehouseId(null); }
+        try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(nextId)); } catch (e) { console.error("POS: error guardando bodega seleccionada:", e); }
+      } catch (e) { console.error("POS: error cargando bodegas:", e); setWarehouseId(null); }
     })();
   }, [me?.tenant_id, me?.default_warehouse_id]);
 
@@ -221,6 +222,8 @@ export default function PosPage() {
   const confirmSale = useCallback(async () => {
     if (!warehouseId)      { setErr("No hay bodega seleccionada.");  return; }
     if (cart.length === 0) { setErr("El carrito esta vacio.");       return; }
+    const validCart = cart.filter(c => c.qty > 0);
+    if (validCart.length === 0) { setErr("No hay items válidos en el carrito"); return; }
     if (totalPaid < grandTotal) { setErr(`Falta pagar $${formatCLP(grandTotal - totalPaid)}.`); return; }
 
     setBusy(true); setErr(null); setShortages(null); setLastSaleId(null);
@@ -232,7 +235,7 @@ export default function PosPage() {
       const payload: any = {
         idempotency_key: crypto.randomUUID(),
         warehouse_id: warehouseId,
-        lines: cart.map((l) => ({
+        lines: validCart.map((l) => ({
           product_id: l.product.id,
           qty: l.qty,
           unit_price: l.unitPrice.toFixed(2),
@@ -350,7 +353,7 @@ export default function PosPage() {
                 const next = Number(e.target.value);
                 const id   = Number.isFinite(next) && next > 0 ? next : null;
                 setWarehouseId(id);
-                if (id) { try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(id)); } catch {} }
+                if (id) { try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(id)); } catch (e) { console.error("POS: error persistiendo bodega seleccionada:", e); } }
                 requestAnimationFrame(() => inputRef.current?.focus());
               }}
               disabled={busy || !!meErr}

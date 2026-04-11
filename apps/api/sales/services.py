@@ -108,6 +108,9 @@ def create_sale(
     if not lines_in:
         raise SaleValidationError({"detail": "Sale must have at least one line"})
 
+    if not any(float(l.get("qty", 0)) > 0 for l in lines_in):
+        raise SaleValidationError({"detail": "La venta debe tener al menos un item con cantidad > 0"})
+
     product_ids = [int(l["product_id"]) for l in lines_in]
     products = {p.id: p for p in Product.objects.filter(tenant_id=tenant_id, id__in=product_ids)}
 
@@ -148,6 +151,9 @@ def create_sale(
                 "discount_value": line_discount_value,
                 "promotion_id": line_promotion_id,
             }
+
+    if all(agg[pid]["qty"] <= 0 for pid in agg):
+        raise SaleValidationError({"detail": "Todos los items tienen cantidad 0."})
 
     # ── 4. Recipe expansion ──────────────────────────────────────────
     expanded_agg, recipe_map = expand_recipes(agg, tenant_id)
@@ -213,7 +219,7 @@ def create_sale(
     try:
         sale = Sale.objects.create(**sale_create_kwargs)
     except IntegrityError:
-        existing = Sale.objects.filter(tenant_id=tenant_id, idempotency_key=idempotency_key).first()
+        existing = Sale.objects.filter(tenant_id=tenant_id, idempotency_key=idempotency_key, created_by=user).first()
         if existing:
             return _idempotent_response(existing)
         raise

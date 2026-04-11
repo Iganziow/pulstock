@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
-
+
 
 const PAGE_CSS = `
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
@@ -226,7 +226,7 @@ export default function MesasConfigPage() {
     try {
       const data = await apiFetch("/tables/tables/");
       setTables(data || []);
-    } catch {} finally { setLoading(false); }
+    } catch (e) { console.error("MesasConfig: error cargando mesas:", e); } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadTables(); }, [loadTables]);
@@ -247,7 +247,7 @@ export default function MesasConfigPage() {
         body: JSON.stringify({ is_active: !table.is_active }),
       });
       await loadTables();
-    } catch {} finally { setTogglingId(null); }
+    } catch (e) { console.error("MesasConfig: error toggling activo/inactivo mesa:", e); } finally { setTogglingId(null); }
   }
 
   const activeTables   = tables.filter(t => t.is_active);

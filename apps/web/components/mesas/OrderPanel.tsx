@@ -21,7 +21,6 @@ interface OrderPanelProps {
 }
 
 export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUpdate, canConsumoInterno }: OrderPanelProps) {
-  const [showAddItem, setShowAddItem] = useState(order.lines.length === 0);
   const [showPayment, setShowPayment] = useState(false);
   const [deletingLine, setDeletingLine] = useState<number | null>(null);
   const [confirmDeleteLine, setConfirmDeleteLine] = useState<number | null>(null);
@@ -213,62 +212,67 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         {/* Unpaid lines */}
         {unpaidLines.length > 0 && (
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
               Pendiente ({unpaidLines.length})
             </div>
-            {unpaidLines.map(l => (
-              <div key={l.id} style={{ borderBottom: `1px solid ${C.bg}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 0" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{l.product_name}</div>
-                    {l.note && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: C.amber, marginTop: 1, padding: "1px 6px", background: C.amberBg, borderRadius: 4, border: `1px solid ${C.amberBd}`, width: "fit-content" }}>
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                        {l.note}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 10, color: C.mute }}>{l.qty} &times; ${fmt(l.unit_price)}</div>
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>${fmt(l.line_total)}</div>
-                  <button type="button" onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
-                    style={{ background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 4, cursor: "pointer", color: C.green, padding: "2px 4px", display: "flex", alignItems: "center" }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                  </button>
-                  <button type="button" aria-label="Eliminar" onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", opacity: deletingLine === l.id ? 0.4 : 1 }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                  </button>
-                </div>
-                {confirmDeleteLine === l.id && (
-                  <div style={{ padding: "6px 0 10px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <input
-                      value={cancelReason}
-                      onChange={e => setCancelReason(e.target.value)}
-                      placeholder="Motivo de cancelaci\u00f3n (obligatorio)"
-                      autoFocus
-                      style={{
-                        width: "100%", padding: "8px 10px", border: `1px solid ${C.redBd}`,
-                        borderRadius: C.r, fontSize: 12, background: C.redBg, outline: "none",
-                        fontFamily: "inherit", color: C.text,
-                      }}
-                    />
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button type="button" onClick={() => { setConfirmDeleteLine(null); setCancelReason(""); }}
-                        style={{ padding: "4px 12px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: C.mid }}>
-                        Cancelar
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", background: C.surface }}>
+              {unpaidLines.map((l, idx) => (
+                <div key={l.id} style={{ borderBottom: idx < unpaidLines.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px" }}>
+                    {/* Qty badge */}
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 8,
+                      background: C.accent + "14", border: `1px solid ${C.accentBd}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 12, fontWeight: 800, color: C.accent, flexShrink: 0,
+                    }}>{l.qty}</div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{l.product_name}</div>
+                      {l.note && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: C.amber, marginTop: 2, padding: "1px 6px", background: C.amberBg, borderRadius: 4, border: `1px solid ${C.amberBd}`, width: "fit-content" }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                          {l.note}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 10, color: C.mute, marginTop: 1 }}>${fmt(l.unit_price)} c/u</div>
+                    </div>
+
+                    <div style={{ fontWeight: 800, fontSize: 14, color: C.text, whiteSpace: "nowrap" }}>${fmt(l.line_total)}</div>
+
+                    <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                      <button type="button" onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
+                        style={{ width: 26, height: 26, borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBd}`, cursor: "pointer", color: C.green, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                       </button>
-                      <button type="button" onClick={() => deleteLine(l.id)} disabled={deletingLine === l.id || !cancelReason.trim()}
-                        style={{ padding: "4px 12px", borderRadius: C.r, border: "none", background: C.red, cursor: cancelReason.trim() ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: "#fff", opacity: cancelReason.trim() ? 1 : 0.5 }}>
-                        {deletingLine === l.id ? <Spinner size={10} /> : "Confirmar eliminaci\u00f3n"}
+                      <button type="button" aria-label="Eliminar" onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
+                        style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: `1px solid ${C.redBd}`, cursor: "pointer", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", opacity: deletingLine === l.id ? 0.4 : 1 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                       </button>
                     </div>
                   </div>
-                )}
+                  {confirmDeleteLine === l.id && (
+                    <div style={{ padding: "6px 12px 10px", background: C.redBg, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <input value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                        placeholder="Motivo de cancelación (obligatorio)" autoFocus
+                        style={{ width: "100%", padding: "8px 10px", border: `1.5px solid ${C.redBd}`, borderRadius: 6, fontSize: 12, background: "#fff", outline: "none", fontFamily: "inherit", color: C.text }} />
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button type="button" onClick={() => { setConfirmDeleteLine(null); setCancelReason(""); }}
+                          style={{ padding: "5px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: C.mid }}>Cancelar</button>
+                        <button type="button" onClick={() => deleteLine(l.id)} disabled={deletingLine === l.id || !cancelReason.trim()}
+                          style={{ padding: "5px 14px", borderRadius: 6, border: "none", background: C.red, cursor: cancelReason.trim() ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, fontFamily: "inherit", color: "#fff", opacity: cancelReason.trim() ? 1 : 0.5 }}>
+                          {deletingLine === l.id ? <Spinner size={10} /> : "Eliminar"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {/* Total row */}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: C.bg, borderTop: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.mid }}>Total</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: C.text }}>${fmt(order.subtotal_unpaid)}</span>
               </div>
-            ))}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.mid }}>Total pendiente</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>${fmt(order.subtotal_unpaid)}</span>
             </div>
           </div>
         )}
@@ -311,27 +315,29 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         )}
 
         {order.lines.length === 0 && (
-          <div style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "20px 0" }}>Sin items — agrega productos.</div>
+          <div style={{ textAlign: "center", color: C.mute, fontSize: 13, padding: "24px 0" }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>🍽️</div>
+            Sin items — busca productos abajo.
+          </div>
         )}
 
-        {/* Add item toggle */}
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-          <button type="button" onClick={() => setShowAddItem(s => !s)} style={{
-            background: "none", border: `1px dashed ${C.borderMd}`, borderRadius: C.r,
-            width: "100%", padding: "8px", cursor: "pointer", color: C.mid, fontSize: 12,
-            fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-          }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            {showAddItem ? "Cerrar" : "Agregar items"}
-          </button>
-          {showAddItem && <div style={{ marginTop: 10 }}><AddItemPanel orderId={order.id} onAdded={async () => {
-            setShowAddItem(false);
+        {/* Add items — always visible */}
+        <div style={{
+          marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Agregar productos
+          </div>
+          <AddItemPanel orderId={order.id} onAdded={async () => {
             try {
               const updated = await apiFetch(`/tables/orders/${order.id}/`);
               onOrderUpdate(updated);
             } catch { /* parent refresh will cover it */ }
             onRefresh();
-          }} /></div>}
+          }} />
         </div>
       </div>
 

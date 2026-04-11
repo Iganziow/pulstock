@@ -48,6 +48,9 @@ def expand_recipes(agg, tenant_id):
                     try:
                         recipe_qty = convert_qty(recipe_qty, line.unit, line.ingredient.unit_obj)
                     except (ValueError, ZeroDivisionError) as exc:
+                        logger.warning(
+                            "Recipe conversion error for ingredient %d: %s", ing_id, exc
+                        )
                         from .services import SaleValidationError
                         raise SaleValidationError({
                             "detail": f"Error de conversión en receta: {line.ingredient.name} — {exc}"
@@ -62,8 +65,11 @@ def expand_recipes(agg, tenant_id):
                     if ing_unit and ing_unit.pk != line.unit_id:
                         try:
                             recipe_qty = convert_qty(recipe_qty, line.unit, ing_unit)
-                        except (ValueError, ZeroDivisionError):
-                            pass
+                        except (ValueError, ZeroDivisionError) as exc:
+                            logger.warning(
+                                "Recipe unit conversion fallback failed for ingredient %d: %s",
+                                ing_id, exc,
+                            )
                 if ing_id not in expanded_agg:
                     expanded_agg[ing_id] = {"qty": Decimal("0"), "unit_price": Decimal("0")}
                 expanded_agg[ing_id]["qty"] += recipe_qty
@@ -95,12 +101,20 @@ def compute_recipe_costs(agg, recipe_map, ingredient_avg_cost):
             recipe = recipe_map[pid]
             cost = Decimal("0")
             for line in recipe.lines.all():
+                if line.ingredient_id not in ingredient_avg_cost:
+                    logger.warning("Recipe ingredient %d not found in stock", line.ingredient_id)
+                    continue
+                if ingredient_avg_cost.get(line.ingredient_id, Decimal("0")) == 0:
+                    logger.warning("Ingredient %d has zero cost", line.ingredient_id)
                 converted_qty = line.qty
                 if line.unit_id and line.ingredient.unit_obj_id and line.unit_id != line.ingredient.unit_obj_id:
                     try:
                         converted_qty = convert_qty(line.qty, line.unit, line.ingredient.unit_obj)
-                    except (ValueError, ZeroDivisionError):
-                        pass
+                    except (ValueError, ZeroDivisionError) as exc:
+                        logger.warning(
+                            "Recipe cost conversion failed for ingredient %d: %s",
+                            line.ingredient_id, exc,
+                        )
                 cost += ingredient_avg_cost.get(line.ingredient_id, Decimal("0")) * converted_qty
             recipe_costs[pid] = Decimal(str(cost)).quantize(Decimal("0.000"))
     return recipe_costs

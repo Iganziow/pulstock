@@ -66,7 +66,8 @@ export default function RecetasPage() {
       const list: Product[] = Array.isArray(data) ? data : (data?.results ?? []);
       list.sort((a, b) => a.name.localeCompare(b.name));
       setProducts(list);
-    } catch {
+    } catch (e) {
+      console.error("Recetas: error cargando productos:", e);
       setProducts([]);
     } finally {
       setLoadingProducts(false);
@@ -77,7 +78,7 @@ export default function RecetasPage() {
 
   // ── Load units ───────────────────────────────────────────────────────────
   useEffect(() => {
-    apiFetch("/catalog/units/").then((data: UnitType[]) => setUnits(data ?? [])).catch(() => {});
+    apiFetch("/catalog/units/").then((data: UnitType[]) => setUnits(data ?? [])).catch((e) => { console.error("Recetas: error cargando unidades:", e); });
   }, []);
 
   // ── Select product -> load recipe ───────────────────────────────────────────
@@ -108,7 +109,8 @@ export default function RecetasPage() {
       })));
       setRecipeNotes(data.notes ?? "");
       setRecipeActive(data.is_active ?? true);
-    } catch {
+    } catch (e) {
+      console.error("Recetas: error cargando receta del producto:", e);
       setRecipe(null);
       setRecipeLines([]);
       setRecipeNotes("");
@@ -129,7 +131,7 @@ export default function RecetasPage() {
         const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(q)}&page_size=10`);
         const list: Product[] = Array.isArray(data) ? data : (data?.results ?? []);
         setIngResults(list.filter(x => x.id !== selectedId));
-      } catch { setIngResults([]); }
+      } catch (e) { console.error("Recetas: error buscando ingredientes:", e); setIngResults([]); }
       finally { setIngSearching(false); }
     }, 300);
   };

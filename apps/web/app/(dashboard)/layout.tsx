@@ -8,7 +8,7 @@ import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-
+
 
 const MOBILE_BP = 768;
 const SIDEBAR_W = 240;
@@ -223,7 +223,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setActiveStoreId(me?.active_store_id || null);
         const list = Array.isArray(storeList) ? storeList : storeList?.results || [];
         setStores(list.filter((s: Store) => s.is_active));
-      } catch {}
+      } catch (e) { console.error("Layout: error cargando datos de usuario/tiendas:", e); }
     }
     load();
     return () => { m = false; };
@@ -236,7 +236,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       try {
         const r = await apiFetch("/dashboard/summary/");
         if (m && r?.kpis?.low_stock?.count != null) setLowStock(r.kpis.low_stock.count);
-      } catch {}
+      } catch (e) { console.error("Layout: error cargando resumen de stock bajo:", e); }
     };
     fetch();
     const id = setInterval(fetch, 300_000);
@@ -245,13 +245,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Read collapsed preference
   useEffect(() => {
-    try { const v = localStorage.getItem("sb_collapsed"); if (v === "1") setCollapsed(true); } catch {}
+    try { const v = localStorage.getItem("sb_collapsed"); if (v === "1") setCollapsed(true); } catch (e) { console.error("Layout: error leyendo preferencia sidebar colapsado:", e); }
   }, []);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed(v => {
       const next = !v;
-      try { localStorage.setItem("sb_collapsed", next ? "1" : "0"); } catch {}
+      try { localStorage.setItem("sb_collapsed", next ? "1" : "0"); } catch (e) { console.error("Layout: error guardando preferencia sidebar colapsado:", e); }
       return next;
     });
   }, []);
@@ -279,7 +279,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setActiveStoreId(storeId);
       setStoreDropOpen(false);
       window.location.reload();
-    } catch {}
+    } catch (e) { console.error("Layout: error cambiando tienda activa:", e); }
   }, []);
 
   // Receipt page renders standalone (no sidebar/topbar)

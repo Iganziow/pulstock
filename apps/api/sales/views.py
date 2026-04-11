@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import F, Q, Sum, Count, Avg
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -265,7 +265,7 @@ class SaleVoid(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        lines = list(sale.lines.all())
+        lines = list(sale.lines.select_for_update().all())
 
         # traemos los moves SALE para recuperar el costo real que usamos al vender
         sale_moves = {
@@ -282,12 +282,20 @@ class SaleVoid(APIView):
         total_cost_reversed = Decimal("0.000")
 
         for l in lines:
-            si, _ = StockItem.objects.select_for_update().get_or_create(
-                tenant_id=t_id,
-                warehouse_id=sale.warehouse_id,
-                product_id=l.product_id,
-                defaults={"on_hand": Decimal("0.000"), "avg_cost": Decimal("0.000"), "stock_value": Decimal("0.000")},
-            )
+            try:
+                si, _ = StockItem.objects.select_for_update().get_or_create(
+                    tenant_id=t_id,
+                    warehouse_id=sale.warehouse_id,
+                    product_id=l.product_id,
+                    defaults={"on_hand": Decimal("0.000"), "avg_cost": Decimal("0.000"), "stock_value": Decimal("0.000")},
+                )
+            except IntegrityError:
+                # Retry once on race condition
+                si = StockItem.objects.select_for_update().get(
+                    tenant_id=t_id,
+                    warehouse_id=sale.warehouse_id,
+                    product_id=l.product_id,
+                )
 
             m_sale = sale_moves.get(int(l.product_id))
             unit_cost = Decimal("0.000")

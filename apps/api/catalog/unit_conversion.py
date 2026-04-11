@@ -29,5 +29,8 @@ def convert_qty(qty: Decimal, from_unit, to_unit) -> Decimal:
             f"y {to_unit.code} ({to_unit.get_family_display()})"
         )
 
+    if not to_unit.conversion_factor or to_unit.conversion_factor == 0:
+        return qty  # fallback: no conversion
+
     qty_in_base = qty * from_unit.conversion_factor
     return qty_in_base / to_unit.conversion_factor

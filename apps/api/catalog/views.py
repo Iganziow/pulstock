@@ -592,7 +592,14 @@ class ProductImport(APIView):
                         product.brand = brand
                     if image_url:
                         product.image_url = image_url
-                    product.save()
+                    product.save(update_fields=[
+                        "name", "sku", "description", "unit", "price",
+                        "is_active", "category",
+                    ] + (["unit_obj"] if unit_obj else [])
+                      + (["cost"] if cost_raw else [])
+                      + (["min_stock"] if min_stock_raw else [])
+                      + (["brand"] if brand else [])
+                      + (["image_url"] if image_url else []))
                     updated += 1
                 else:
                     product = Product.objects.create(

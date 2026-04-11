@@ -1,10 +1,12 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
 import type { Table, TableShape as TShape } from "./types";
-import { TableShape } from "./TableShape";
+
+const COLS = 8;
+const ROWS = 6;
 
 interface FloorPlanEditorProps {
   tables: Table[];
@@ -12,124 +14,74 @@ interface FloorPlanEditorProps {
 }
 
 const ZONE_COLORS = [
-  { bg: "#EEF2FF", bd: "#C7D2FE", label: "#4F46E5" }, // indigo
-  { bg: "#ECFDF5", bd: "#A7F3D0", label: "#16A34A" }, // green
-  { bg: "#FFFBEB", bd: "#FDE68A", label: "#D97706" }, // amber
-  { bg: "#FFF1F2", bd: "#FECDD3", label: "#E11D48" }, // rose
-  { bg: "#F0F9FF", bd: "#BAE6FD", label: "#0284C7" }, // sky
-  { bg: "#FAF5FF", bd: "#DDD6FE", label: "#7C3AED" }, // violet
+  { bg: "#EEF2FF", bd: "#C7D2FE", text: "#4F46E5", cell: "#E0E7FF" },
+  { bg: "#ECFDF5", bd: "#A7F3D0", text: "#16A34A", cell: "#D1FAE5" },
+  { bg: "#FFFBEB", bd: "#FDE68A", text: "#D97706", cell: "#FEF3C7" },
+  { bg: "#FFF1F2", bd: "#FECDD3", text: "#E11D48", cell: "#FFE4E6" },
+  { bg: "#F0F9FF", bd: "#BAE6FD", text: "#0284C7", cell: "#E0F2FE" },
+  { bg: "#FAF5FF", bd: "#DDD6FE", text: "#7C3AED", cell: "#EDE9FE" },
 ];
 
 export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
   const regularTables = tables.filter(t => !t.is_counter);
-  const zones = [...new Set(regularTables.map(t => t.zone).filter(Boolean))].sort();
+  const tableZones = [...new Set(regularTables.map(t => t.zone).filter(Boolean))].sort();
+  const [extraZones, setExtraZones] = useState<string[]>([]);
+  const zones = [...new Set([...tableZones, ...extraZones])].sort();
 
   const [activeZone, setActiveZone] = useState<string>(zones[0] || "");
-  const [positions, setPositions] = useState<Record<number, { x: number; y: number; rotation: number; shape: TShape }>>({});
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [dragging, setDragging] = useState<number | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<{ col: number; row: number } | null>(null);
   const [newName, setNewName] = useState("");
   const [newCapacity, setNewCapacity] = useState("4");
-  const [newShape, setNewShape] = useState<TShape>("square");
-  const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null);
+  const [newShape, setNewShape] = useState<"square" | "round">("square");
   const [addingZone, setAddingZone] = useState(false);
   const [newZoneName, setNewZoneName] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
 
-  // Tables in active zone (or all if no zone selected)
+  const toggleShape = async (table: Table) => {
+    const next = table.shape === "round" ? "square" : "round";
+    try {
+      await apiFetch(`/tables/tables/${table.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ shape: next }),
+      });
+      onRefresh();
+    } catch (e) { console.error("FloorPlanEditor: error cambiando forma de mesa:", e); }
+  };
+
   const zoneTables = activeZone
     ? regularTables.filter(t => t.zone === activeZone)
     : regularTables.filter(t => !t.zone);
 
-  const zoneColor = ZONE_COLORS[zones.indexOf(activeZone) % ZONE_COLORS.length] || ZONE_COLORS[0];
+  const zoneIdx = zones.indexOf(activeZone);
+  const zc = ZONE_COLORS[zoneIdx >= 0 ? zoneIdx % ZONE_COLORS.length : 0];
 
-  // Sync positions when tables change + auto-distribute unpositioned tables per zone
-  useEffect(() => {
-    const map: Record<number, { x: number; y: number; rotation: number; shape: TShape }> = {};
-    regularTables.forEach(t => {
-      map[t.id] = positions[t.id] || { x: t.position_x, y: t.position_y, rotation: t.rotation, shape: t.shape };
-    });
-
-    // For each zone, auto-distribute tables that are at (0,0)
-    const allZones = [...new Set(regularTables.map(t => t.zone))];
-    for (const z of allZones) {
-      const zt = regularTables.filter(t => t.zone === z);
-      const unpositioned = zt.filter(t => t.position_x <= 1 && t.position_y <= 1 && !(positions[t.id]?.x > 1));
-      if (unpositioned.length === 0) continue;
-
-      const cols = Math.max(1, Math.ceil(Math.sqrt(unpositioned.length)));
-      const spacing = Math.min(25, 70 / Math.max(cols, 1));
-      unpositioned.forEach((t, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        map[t.id] = {
-          x: 30 + col * spacing,
-          y: 30 + row * spacing,
-          rotation: 0,
-          shape: t.shape,
-        };
-      });
+  // Build grid map: {col-row: table}
+  const gridMap = new Map<string, Table>();
+  zoneTables.forEach(t => {
+    const col = Math.round(t.position_x);
+    const row = Math.round(t.position_y);
+    if (col >= 0 && col < COLS && row >= 0 && row < ROWS) {
+      gridMap.set(`${col}-${row}`, t);
     }
+  });
 
-    setPositions(map);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tables]);
-
-  // Sync active zone when zones change
   useEffect(() => {
     if (activeZone && !zones.includes(activeZone) && zones.length > 0) {
       setActiveZone(zones[0]);
     }
   }, [zones, activeZone]);
 
-  const dirty = regularTables.some(t => {
-    const p = positions[t.id];
-    return p && (p.x !== t.position_x || p.y !== t.position_y || p.rotation !== t.rotation || p.shape !== t.shape);
-  });
-
-  const getRelativePos = useCallback((clientX: number, clientY: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 50, y: 50 };
-    const x = Math.max(5, Math.min(95, ((clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(5, Math.min(95, ((clientY - rect.top) / rect.height) * 100));
-    return { x: Math.round(x / 2.5) * 2.5, y: Math.round(y / 2.5) * 2.5 };
-  }, []);
-
-  const handlePointerDown = (tableId: number, e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(tableId);
-    setSelectedId(tableId);
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (dragging === null) return;
-    const { x, y } = getRelativePos(e.clientX, e.clientY);
-    setPositions(prev => ({ ...prev, [dragging]: { ...prev[dragging], x, y } }));
-  };
-
-  const handlePointerUp = () => setDragging(null);
-
-  const handleCanvasClick = (e: React.MouseEvent) => {
-    if (dragging !== null) return;
-    if ((e.target as HTMLElement).closest("[data-table-id]")) return;
-    const { x, y } = getRelativePos(e.clientX, e.clientY);
-    setClickPos({ x, y });
-    setCreating(true);
-    const zoneCount = zoneTables.length;
+  const handleCellClick = (col: number, row: number) => {
+    if (gridMap.has(`${col}-${row}`)) return; // occupied
+    setCreating({ col, row });
     setNewName(`Mesa ${regularTables.length + 1}`);
     setNewCapacity("4");
-    setNewShape("square");
-    setSelectedId(null);
   };
 
-  const createTableAtPosition = async () => {
-    if (!newName.trim() || !clickPos) return;
-    setCreating(false);
+  const createTable = async () => {
+    if (!creating || !newName.trim()) return;
+    setSaving(true);
     try {
       await apiFetch("/tables/tables/", {
         method: "POST",
@@ -137,102 +89,82 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
           name: newName.trim(),
           capacity: Number(newCapacity) || 4,
           shape: newShape,
-          position_x: clickPos.x,
-          position_y: clickPos.y,
+          position_x: creating.col,
+          position_y: creating.row,
           zone: activeZone,
         }),
       });
-      setClickPos(null);
+      setCreating(null);
       onRefresh();
-    } catch { /* silent */ }
-  };
-
-  const createZone = () => {
-    if (!newZoneName.trim()) return;
-    setActiveZone(newZoneName.trim());
-    setAddingZone(false);
-    setNewZoneName("");
-  };
-
-  const saveLayout = async () => {
-    setSaving(true);
-    setSaved(false);
-    try {
-      const payload = regularTables.map(t => ({
-        id: t.id,
-        position_x: positions[t.id]?.x ?? t.position_x,
-        position_y: positions[t.id]?.y ?? t.position_y,
-        rotation: positions[t.id]?.rotation ?? t.rotation,
-        shape: positions[t.id]?.shape ?? t.shape,
-      }));
-      await apiFetch("/tables/tables/save-layout/", {
-        method: "POST",
-        body: JSON.stringify({ positions: payload }),
-      });
-      setSaved(true);
-      onRefresh();
-      setTimeout(() => setSaved(false), 2000);
-    } catch { /* silent */ }
+    } catch (e) { console.error("FloorPlanEditor: error creando mesa:", e); }
     finally { setSaving(false); }
   };
 
-  const setShape = (id: number, shape: TShape) => {
-    setPositions(prev => ({ ...prev, [id]: { ...prev[id], shape } }));
+  const deleteTable = async (tableId: number) => {
+    if (!confirm("¿Eliminar esta mesa?")) return;
+    try {
+      await apiFetch(`/tables/tables/${tableId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: false }),
+      });
+      onRefresh();
+    } catch (e) { console.error("FloorPlanEditor: error eliminando mesa:", e); }
   };
 
-  const setRotation = (id: number, deg: number) => {
-    setPositions(prev => ({ ...prev, [id]: { ...prev[id], rotation: deg } }));
+  const moveTable = async (tableId: number, col: number, row: number) => {
+    try {
+      await apiFetch(`/tables/tables/${tableId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ position_x: col, position_y: row }),
+      });
+      onRefresh();
+    } catch (e) { console.error("FloorPlanEditor: error moviendo mesa:", e); }
   };
 
-  const autoDistribute = () => {
-    const cols = Math.ceil(Math.sqrt(zoneTables.length));
-    if (cols === 0) return;
-    const spacing = 80 / Math.max(cols, 1);
-    const newPos = { ...positions };
-    zoneTables.forEach((t, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      newPos[t.id] = {
-        x: 12 + col * spacing,
-        y: 15 + row * spacing,
-        rotation: positions[t.id]?.rotation ?? 0,
-        shape: positions[t.id]?.shape ?? t.shape,
-      };
-    });
-    setPositions(newPos);
+  const handleDrop = (col: number, row: number) => {
+    if (dragging === null) return;
+    if (gridMap.has(`${col}-${row}`)) return; // occupied
+    moveTable(dragging, col, row);
+    setDragging(null);
   };
 
-  const selected = selectedId ? regularTables.find(t => t.id === selectedId) : null;
+  const createZone = () => {
+    const name = newZoneName.trim();
+    if (!name || zones.includes(name)) return;
+    setExtraZones(prev => [...prev, name]);
+    setActiveZone(name);
+    setAddingZone(false);
+    setNewZoneName("");
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Zone tabs */}
       <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
         {zones.map((z, i) => {
-          const zc = ZONE_COLORS[i % ZONE_COLORS.length];
+          const zColor = ZONE_COLORS[i % ZONE_COLORS.length];
           const count = regularTables.filter(t => t.zone === z).length;
           return (
-            <button key={z} type="button" onClick={() => { setActiveZone(z); setSelectedId(null); setCreating(false); }} style={{
-              padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
-              border: activeZone === z ? `2px solid ${zc.bd}` : `1px solid ${C.border}`,
-              background: activeZone === z ? zc.bg : C.surface,
-              color: activeZone === z ? zc.label : C.mid,
+            <button key={z} type="button" onClick={() => { setActiveZone(z); setCreating(null); }} style={{
+              padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              border: activeZone === z ? `2px solid ${zColor.text}` : `1px solid ${C.border}`,
+              background: activeZone === z ? zColor.bg : C.surface,
+              color: activeZone === z ? zColor.text : C.mid,
               fontFamily: C.font, display: "flex", alignItems: "center", gap: 6,
             }}>
               {z}
               <span style={{
                 fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 6,
-                background: activeZone === z ? zc.label + "18" : "#F4F4F5",
-                color: activeZone === z ? zc.label : C.mute,
+                background: activeZone === z ? zColor.text + "18" : "#F4F4F5",
+                color: activeZone === z ? zColor.text : C.mute,
               }}>{count}</span>
             </button>
           );
         })}
 
-        {/* No-zone tab if there are tables without zone */}
         {regularTables.some(t => !t.zone) && (
-          <button type="button" onClick={() => { setActiveZone(""); setSelectedId(null); setCreating(false); }} style={{
-            padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          <button type="button" onClick={() => { setActiveZone(""); setCreating(null); }} style={{
+            padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
             border: activeZone === "" ? `2px solid ${C.border}` : `1px solid ${C.border}`,
             background: activeZone === "" ? C.bg : C.surface,
             color: activeZone === "" ? C.text : C.mute,
@@ -242,166 +174,139 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
           </button>
         )}
 
-        {/* Add zone */}
         {addingZone ? (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-            <input
-              value={newZoneName}
-              onChange={e => setNewZoneName(e.target.value)}
+            <input value={newZoneName} onChange={e => setNewZoneName(e.target.value)}
               onKeyDown={e => e.key === "Enter" && createZone()}
-              placeholder="Nombre de la zona"
-              autoFocus
-              style={{
-                padding: "7px 12px", borderRadius: 8, fontSize: 13,
-                border: `1.5px solid ${C.accent}`, fontFamily: C.font, outline: "none", width: 160,
-              }}
-            />
+              placeholder="Nombre de la sala" autoFocus
+              style={{ padding: "7px 12px", borderRadius: 8, fontSize: 13, border: `1.5px solid ${C.accent}`, fontFamily: C.font, outline: "none", width: 160 }} />
             <Btn variant="primary" size="sm" onClick={createZone} disabled={!newZoneName.trim()}>OK</Btn>
             <Btn variant="ghost" size="sm" onClick={() => { setAddingZone(false); setNewZoneName(""); }}>✕</Btn>
           </div>
         ) : (
           <button type="button" onClick={() => setAddingZone(true)} style={{
-            padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            border: `1px dashed ${C.border}`, background: "transparent", color: C.accent,
-            fontFamily: C.font,
-          }}>
-            + Zona
-          </button>
+            padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: `1px dashed ${C.border}`, background: "transparent", color: C.accent, fontFamily: C.font,
+          }}>+ Nueva Sala</button>
         )}
       </div>
 
-      {/* Toolbar */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
-      }}>
-        <div style={{ fontSize: 13, color: C.mute }}>
-          {activeZone ? (
-            <><b style={{ color: zoneColor.label }}>{activeZone}</b> — {zoneTables.length} mesa{zoneTables.length !== 1 ? "s" : ""}. Click para crear aquí.</>
-          ) : (
-            <>Mesas sin zona asignada. Click para crear.</>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn variant="ghost" size="sm" onClick={autoDistribute}>Auto-distribuir</Btn>
-          <Btn variant="primary" size="sm" onClick={saveLayout} disabled={saving || !dirty}>
-            {saving ? <><Spinner size={12} /> Guardando...</> : saved ? "✓ Guardado" : "Guardar"}
-          </Btn>
-        </div>
-      </div>
-
       <div style={{ display: "flex", gap: 16 }}>
-        {/* Canvas */}
-        <div
-          ref={containerRef}
-          onClick={handleCanvasClick}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          style={{
-            position: "relative",
-            flex: 1,
-            minHeight: 460,
-            background: activeZone ? zoneColor.bg : C.surface,
-            border: `2px dashed ${activeZone ? zoneColor.bd : C.border}`,
-            borderRadius: 14,
-            overflow: "hidden",
-            touchAction: "none",
-            cursor: "crosshair",
-            transition: "background .2s, border-color .2s",
-          }}
-        >
-          {/* Zone label watermark */}
-          {activeZone && (
-            <div style={{
-              position: "absolute", top: 12, left: 16,
-              fontSize: 14, fontWeight: 800, color: zoneColor.label,
-              opacity: 0.25, textTransform: "uppercase", letterSpacing: ".1em",
-              pointerEvents: "none",
-            }}>
-              {activeZone}
-            </div>
-          )}
+        {/* Grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${COLS}, 1fr)`,
+          gridTemplateRows: `repeat(${ROWS}, 1fr)`,
+          gap: 3,
+          flex: 1,
+          aspectRatio: `${COLS}/${ROWS}`,
+          background: C.border,
+          border: `2px solid ${zc.bd}`,
+          borderRadius: 12,
+          padding: 3,
+          overflow: "hidden",
+        }}>
+          {Array.from({ length: ROWS * COLS }).map((_, idx) => {
+            const col = idx % COLS;
+            const row = Math.floor(idx / COLS);
+            const key = `${col}-${row}`;
+            const table = gridMap.get(key);
+            const isCreatingHere = creating?.col === col && creating?.row === row;
 
-          {/* Grid */}
-          <div style={{
-            position: "absolute", inset: 0,
-            backgroundImage: `
-              linear-gradient(${activeZone ? zoneColor.label + "08" : "rgba(0,0,0,.03)"} 1px, transparent 1px),
-              linear-gradient(90deg, ${activeZone ? zoneColor.label + "08" : "rgba(0,0,0,.03)"} 1px, transparent 1px)
-            `,
-            backgroundSize: "5% 5%",
-            pointerEvents: "none",
-          }} />
-
-          {/* Tables for this zone */}
-          {zoneTables.map(table => {
-            const pos = positions[table.id] || { x: table.position_x, y: table.position_y, rotation: table.rotation, shape: table.shape };
-            const modifiedTable = { ...table, position_x: pos.x, position_y: pos.y, rotation: pos.rotation, shape: pos.shape };
             return (
               <div
-                key={table.id}
-                data-table-id={table.id}
-                onPointerDown={e => handlePointerDown(table.id, e)}
+                key={key}
+                onClick={() => !table && handleCellClick(col, row)}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                onDrop={() => handleDrop(col, row)}
                 style={{
-                  position: "absolute",
-                  left: `${pos.x}%`, top: `${pos.y}%`,
-                  transform: "translate(-50%, -50%)",
-                  cursor: dragging === table.id ? "grabbing" : "grab",
-                  zIndex: dragging === table.id || selectedId === table.id ? 10 : 1,
-                  transition: dragging === table.id ? "none" : "left .15s, top .15s",
+                  background: table ? zc.cell : isCreatingHere ? `${zc.text}15` : C.surface,
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: table ? "grab" : "pointer",
+                  position: "relative",
+                  transition: "background .15s",
+                  minHeight: 70,
+                  border: isCreatingHere ? `2px dashed ${zc.text}` : "1px solid transparent",
                 }}
               >
-                <TableShape table={modifiedTable} selected={selectedId === table.id} onClick={() => setSelectedId(table.id)} />
+                {table ? (
+                  <div
+                    draggable
+                    onDragStart={() => setDragging(table.id)}
+                    onDragEnd={() => setDragging(null)}
+                    style={{
+                      width: "100%", height: "100%",
+                      display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center",
+                      borderRadius: table.shape === "round" ? "50%" : 6,
+                      background: table.status === "OPEN" ? "#FFFBEB" : zc.cell,
+                      border: `2.5px solid ${table.status === "OPEN" ? "#D97706" : zc.text}`,
+                      position: "relative",
+                      transition: "border-radius .2s",
+                    }}
+                  >
+                    <div style={{ fontSize: 16, fontWeight: 800, color: table.status === "OPEN" ? "#D97706" : zc.text }}>
+                      {table.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.mute }}>{table.capacity} pers.</div>
+
+                    {/* Shape toggle */}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); toggleShape(table); }}
+                      aria-label="Cambiar forma"
+                      title={table.shape === "round" ? "Cambiar a cuadrada" : "Cambiar a redonda"}
+                      style={{
+                        position: "absolute", bottom: 3, left: "50%", transform: "translateX(-50%)",
+                        fontSize: 11, color: zc.text, background: "rgba(255,255,255,.8)",
+                        border: "none", cursor: "pointer", padding: "1px 4px", borderRadius: 4,
+                        opacity: 0.7, lineHeight: 1,
+                      }}>
+                      {table.shape === "round" ? "⬛" : "⬤"}
+                    </button>
+
+                    {table.status === "OPEN" && (
+                      <div style={{
+                        position: "absolute", top: 2, right: table.shape === "round" ? 8 : 2,
+                        width: 8, height: 8, borderRadius: "50%",
+                        background: "#D97706",
+                      }} />
+                    )}
+                    {/* Delete button */}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); deleteTable(table.id); }}
+                      aria-label="Eliminar mesa"
+                      style={{
+                        position: "absolute", top: table.shape === "round" ? 0 : -6, right: table.shape === "round" ? 0 : -6,
+                        width: 18, height: 18, borderRadius: "50%",
+                        background: C.red, color: "#fff",
+                        border: "2px solid #fff", fontSize: 10, lineHeight: 1,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                        opacity: 0.7,
+                      }}>✕</button>
+                  </div>
+                ) : !isCreatingHere ? (
+                  <span style={{ fontSize: 20, color: C.border, opacity: 0.5 }}>+</span>
+                ) : null}
               </div>
             );
           })}
-
-          {/* Click ghost */}
-          {clickPos && creating && (
-            <div style={{
-              position: "absolute",
-              left: `${clickPos.x}%`, top: `${clickPos.y}%`,
-              transform: "translate(-50%, -50%)",
-              width: newShape === "rect" ? 100 : 72,
-              height: newShape === "rect" ? 56 : 72,
-              borderRadius: newShape === "round" ? "50%" : 10,
-              border: `2px dashed ${zoneColor.label}`,
-              background: `${zoneColor.label}10`,
-              pointerEvents: "none",
-            }} />
-          )}
-
-          {/* Empty */}
-          {zoneTables.length === 0 && !creating && (
-            <div style={{
-              position: "absolute", inset: 0,
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-              color: C.mute, fontSize: 14, gap: 8,
-            }}>
-              <div style={{ fontSize: 32 }}>🪑</div>
-              <div style={{ fontWeight: 600 }}>
-                {activeZone ? `"${activeZone}" está vacía` : "Sin mesas sin zona"}
-              </div>
-              <div style={{ fontSize: 12 }}>Click en cualquier parte para crear una mesa</div>
-            </div>
-          )}
         </div>
 
-        {/* Right panel */}
+        {/* Right panel: create form */}
         <div style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
-          {/* Create form */}
-          {creating && clickPos && (
+          {creating && (
             <div style={{
-              background: C.surface, border: `2px solid ${zoneColor.label}`,
+              background: C.surface, border: `2px solid ${zc.text}`,
               borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 10,
             }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: zoneColor.label }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: zc.text }}>
                 Nueva mesa {activeZone ? `en ${activeZone}` : ""}
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", marginBottom: 4 }}>Nombre</div>
                 <input value={newName} onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && createTableAtPosition()}
+                  onKeyDown={e => e.key === "Enter" && createTable()}
                   autoFocus style={{
                     width: "100%", padding: "8px 10px", borderRadius: 8, fontSize: 13,
                     border: `1.5px solid ${C.border}`, fontFamily: C.font, outline: "none",
@@ -417,75 +322,41 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", marginBottom: 4 }}>Forma</div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {(["round", "square", "rect"] as const).map(sh => (
+                <div style={{ display: "flex", gap: 6 }}>
+                  {([["square", "⬛", "Cuadrada"], ["round", "⬤", "Redonda"]] as const).map(([sh, icon, label]) => (
                     <button key={sh} type="button" onClick={() => setNewShape(sh)} style={{
-                      flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 18, cursor: "pointer",
-                      border: `2px solid ${newShape === sh ? zoneColor.label : C.border}`,
-                      background: newShape === sh ? zoneColor.bg : C.surface,
+                      flex: 1, padding: "8px 0", borderRadius: 8, cursor: "pointer",
+                      border: `2px solid ${newShape === sh ? zc.text : C.border}`,
+                      background: newShape === sh ? zc.bg : C.surface,
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                       fontFamily: C.font,
                     }}>
-                      {sh === "round" ? "⬤" : sh === "square" ? "⬛" : "▬"}
+                      <span style={{ fontSize: 16 }}>{icon}</span>
+                      <span style={{ fontSize: 9, fontWeight: 600, color: newShape === sh ? zc.text : C.mute }}>{label}</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                <Btn variant="ghost" size="sm" onClick={() => { setCreating(false); setClickPos(null); }}>Cancelar</Btn>
-                <Btn variant="primary" size="sm" onClick={createTableAtPosition} disabled={!newName.trim()}>Crear</Btn>
+                <Btn variant="ghost" size="sm" onClick={() => setCreating(null)}>Cancelar</Btn>
+                <Btn variant="primary" size="sm" onClick={createTable} disabled={!newName.trim() || saving}>
+                  {saving ? <Spinner size={12} /> : "Crear"}
+                </Btn>
               </div>
             </div>
           )}
 
-          {/* Properties */}
-          {selected && !creating && (
-            <div style={{
-              background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12,
-            }}>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>{selected.name}</div>
-              <div style={{ fontSize: 11, color: C.mute }}>
-                {selected.capacity} personas · {selected.zone || "Sin zona"}
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", marginBottom: 6 }}>Forma</div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {(["round", "square", "rect"] as const).map(sh => (
-                    <button key={sh} type="button" onClick={() => setShape(selected.id, sh)} style={{
-                      flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 16,
-                      border: `2px solid ${(positions[selected.id]?.shape ?? selected.shape) === sh ? C.accent : C.border}`,
-                      background: (positions[selected.id]?.shape ?? selected.shape) === sh ? C.accentBg : C.surface,
-                      cursor: "pointer", fontFamily: C.font,
-                    }}>
-                      {sh === "round" ? "⬤" : sh === "square" ? "⬛" : "▬"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", marginBottom: 6 }}>
-                  Rotación: {positions[selected.id]?.rotation ?? selected.rotation}°
-                </div>
-                <input type="range" min={0} max={360} step={15}
-                  value={positions[selected.id]?.rotation ?? selected.rotation}
-                  onChange={e => setRotation(selected.id, Number(e.target.value))}
-                  style={{ width: "100%" }} />
-              </div>
-            </div>
-          )}
-
-          {/* Tips */}
-          {!selected && !creating && (
+          {!creating && (
             <div style={{
               background: C.bg, border: `1px solid ${C.border}`, borderRadius: 12,
               padding: 16, fontSize: 12, color: C.mute, lineHeight: 1.6,
             }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Tips:</div>
-              <div>• Click vacío = crear mesa</div>
-              <div>• Arrastra = mover</div>
-              <div>• Click mesa = editar forma</div>
-              <div>• "+ Zona" = nueva sala</div>
-              <div>• "Guardar" = persistir posiciones</div>
+              <div style={{ fontWeight: 700, marginBottom: 4, color: C.mid }}>Instrucciones</div>
+              <div>• Click en celda vacía = crear mesa</div>
+              <div>• Arrastra una mesa a otra celda</div>
+              <div>• ✕ rojo = eliminar mesa</div>
+              <div>• 1 mesa por celda, sin superposición</div>
+              <div>• "+ Nueva Sala" para agregar zonas</div>
             </div>
           )}
         </div>

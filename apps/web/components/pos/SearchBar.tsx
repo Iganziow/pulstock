@@ -69,7 +69,7 @@ export function SearchBar({
             const map: Record<number, PromoInfo> = {};
             for (const p of promoData.results || []) map[p.product_id] = p;
             onPromosFound(map);
-          } catch {}
+          } catch (e) { console.error("SearchBar: error cargando promociones activas:", e); }
         }
       } catch {
         setSuggestions([]); setShowSuggestions(false);

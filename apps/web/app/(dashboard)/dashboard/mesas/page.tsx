@@ -249,18 +249,7 @@ export default function MesasPage() {
             </div>
           ) : (
             <>
-              {/* Floor plan or grid view */}
-              {filteredTables.length > 0 ? (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
-                  {filteredTables.map(t => (
-                    <TableCard key={t.id} table={t} selected={selectedTable?.id === t.id} onClick={() => selectTable(t)} />
-                  ))}
-                </div>
-              ) : regularTables.length > 0 ? (
-                <div style={{ textAlign: "center", padding: 24, color: C.mute, fontSize: 12 }}>No hay mesas en esta zona.</div>
-              ) : null}
-
-              {/* Counter / Takeaway */}
+              {/* Counter / Para llevar — above grid */}
               <CounterSection
                 counterOrders={counterOrders}
                 selectedTableId={selectedTable?.id}
@@ -268,6 +257,106 @@ export default function MesasPage() {
                 onSelectTable={selectTable}
                 onNewCounter={handleNewCounter}
               />
+
+              {/* Grid view 8x6 */}
+              {(() => {
+                const COLS = 8, ROWS = 6;
+                const gridMap = new Map<string, Table>();
+                filteredTables.forEach(t => {
+                  const col = Math.round(t.position_x);
+                  const row = Math.round(t.position_y);
+                  if (col >= 0 && col < COLS && row >= 0 && row < ROWS) {
+                    gridMap.set(`${col}-${row}`, t);
+                  }
+                });
+                // Place unpositioned tables in first available cells
+                const unplaced = filteredTables.filter(t => {
+                  const k = `${Math.round(t.position_x)}-${Math.round(t.position_y)}`;
+                  return !gridMap.has(k) || gridMap.get(k) !== t;
+                });
+                for (const t of unplaced) {
+                  for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                      if (!gridMap.has(`${c}-${r}`)) { gridMap.set(`${c}-${r}`, t); r = ROWS; break; }
+                    }
+                  }
+                }
+
+                return filteredTables.length > 0 ? (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${COLS}, 1fr)`,
+                    gridTemplateRows: `repeat(${ROWS}, 1fr)`,
+                    gap: 3,
+                    aspectRatio: `${COLS}/${ROWS}`,
+                    background: C.border,
+                    borderRadius: 10,
+                    padding: 3,
+                  }}>
+                    {Array.from({ length: ROWS * COLS }).map((_, idx) => {
+                      const col = idx % COLS;
+                      const row = Math.floor(idx / COLS);
+                      const table = gridMap.get(`${col}-${row}`);
+                      const isSelected = table && selectedTable?.id === table.id;
+                      const isOccupied = table?.status === "OPEN";
+
+                      return (
+                        <div key={`${col}-${row}`}
+                          onClick={() => table && selectTable(table)}
+                          style={{
+                            background: !table ? C.surface
+                              : isSelected ? C.accentBg
+                              : isOccupied ? "#FEF2F2"
+                              : "#ECFDF5",
+                            borderRadius: table?.shape === "round" ? "50%" : 6,
+                            border: isSelected ? `2.5px solid ${C.accent}`
+                              : table && isOccupied ? "2px solid #DC2626"
+                              : table ? "2px solid #16A34A"
+                              : "1px solid transparent",
+                            display: "flex", flexDirection: "column",
+                            alignItems: "center", justifyContent: "center",
+                            cursor: table ? "pointer" : "default",
+                            minHeight: mob ? 50 : 65,
+                            transition: "all .15s",
+                            position: "relative",
+                          }}
+                        >
+                          {table ? (
+                            <>
+                              <div style={{
+                                fontSize: mob ? 14 : 18, fontWeight: 800,
+                                color: isSelected ? C.accent : isOccupied ? "#DC2626" : "#16A34A",
+                              }}>
+                                {table.name}
+                              </div>
+                              {isOccupied && table.active_order && (
+                                <>
+                                  <div style={{ fontSize: 9, color: C.mid, marginTop: 1, maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
+                                    {table.active_order.customer_name || ""}
+                                  </div>
+                                  <div style={{
+                                    fontSize: 10, fontWeight: 700,
+                                    color: "#DC2626", marginTop: 1,
+                                    background: "#FEE2E2", padding: "1px 6px", borderRadius: 8,
+                                  }}>
+                                    {table.active_order.items_count}
+                                  </div>
+                                </>
+                              )}
+                              {!isOccupied && (
+                                <div style={{ fontSize: 9, color: C.mute }}>{table.capacity} pers.</div>
+                              )}
+                            </>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : regularTables.length > 0 ? (
+                  <div style={{ textAlign: "center", padding: 24, color: C.mute, fontSize: 12 }}>No hay mesas en esta zona.</div>
+                ) : null;
+              })()}
+
             </>
           )}
         </div>

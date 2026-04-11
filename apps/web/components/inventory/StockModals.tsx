@@ -209,7 +209,7 @@ export function TransferModal({ whName, warehouseId, activeWh, items, trTarget, 
         <FieldGroup label="Bodega destino *">
           <select value={trTarget ?? ""} onChange={e => setTrTarget(Number(e.target.value))} style={iS({ height: 36 })} disabled={trBusy}>
             <option value="" disabled>Selecciona...</option>
-            {activeWh.filter(w => w.id !== warehouseId).map(w => <option key={w.id} value={w.id}>{w.name}{w.warehouse_type === "sales_floor" ? " (Sala)" : " (Bodega)"}</option>)}
+            {activeWh.filter(w => w.id !== warehouseId && w.is_active).map(w => <option key={w.id} value={w.id}>{w.name}{w.warehouse_type === "sales_floor" ? " (Sala)" : " (Bodega)"}</option>)}
           </select>
         </FieldGroup>
         <FieldGroup label="Producto *">

@@ -197,7 +197,7 @@ def evaluate_suggestion_outcomes():
             if effective_qty is None:
                 continue
             if avg_daily and avg_daily > 0:
-                predicted_days = int(float(effective_qty) / float(avg_daily))
+                predicted_days = int(Decimal(str(effective_qty)) / Decimal(str(avg_daily)))
             else:
                 predicted_days = predicted_days_out or 14
 
@@ -303,24 +303,24 @@ def _compute_safety_adjustment(
     if predicted_days <= 0:
         return Decimal("0.000")
 
-    ratio = float(actual_days) / float(predicted_days)  # < 1 means ran out faster
+    ratio = Decimal(str(actual_days)) / Decimal(str(predicted_days))  # < 1 means ran out faster
 
-    if ratio < 0.7:
+    if ratio < Decimal("0.7"):
         # Significantly underestimated demand — increase safety stock
-        adj = float(avg_daily) * 0.15  # +15% of daily demand
-    elif ratio < 0.9:
+        adj = avg_daily * Decimal("0.15")  # +15% of daily demand
+    elif ratio < Decimal("0.9"):
         # Slightly underestimated
-        adj = float(avg_daily) * 0.08  # +8%
-    elif ratio > 1.3:
+        adj = avg_daily * Decimal("0.08")  # +8%
+    elif ratio > Decimal("1.3"):
         # Overestimated — gently reduce
-        adj = float(avg_daily) * -0.05  # -5%
-    elif ratio > 1.1:
-        adj = float(avg_daily) * -0.02  # -2%
+        adj = avg_daily * Decimal("-0.05")  # -5%
+    elif ratio > Decimal("1.1"):
+        adj = avg_daily * Decimal("-0.02")  # -2%
     else:
-        adj = 0.0  # Within tolerance
+        adj = Decimal("0")  # Within tolerance
 
     # Cap at ±20% of avg_daily
-    cap = float(avg_daily) * 0.20
+    cap = avg_daily * Decimal("0.20")
     adj = max(-cap, min(cap, adj))
 
     return Decimal(str(adj)).quantize(Decimal("0.001"))

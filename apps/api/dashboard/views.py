@@ -264,9 +264,9 @@ class DashboardSummaryView(APIView):
                     "total": str(month_rev),
                     "profit": str(month_agg["profit"]),
                     "count": month_agg["count"] or 0,
-                    "margin_pct": str(month_margin.quantize(Decimal("0.1")) if isinstance(month_margin, Decimal) else round(float(month_margin), 1)),
+                    "margin_pct": str(month_margin.quantize(Decimal("0.1")) if isinstance(month_margin, Decimal) else str(Decimal(str(month_margin)).quantize(Decimal("0.1")))),
                     "vs_prev_month": str(month_change.quantize(Decimal("0.1"))) if month_change is not None and isinstance(month_change, Decimal) else None,
-                    "prev_margin_pct": str(prev_margin.quantize(Decimal("0.1")) if isinstance(prev_margin, Decimal) else round(float(prev_margin), 1)),
+                    "prev_margin_pct": str(prev_margin.quantize(Decimal("0.1")) if isinstance(prev_margin, Decimal) else str(Decimal(str(prev_margin)).quantize(Decimal("0.1")))),
                 },
                 "stock": {
                     "total_value": str(stock_agg["total_value"]),

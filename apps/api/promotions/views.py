@@ -152,7 +152,8 @@ class PromotionDetailView(APIView):
             if field in request.data:
                 setattr(promo, field, request.data[field])
 
-        promo.save()
+        _update_fields = ["name", "discount_type", "is_active", "discount_value", "start_date", "end_date"]
+        promo.save(update_fields=_update_fields)
 
         # Handle product updates — product_items (with overrides) or product_ids (simple)
         product_items = request.data.get("product_items")
