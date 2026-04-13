@@ -261,14 +261,14 @@ export default function KardexPage(){
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:C.rMd,overflow:"hidden",boxShadow:C.sh}}>
        <div style={{overflowX:"auto"}}>
         {/* Header */}
-        <div style={{display:"grid",gridTemplateColumns:"140px 110px 1fr 90px 100px 180px 110px",columnGap:10,padding:"10px 16px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em",minWidth:mob?820:undefined}}>
+        <div style={{display:"grid",gridTemplateColumns:mob?"100px 80px 1fr 70px 80px":"140px 110px 1fr 90px 100px 180px 110px",columnGap:mob?6:10,padding:mob?"10px 10px":"10px 16px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em",minWidth:mob?420:undefined}}>
           <div>Fecha</div>
-          <div style={{textAlign:"center"}}>Movimiento</div>
+          <div style={{textAlign:"center"}}>Mov.</div>
           <div>Producto</div>
-          <div style={{textAlign:"right"}}>Cantidad</div>
-          <div style={{textAlign:"right"}}>Stock final</div>
-          <div>Origen</div>
-          <div>Registrado por</div>
+          <div style={{textAlign:"right"}}>Cant.</div>
+          <div style={{textAlign:"right"}}>Stock</div>
+          {!mob&&<div>Origen</div>}
+          {!mob&&<div>Registrado por</div>}
         </div>
 
         {loading&&<div style={{padding:"48px 0",display:"flex",alignItems:"center",justifyContent:"center",gap:10,color:C.mute}}><Spinner size={16}/><span style={{fontSize:13}}>Cargando movimientos…</span></div>}
@@ -291,12 +291,12 @@ export default function KardexPage(){
           const dt=fDt(r.created_at);
           const moveStyle=getMoveStyle(r.move_type);
           return(
-            <div key={r.id} className="krow" style={{display:"grid",gridTemplateColumns:"140px 110px 1fr 90px 100px 180px 110px",columnGap:10,padding:"12px 16px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",alignItems:"start",minWidth:mob?820:undefined}}>
+            <div key={r.id} className="krow" style={{display:"grid",gridTemplateColumns:mob?"100px 80px 1fr 70px 80px":"140px 110px 1fr 90px 100px 180px 110px",columnGap:mob?6:10,padding:mob?"12px 10px":"12px 16px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",alignItems:"start",minWidth:mob?420:undefined}}>
 
               {/* Fecha */}
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{dt.date}</div>
-                <div style={{fontSize:11,color:C.mute,marginTop:1}}>{dt.time}</div>
+                <div style={{fontSize:mob?11:12,fontWeight:600,color:C.text}}>{dt.date}</div>
+                <div style={{fontSize:mob?10:11,color:C.mute,marginTop:1}}>{dt.time}</div>
               </div>
 
               {/* Movimiento */}
@@ -305,26 +305,26 @@ export default function KardexPage(){
               </div>
 
               {/* Producto */}
-              <div>
-                <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.product?.name??"—"}</div>
-                {r.product?.sku&&<div style={{fontSize:11,color:C.mute,marginTop:2,fontFamily:C.mono}}>{r.product.sku}</div>}
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:mob?12:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.product?.name??"—"}</div>
+                {r.product?.sku&&<div style={{fontSize:mob?10:11,color:C.mute,marginTop:2,fontFamily:C.mono}}>{r.product.sku}</div>}
               </div>
 
               {/* Cantidad */}
-              <div style={{textAlign:"right",fontWeight:800,fontSize:14,fontVariantNumeric:"tabular-nums",fontFamily:C.mono,color:qtyColor,paddingTop:2}}>
+              <div style={{textAlign:"right",fontWeight:800,fontSize:mob?13:14,fontVariantNumeric:"tabular-nums",fontFamily:C.mono,color:qtyColor,paddingTop:2}}>
                 {qtyPositive?"+":""}{fQty(r.qty)}
               </div>
 
               {/* Stock final */}
               <div style={{textAlign:"right",paddingTop:2}}>
-                <div style={{fontWeight:700,fontSize:13,fontVariantNumeric:"tabular-nums",fontFamily:C.mono,color:balNeg?C.red:C.text}}>
+                <div style={{fontWeight:700,fontSize:mob?12:13,fontVariantNumeric:"tabular-nums",fontFamily:C.mono,color:balNeg?C.red:C.text}}>
                   {fQty(r.balance)}
                 </div>
-                {balNeg&&<div style={{fontSize:10,color:C.red,fontWeight:600,marginTop:1}}>⚠ Negativo</div>}
+                {balNeg&&<div style={{fontSize:10,color:C.red,fontWeight:600,marginTop:1}}>⚠</div>}
               </div>
 
-              {/* Origen */}
-              <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              {/* Origen — desktop only */}
+              {!mob&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
                 <span style={{fontSize:12,fontWeight:600,color:C.mid}}>
                   {refText(r.ref_type,r.ref_id)}
                 </span>
@@ -338,10 +338,10 @@ export default function KardexPage(){
                     {r.note}
                   </span>
                 )}
-              </div>
+              </div>}
 
-              {/* Usuario */}
-              <div style={{fontSize:12,color:C.mid,paddingTop:2}}>
+              {/* Usuario — desktop only */}
+              {!mob&&<div style={{fontSize:12,color:C.mid,paddingTop:2}}>
                 {r.created_by?.username
                   ?<span style={{display:"inline-flex",alignItems:"center",gap:4}}>
                     <span style={{width:20,height:20,borderRadius:"50%",background:C.accentBg,border:`1px solid ${C.accentBd}`,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:C.accent,flexShrink:0}}>
@@ -351,7 +351,7 @@ export default function KardexPage(){
                   </span>
                   :"—"
                 }
-              </div>
+              </div>}
             </div>
           );
         })}

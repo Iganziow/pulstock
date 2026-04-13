@@ -386,9 +386,9 @@ export default function CatalogPage() {
           {/* Header row */}
           <div style={{
             display:"grid",
-            gridTemplateColumns:mob?"minmax(0,1.8fr) 90px 80px 100px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
-            columnGap:mob?8:16,
-            padding:mob?"11px 12px":"11px 20px", background:C.bg, borderBottom:`1px solid ${C.border}`,
+            gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
+            columnGap:mob?6:16,
+            padding:mob?"11px 10px":"11px 20px", background:C.bg, borderBottom:`1px solid ${C.border}`,
             fontSize:10.5, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.08em",
           }}>
             {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categor\u00eda</div>}
@@ -411,9 +411,9 @@ export default function CatalogPage() {
             items.map((p, i) => (
               <div key={p.id} className="prow" style={{
                 display:"grid",
-                gridTemplateColumns:mob?"minmax(0,1.8fr) 90px 80px 100px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
-                columnGap:mob?8:16,
-                padding:mob?"12px 12px":"14px 20px",
+                gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
+                columnGap:mob?6:16,
+                padding:mob?"12px 10px":"14px 20px",
                 borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",
                 alignItems:"center",
               }}>

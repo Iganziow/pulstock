@@ -257,10 +257,10 @@ export default function StockPage() {
       {/* TABLE */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden", boxShadow: C.sh }}>
         <div style={{ overflowX: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em", minWidth: mob ? 800 : undefined }}>
-            <div>Producto</div><div>SKU</div><div>Categoria</div><div>Barcode</div>
+          <div style={{ display: "grid", gridTemplateColumns: mob?"1fr 80px 140px":"1fr 100px 110px 130px 100px 110px 200px", columnGap: mob?6:12, padding: mob?"10px 10px":"10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em", minWidth: mob ? 340 : undefined }}>
+            <div>Producto</div>{!mob&&<div>SKU</div>}{!mob&&<div>Categoria</div>}{!mob&&<div>Barcode</div>}
             <div style={{ textAlign: "right" }}>Stock</div>
-            <div style={{ textAlign: "right" }}>Costo prom.</div>
+            {!mob&&<div style={{ textAlign: "right" }}>Costo prom.</div>}
             <div style={{ textAlign: "right" }}>Acciones</div>
           </div>
 
@@ -279,22 +279,23 @@ export default function StockPage() {
             const isLow = !isNaN(n) && n > 0 && n <= 5;
             const isZero = !isNaN(n) && n <= 0;
             return (
-              <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent", minWidth: mob ? 800 : undefined }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{r.name}</div>
+              <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: mob?"1fr 80px 140px":"1fr 100px 110px 130px 100px 110px 200px", columnGap: mob?6:12, padding: mob?"11px 10px":"11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent", minWidth: mob ? 340 : undefined }}>
+                <div style={{minWidth:0}}>
+                  <div style={{ fontWeight: 600, fontSize: mob?12:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                  {mob&&<div style={{fontSize:10,color:C.mute,fontFamily:C.mono,marginTop:1}}>{r.sku??""}</div>}
                   {(isZero || isLow) && <div style={{ fontSize: 10, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 2 }}>{isZero ? "Sin stock" : "Stock bajo"}</div>}
                 </div>
-                <div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>
-                <div style={{ fontSize: 12, color: C.mid }}>{r.category ?? "-"}</div>
-                <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{r.barcode ?? "-"}</div>
+                {!mob&&<div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>}
+                {!mob&&<div style={{ fontSize: 12, color: C.mid }}>{r.category ?? "-"}</div>}
+                {!mob&&<div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{r.barcode ?? "-"}</div>}
                 <div style={{ textAlign: "right" }}><StockBadge val={r.on_hand} /></div>
-                <div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: "monospace" }}>
+                {!mob&&<div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: "monospace" }}>
                   {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "-"}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 5 }}>
-                  <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>Recibir</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => openIss(r)} disabled={!!meErr || !warehouseId}>Egresar</Btn>
-                  <Btn variant="secondary" size="sm" onClick={() => openAdj(r)} disabled={!!meErr || !warehouseId}>Ajustar</Btn>
+                </div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: mob?3:5, flexWrap:mob?"wrap":"nowrap" }}>
+                  <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>{mob?"+":"Recibir"}</Btn>
+                  <Btn variant="danger" size="sm" onClick={() => openIss(r)} disabled={!!meErr || !warehouseId}>{mob?"−":"Egresar"}</Btn>
+                  <Btn variant="secondary" size="sm" onClick={() => openAdj(r)} disabled={!!meErr || !warehouseId}>{mob?"⇄":"Ajustar"}</Btn>
                 </div>
               </div>
             );

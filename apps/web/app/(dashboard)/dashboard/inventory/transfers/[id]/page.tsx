@@ -170,18 +170,18 @@ export default function TransferDetailPage(){
               </div>
             ):(
               <>
-                <div style={{display:"grid",gridTemplateColumns:"150px 90px 70px 80px 90px 1fr",columnGap:10,padding:mob?"9px 12px":"9px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em",minWidth:mob?600:undefined}}>
-                  <div>Fecha</div><div>Bodega</div><div style={{textAlign:"center"}}>Tipo</div>
-                  <div style={{textAlign:"right"}}>Qty</div><div>Usuario</div><div>Nota</div>
+                <div style={{display:"grid",gridTemplateColumns:mob?"110px 60px 70px":"150px 90px 70px 80px 90px 1fr",columnGap:mob?6:10,padding:mob?"9px 10px":"9px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                  <div>Fecha</div><div style={{textAlign:"center"}}>{mob?"Tipo":"Bodega"}</div>{!mob&&<div style={{textAlign:"center"}}>Tipo</div>}
+                  <div style={{textAlign:"right"}}>Qty</div>{!mob&&<div>Usuario</div>}{!mob&&<div>Nota</div>}
                 </div>
                 {data.moves.map((m,i)=>(
-                  <div key={m.id} style={{display:"grid",gridTemplateColumns:"150px 90px 70px 80px 90px 1fr",columnGap:10,padding:mob?"11px 12px":"11px 18px",borderBottom:i<data.moves.length-1?`1px solid ${C.border}`:"none",alignItems:"center",minWidth:mob?600:undefined}}>
-                    <div style={{fontSize:11,color:C.mute}}>{fDt(m.created_at)}</div>
-                    <div style={{fontSize:12,color:C.mid}}>#{m.warehouse_id}</div>
-                    <div style={{display:"flex",justifyContent:"center"}}><MoveBadge type={m.move_type}/></div>
-                    <div style={{textAlign:"right",fontWeight:700,fontSize:13,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(m.qty)}</div>
-                    <div style={{fontSize:12,color:C.mute}}>{m.created_by||"-"}</div>
-                    <div style={{fontSize:12,color:C.mute,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.note||"-"}</div>
+                  <div key={m.id} style={{display:"grid",gridTemplateColumns:mob?"110px 60px 70px":"150px 90px 70px 80px 90px 1fr",columnGap:mob?6:10,padding:mob?"11px 10px":"11px 18px",borderBottom:i<data.moves.length-1?`1px solid ${C.border}`:"none",alignItems:"center"}}>
+                    <div style={{fontSize:mob?10:11,color:C.mute}}>{fDt(m.created_at)}</div>
+                    {mob?<div style={{display:"flex",justifyContent:"center"}}><MoveBadge type={m.move_type}/></div>:<div style={{fontSize:12,color:C.mid}}>#{m.warehouse_id}</div>}
+                    {!mob&&<div style={{display:"flex",justifyContent:"center"}}><MoveBadge type={m.move_type}/></div>}
+                    <div style={{textAlign:"right",fontWeight:700,fontSize:mob?12:13,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(m.qty)}</div>
+                    {!mob&&<div style={{fontSize:12,color:C.mute}}>{m.created_by||"-"}</div>}
+                    {!mob&&<div style={{fontSize:12,color:C.mute,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.note||"-"}</div>}
                   </div>
                 ))}
               </>

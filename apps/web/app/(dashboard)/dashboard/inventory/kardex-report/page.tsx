@@ -178,13 +178,13 @@ export default function KardexReportPage(){
       {/* TABLE */}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:C.rMd,overflow:"hidden",boxShadow:C.sh}}>
        <div style={{overflowX:"auto"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 110px 140px 90px 90px 90px 100px 70px",columnGap:10,padding:"10px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:mob?780:undefined}}>
-          <div>Producto</div><div>SKU</div><div>Barcode</div>
+        <div style={{display:"grid",gridTemplateColumns:mob?"1fr 70px 70px 70px 80px":"1fr 110px 140px 90px 90px 90px 100px 70px",columnGap:mob?4:10,padding:mob?"10px 10px":"10px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:mob?380:undefined}}>
+          <div>Producto</div>{!mob&&<div>SKU</div>}{!mob&&<div>Barcode</div>}
           <div style={{textAlign:"right",color:C.green}}>IN</div>
           <div style={{textAlign:"right",color:C.red}}>OUT</div>
-          <div style={{textAlign:"right",color:C.accent}}>ADJ</div>
+          {!mob&&<div style={{textAlign:"right",color:C.accent}}>ADJ</div>}
           <div style={{textAlign:"right"}}>NETO</div>
-          <div style={{textAlign:"right"}}>#Movs</div>
+          {!mob&&<div style={{textAlign:"right"}}>#Movs</div>}
         </div>
 
         {loading&&<div style={{padding:"48px 0",display:"flex",alignItems:"center",justifyContent:"center",gap:10,color:C.mute}}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{animation:"spin 0.7s linear infinite"}}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><span style={{fontSize:13}}>Cargando…</span></div>}
@@ -201,18 +201,18 @@ export default function KardexReportPage(){
           const net=Number(r.net_qty);
           const netNeg=!isNaN(net)&&net<0;
           return(
-            <div key={r.product.id} className="krow" style={{display:"grid",gridTemplateColumns:"1fr 110px 140px 90px 90px 90px 100px 70px",columnGap:10,padding:"11px 18px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",alignItems:"center",minWidth:mob?780:undefined}}>
-              <div>
-                <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.product.name}</div>
-                <div style={{fontSize:10,color:C.mute,marginTop:1}}>#{r.product.id}</div>
+            <div key={r.product.id} className="krow" style={{display:"grid",gridTemplateColumns:mob?"1fr 70px 70px 70px 80px":"1fr 110px 140px 90px 90px 90px 100px 70px",columnGap:mob?4:10,padding:mob?"11px 10px":"11px 18px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",alignItems:"center",minWidth:mob?380:undefined}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:mob?12:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.product.name}</div>
+                <div style={{fontSize:10,color:C.mute,marginTop:1,fontFamily:C.mono}}>{mob?(r.product.sku||`#${r.product.id}`):`#${r.product.id}`}</div>
               </div>
-              <div style={{fontSize:12,color:C.mid,fontFamily:C.mono,overflow:"hidden",textOverflow:"ellipsis"}}>{r.product.sku||"-"}</div>
-              <div style={{fontSize:11,color:C.mute,fontFamily:C.mono,overflow:"hidden",textOverflow:"ellipsis"}}>{r.product.barcode||"-"}</div>
-              <div style={{textAlign:"right",fontWeight:700,fontSize:13,color:C.green,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.in_qty)}</div>
-              <div style={{textAlign:"right",fontWeight:700,fontSize:13,color:C.red,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.out_qty)}</div>
-              <div style={{textAlign:"right",fontWeight:600,fontSize:13,color:C.accent,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.adj_qty)}</div>
-              <div style={{textAlign:"right",fontWeight:800,fontSize:14,color:netNeg?C.red:C.text,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.net_qty)}</div>
-              <div style={{textAlign:"right",fontSize:12,color:C.mute}}>{r.moves_count}</div>
+              {!mob&&<div style={{fontSize:12,color:C.mid,fontFamily:C.mono,overflow:"hidden",textOverflow:"ellipsis"}}>{r.product.sku||"-"}</div>}
+              {!mob&&<div style={{fontSize:11,color:C.mute,fontFamily:C.mono,overflow:"hidden",textOverflow:"ellipsis"}}>{r.product.barcode||"-"}</div>}
+              <div style={{textAlign:"right",fontWeight:700,fontSize:mob?12:13,color:C.green,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.in_qty)}</div>
+              <div style={{textAlign:"right",fontWeight:700,fontSize:mob?12:13,color:C.red,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.out_qty)}</div>
+              {!mob&&<div style={{textAlign:"right",fontWeight:600,fontSize:13,color:C.accent,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.adj_qty)}</div>}
+              <div style={{textAlign:"right",fontWeight:800,fontSize:mob?13:14,color:netNeg?C.red:C.text,fontVariantNumeric:"tabular-nums",fontFamily:C.mono}}>{fQty(r.net_qty)}</div>
+              {!mob&&<div style={{textAlign:"right",fontSize:12,color:C.mute}}>{r.moves_count}</div>}
             </div>
           );
         })}

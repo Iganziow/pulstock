@@ -218,9 +218,9 @@ export default function PurchaseNewPage(){
 
            <div style={{overflowX:"auto"}}>
             {/* Lines header */}
-            <div style={{display:"grid",gridTemplateColumns:"2fr 90px 110px 1fr 36px",columnGap:10,padding:"8px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em",minWidth:mob?600:undefined}}>
-              <div>Producto</div><div style={{textAlign:"center"}}>Cantidad</div>
-              <div style={{textAlign:"right"}}>Costo unit.</div><div>Nota</div><div/>
+            <div style={{display:"grid",gridTemplateColumns:mob?"1fr 70px 90px 30px":"2fr 90px 110px 1fr 36px",columnGap:mob?6:10,padding:mob?"8px 10px":"8px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+              <div>Producto</div><div style={{textAlign:"center"}}>Cant.</div>
+              <div style={{textAlign:"right"}}>Costo</div>{!mob&&<div>Nota</div>}<div/>
             </div>
 
             <div style={{display:"flex",flexDirection:"column"}}>
@@ -228,22 +228,22 @@ export default function PurchaseNewPage(){
                 const qty=toDec(l.qty); const cost=toDec(l.unit_cost);
                 const lineTotal=Number.isFinite(qty)&&Number.isFinite(cost)&&qty>0&&cost>=0?qty*cost:null;
                 return(
-                  <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 90px 110px 1fr 36px",columnGap:10,padding:"10px 18px",borderBottom:`1px solid ${C.border}`,alignItems:"center",minWidth:mob?600:undefined}}>
-                    <select value={l.product_id} onChange={e=>setLine(idx,{product_id:e.target.value?Number(e.target.value):""})} style={{...iS({height:34,fontSize:12})}} disabled={saving}>
+                  <div key={idx} style={{display:"grid",gridTemplateColumns:mob?"1fr 70px 90px 30px":"2fr 90px 110px 1fr 36px",columnGap:mob?6:10,padding:mob?"10px 10px":"10px 18px",borderBottom:`1px solid ${C.border}`,alignItems:"center"}}>
+                    <select value={l.product_id} onChange={e=>setLine(idx,{product_id:e.target.value?Number(e.target.value):""})} style={{...iS({height:mob?38:34,fontSize:12})}} disabled={saving}>
                       <option value="">Producto…</option>
                       {filteredProducts.map(p=><option key={p.id} value={p.id}>#{p.id} — {p.name}{p.sku?` (${p.sku})`:""}</option>)}
                     </select>
                     <input value={l.qty} onChange={e=>setLine(idx,{qty:e.target.value})} inputMode="decimal"
-                      style={{...iS({height:34,fontSize:12,textAlign:"center",fontFamily:C.mono})}} disabled={saving}/>
+                      style={{...iS({height:mob?38:34,fontSize:12,textAlign:"center",fontFamily:C.mono})}} disabled={saving}/>
                     <div style={{position:"relative"}}>
                       <span style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:C.mute,fontSize:12,fontFamily:C.mono,pointerEvents:"none"}}>$</span>
                       <input value={l.unit_cost} onChange={e=>setLine(idx,{unit_cost:e.target.value})} inputMode="decimal"
-                        style={{...iS({height:34,fontSize:12,textAlign:"right",fontFamily:C.mono,paddingLeft:18})}} disabled={saving}/>
+                        style={{...iS({height:mob?38:34,fontSize:12,textAlign:"right",fontFamily:C.mono,paddingLeft:18})}} disabled={saving}/>
                     </div>
-                    <input value={l.note} onChange={e=>setLine(idx,{note:e.target.value})} placeholder="Nota…"
-                      style={iS({height:34,fontSize:12})} disabled={saving}/>
+                    {!mob&&<input value={l.note} onChange={e=>setLine(idx,{note:e.target.value})} placeholder="Nota…"
+                      style={iS({height:34,fontSize:12})} disabled={saving}/>}
                     <button type="button" onClick={()=>removeLine(idx)} disabled={saving||lines.length<=1} className="xb"
-                      style={{width:28,height:28,borderRadius:C.r,border:`1px solid ${C.border}`,background:C.surface,color:C.mute,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                      style={{width:mob?30:28,height:mob?30:28,borderRadius:C.r,border:`1px solid ${C.border}`,background:C.surface,color:C.mute,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                   </div>
                 );
               })}
