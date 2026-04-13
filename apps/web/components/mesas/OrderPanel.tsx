@@ -235,7 +235,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
                       background: C.accent + "14", border: `1px solid ${C.accentBd}`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 12, fontWeight: 800, color: C.accent, flexShrink: 0,
-                    }}>{l.qty}</div>
+                    }}>{parseFloat(l.qty) % 1 === 0 ? Math.round(parseFloat(l.qty)) : parseFloat(l.qty)}</div>
 
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{l.product_name}</div>
@@ -248,7 +248,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
                       <div style={{ fontSize: 10, color: C.mute, marginTop: 1 }}>${fmt(l.unit_price)} c/u</div>
                     </div>
 
-                    <div style={{ fontWeight: 800, fontSize: 14, color: C.text, whiteSpace: "nowrap" }}>${fmt(l.line_total)}</div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: C.text, whiteSpace: "nowrap", flexShrink: 0 }}>${fmt(l.line_total)}</div>
 
                     <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
                       <button type="button" onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
