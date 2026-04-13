@@ -73,7 +73,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
                         background: l.note ? C.amberBg : C.bg, color: l.note ? C.amber : C.mid, fontWeight: 500,
                         border: `1px solid ${l.note ? C.amberBd : C.border}`,
                       }} title={l.note || undefined}>
-                        {l.product_name} &times;{l.qty}{l.note ? " *" : ""}
+                        {l.product_name} &times;{parseFloat(l.qty) % 1 === 0 ? Math.round(parseFloat(l.qty)) : parseFloat(l.qty)}{l.note ? " *" : ""}
                       </span>
                     ))}
                     {unpaidLines.length > 5 && (

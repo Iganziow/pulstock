@@ -69,7 +69,7 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
     } finally { setSaving(false); }
   }
 
-  const cartTotal = cart.reduce((s, c) => s + Number(c.unit_price) * c.qty, 0);
+  const cartTotal = cart.reduce((s, c) => s + Math.round(Number(c.unit_price) * c.qty), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

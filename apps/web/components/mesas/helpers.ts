@@ -31,7 +31,7 @@ export const PAGE_CSS = `
 
 export const PAY_METHODS = [
   { value: "cash", label: "Efectivo" },
-  { value: "debit", label: "Debito" },
-  { value: "card", label: "Credito" },
+  { value: "debit", label: "Débito" },
+  { value: "card", label: "Crédito" },
   { value: "transfer", label: "Transferencia" },
 ] as const;

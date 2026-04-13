@@ -41,7 +41,7 @@ export function PaymentModal({
   const totalPaid = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const change = Math.max(0, totalPaid - grandTotal);
   const pending = Math.max(0, grandTotal - totalPaid);
-  const splitPer = splitN ? grandTotal / Math.max(1, Number(splitN)) : null;
+  const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
   function addRow() {
     const used = new Set(rows.map(r => r.method));
@@ -50,6 +50,7 @@ export function PaymentModal({
   }
   function removeRow(i: number) { setRows(prev => prev.filter((_, j) => j !== i)); }
   function updateRow(i: number, field: keyof PaymentRow, val: string) {
+    if (field === "amount" && val !== "" && Number(val) < 0) return;
     setRows(prev => prev.map((r, j) => j === i ? { ...r, [field]: val } : r));
   }
   function quickFill(i: number) {
