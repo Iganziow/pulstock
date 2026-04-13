@@ -58,4 +58,3 @@ Thumbs.db
 # Celery
 celerybeat-schedule
 celerybeat.pid
-apps/web/test-results/
