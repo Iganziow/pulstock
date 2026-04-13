@@ -59,7 +59,7 @@ export function PaymentModal({
   }
 
   return (
-    <MesaModal title={`Cobrar — ${tableName}`} onClose={onClose} width={520}>
+    <MesaModal title={`Cobrar — ${tableName}`} onClose={onClose} width={480}>
       {/* Mode selector */}
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         {(["all", "partial"] as const).map(m => (
@@ -85,7 +85,7 @@ export function PaymentModal({
               background: selLines.has(l.id) ? C.accentBg : C.surface,
             }}>
               <input type="checkbox" checked={selLines.has(l.id)} onChange={() => toggleLine(l.id)}
-                style={{ accentColor: C.accent, width: 15, height: 15, flexShrink: 0 }} />
+                style={{ accentColor: C.accent, width: 20, height: 20, flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.text }}>{l.product_name}</span>
               <span style={{ fontWeight: 700, fontSize: 12, color: C.text }}>${fmt(l.line_total)}</span>
             </label>

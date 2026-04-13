@@ -191,7 +191,7 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 16 }}>
+      <div style={{ display: "flex", gap: 16, flexDirection: typeof window !== "undefined" && window.innerWidth < 768 ? "column" : "row" }}>
         {/* Grid */}
         <div style={{
           display: "grid",
@@ -294,7 +294,7 @@ export function FloorPlanEditor({ tables, onRefresh }: FloorPlanEditorProps) {
         </div>
 
         {/* Right panel: create form */}
-        <div style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
+        <div style={{ width: typeof window !== "undefined" && window.innerWidth < 768 ? "100%" : 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12, alignSelf: "flex-start" }}>
           {creating && (
             <div style={{
               background: C.surface, border: `2px solid ${zc.text}`,

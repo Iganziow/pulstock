@@ -20,7 +20,7 @@ export function MesaBtn({ children, onClick, variant = "secondary", disabled, fu
     danger:    { background: C.redBg, color: C.red, border: `1px solid ${C.redBd}` },
     ghost:     { background: "transparent", color: C.mid, border: "1px solid transparent" },
   };
-  const pad = size === "sm" ? "5px 10px" : size === "lg" ? "11px 22px" : "8px 16px";
+  const pad = size === "sm" ? "8px 12px" : size === "lg" ? "12px 24px" : "10px 18px";
   const fs = size === "sm" ? 12 : size === "lg" ? 15 : 13;
   return (
     <button type="button" onClick={onClick} disabled={disabled} style={{

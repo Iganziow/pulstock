@@ -322,8 +322,8 @@ export default function MesasConfigPage() {
         ) : (
           <>
             {/* Header row */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px 70px 80px 70px 120px", gap: 0, padding: "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.bg, minWidth: mob ? 680 : undefined }}>
-              {["Nombre", "Zona", "Capacidad", "Forma", "Estado", "Activa", "Acciones"].map(h => (
+            <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 70px 60px 90px" : "1fr 100px 70px 70px 80px 70px 120px", gap: 0, padding: mob ? "10px 12px" : "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.bg }}>
+              {(mob ? ["Nombre", "Estado", "Activa", "Acciones"] : ["Nombre", "Zona", "Capacidad", "Forma", "Estado", "Activa", "Acciones"]).map(h => (
                 <div key={h} style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</div>
               ))}
             </div>
@@ -334,38 +334,38 @@ export default function MesasConfigPage() {
               const isToggling = togglingId === t.id;
               return (
                 <div key={t.id} style={{
-                  display: "grid", gridTemplateColumns: "1fr 100px 70px 70px 80px 70px 120px",
+                  display: "grid", gridTemplateColumns: mob ? "1fr 70px 60px 90px" : "1fr 100px 70px 70px 80px 70px 120px",
                   alignItems: "center", gap: 0,
-                  padding: "14px 20px",
+                  padding: mob ? "12px 12px" : "14px 20px",
                   borderBottom: i < tables.length - 1 ? `1px solid ${C.border}` : "none",
                   opacity: t.is_active ? 1 : 0.5,
                   background: t.is_active ? C.surface : C.bg,
-                  minWidth: mob ? 580 : undefined,
                 }}>
 
                   {/* Name */}
-                  <div>
+                  <div style={{minWidth:0}}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{t.name}</span>
+                      <span style={{ fontSize: mob?13:14, fontWeight: 600, color: C.text }}>{t.name}</span>
                       {t.is_counter && (
                         <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: C.accentBg, color: C.accent, border: `1px solid ${C.accentBd}` }}>
                           Mostrador
                         </span>
                       )}
                     </div>
+                    {mob && <div style={{ fontSize: 10, color: C.mute, marginTop: 1 }}>{t.zone || "Sin zona"} · {t.capacity} pers.</div>}
                     {!t.is_active && <div style={{ fontSize: 11, color: C.mute }}>Inactiva</div>}
                   </div>
 
-                  {/* Zone */}
-                  <div style={{ fontSize: 12, color: t.zone ? C.mid : C.mute }}>{t.zone || "—"}</div>
+                  {/* Zone — desktop only */}
+                  {!mob && <div style={{ fontSize: 12, color: t.zone ? C.mid : C.mute }}>{t.zone || "—"}</div>}
 
-                  {/* Capacity */}
-                  <div style={{ fontSize: 13, color: C.mid }}>{t.capacity} pers.</div>
+                  {/* Capacity — desktop only */}
+                  {!mob && <div style={{ fontSize: 13, color: C.mid }}>{t.capacity} pers.</div>}
 
-                  {/* Shape */}
-                  <div style={{ fontSize: 12, color: C.mute }}>
+                  {/* Shape — desktop only */}
+                  {!mob && <div style={{ fontSize: 12, color: C.mute }}>
                     {t.shape === "round" ? "⬤" : t.shape === "rect" ? "▬" : "⬛"}
-                  </div>
+                  </div>}
 
                   {/* Status */}
                   <div>

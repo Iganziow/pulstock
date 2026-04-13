@@ -112,9 +112,19 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         }),
       });
       setShowPayment(false);
-      setLastSaleId(res?.sale_id || res?.id || null);
+      const saleId = res?.sale_id || res?.id || null;
+      setLastSaleId(saleId);
       setSuccessMsg("\u00a1Cobro registrado!");
       setTimeout(() => setSuccessMsg(""), 6000);
+      // Auto-print receipt if printer configured
+      if (saleId) {
+        try {
+          const { getDefaultPrinter } = await import("@/lib/printer");
+          if (getDefaultPrinter()) {
+            await handlePrintReceipt(saleId);
+          }
+        } catch { /* silently skip auto-print errors */ }
+      }
       onRefresh();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al cobrar";
@@ -242,11 +252,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
                     <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
                       <button type="button" onClick={() => { setPayErr(""); setQuickPayLine(l); }} title="Cobrar item"
-                        style={{ width: 26, height: 26, borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBd}`, cursor: "pointer", color: C.green, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        style={{ width: 34, height: 34, borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBd}`, cursor: "pointer", color: C.green, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                       </button>
                       <button type="button" aria-label="Eliminar" onClick={() => { setConfirmDeleteLine(l.id); setCancelReason(""); setPayErr(""); }} disabled={deletingLine === l.id}
-                        style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: `1px solid ${C.redBd}`, cursor: "pointer", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", opacity: deletingLine === l.id ? 0.4 : 1 }}>
+                        style={{ width: 34, height: 34, borderRadius: 6, background: C.redBg, border: `1px solid ${C.redBd}`, cursor: "pointer", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", opacity: deletingLine === l.id ? 0.4 : 1 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                       </button>
                     </div>

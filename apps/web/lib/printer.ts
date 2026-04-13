@@ -126,27 +126,46 @@ async function sendUSB(data: Uint8Array): Promise<void> {
 
 // ── Web Bluetooth ────────────────────────────────────────────────────────────
 
+const BT_SERVICES = [
+  "000018f0-0000-1000-8000-00805f9b34fb", // common thermal printer service
+  "e7810a71-73ae-499d-8c15-faa9aef0c3f2", // another common service
+  "0000fff0-0000-1000-8000-00805f9b34fb", // ESC/POS generic
+];
+
+let cachedBTDevice: any = null;
 let cachedBTCharacteristic: any = null;
 
 export async function pairBluetoothPrinter(): Promise<any> {
   if (!navigator.bluetooth) throw new Error("Web Bluetooth no disponible en este navegador");
   const device = await navigator.bluetooth.requestDevice({
     acceptAllDevices: true,
-    optionalServices: [
-      "000018f0-0000-1000-8000-00805f9b34fb", // common thermal printer service
-      "e7810a71-73ae-499d-8c15-faa9aef0c3f2", // another common service
-    ],
+    optionalServices: BT_SERVICES,
   });
+  cachedBTDevice = device;
+  cachedBTCharacteristic = null;
   return device;
+}
+
+async function connectAndFindCharacteristic(device: any): Promise<any> {
+  const server = await device.gatt!.connect();
+  const services = await server.getPrimaryServices();
+  for (const svc of services) {
+    const chars = await svc.getCharacteristics();
+    for (const ch of chars) {
+      if (ch.properties.write || ch.properties.writeWithoutResponse) {
+        return ch;
+      }
+    }
+  }
+  throw new Error("No se encontró característica de escritura en la impresora Bluetooth");
 }
 
 async function sendBluetooth(data: Uint8Array): Promise<void> {
   if (!navigator.bluetooth) throw new Error("Web Bluetooth no disponible");
 
-  // Try cached characteristic first
+  // 1. Try cached characteristic
   if (cachedBTCharacteristic) {
     try {
-      // BLE has 20-byte MTU typical, send in chunks
       await sendBTChunks(cachedBTCharacteristic, data);
       return;
     } catch {
@@ -154,40 +173,43 @@ async function sendBluetooth(data: Uint8Array): Promise<void> {
     }
   }
 
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: [
-      "000018f0-0000-1000-8000-00805f9b34fb",
-      "e7810a71-73ae-499d-8c15-faa9aef0c3f2",
-    ],
-  });
-
-  const server = await device.gatt!.connect();
-  const services = await server.getPrimaryServices();
-
-  // Find writable characteristic
-  for (const svc of services) {
-    const chars = await svc.getCharacteristics();
-    for (const ch of chars) {
-      if (ch.properties.write || ch.properties.writeWithoutResponse) {
-        cachedBTCharacteristic = ch;
-        await sendBTChunks(ch, data);
-        return;
-      }
+  // 2. Try reconnecting cached device (no user prompt)
+  if (cachedBTDevice?.gatt) {
+    try {
+      const ch = await connectAndFindCharacteristic(cachedBTDevice);
+      cachedBTCharacteristic = ch;
+      await sendBTChunks(ch, data);
+      return;
+    } catch {
+      cachedBTDevice = null;
+      cachedBTCharacteristic = null;
     }
   }
 
-  throw new Error("No se encontró característica de escritura en la impresora Bluetooth");
+  // 3. Request new device (shows browser picker)
+  const device = await navigator.bluetooth.requestDevice({
+    acceptAllDevices: true,
+    optionalServices: BT_SERVICES,
+  });
+
+  cachedBTDevice = device;
+  const ch = await connectAndFindCharacteristic(device);
+  cachedBTCharacteristic = ch;
+  await sendBTChunks(ch, data);
 }
 
 async function sendBTChunks(ch: any, data: Uint8Array): Promise<void> {
-  const CHUNK = 100; // safe chunk size for BLE
+  const CHUNK = 20; // standard BLE MTU — safer for all printers
   for (let i = 0; i < data.length; i += CHUNK) {
     const chunk = data.slice(i, i + CHUNK);
     if (ch.properties.writeWithoutResponse) {
       await ch.writeValueWithoutResponse(chunk);
     } else {
       await ch.writeValueWithResponse(chunk);
+    }
+    // Small delay between chunks for stable BLE transmission
+    if (i + CHUNK < data.length) {
+      await new Promise(r => setTimeout(r, 10));
     }
   }
 }

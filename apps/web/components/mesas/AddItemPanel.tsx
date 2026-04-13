@@ -156,10 +156,10 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
                 {/* Qty controls */}
                 <div style={{ display: "flex", alignItems: "center", gap: 2, background: C.bg, borderRadius: 8, border: `1px solid ${C.border}`, padding: 2 }}>
                   <button type="button" aria-label="Disminuir" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}
-                    style={{ width: 26, height: 26, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", fontWeight: 800, fontSize: 15, color: C.mid, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                    style={{ width: 34, height: 34, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", fontWeight: 800, fontSize: 16, color: C.mid, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
                   <span style={{ width: 28, textAlign: "center", fontSize: 14, fontWeight: 800, color: C.text }}>{c.qty}</span>
                   <button type="button" aria-label="Aumentar" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: x.qty + 1 } : x))}
-                    style={{ width: 26, height: 26, borderRadius: 6, border: "none", background: C.accent, cursor: "pointer", fontWeight: 800, fontSize: 15, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                    style={{ width: 34, height: 34, borderRadius: 6, border: "none", background: C.accent, cursor: "pointer", fontWeight: 800, fontSize: 16, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                 </div>
 
                 {/* Line total */}
@@ -170,13 +170,13 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
                 {/* Actions */}
                 <div style={{ display: "flex", gap: 2 }}>
                   <button type="button" aria-label="Nota" onClick={() => setEditingNote(editingNote === i ? null : i)}
-                    style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: c.note ? C.amberBg : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c.note ? C.amber : C.mute} strokeWidth="2.5" strokeLinecap="round">
+                    style={{ width: 32, height: 32, borderRadius: 6, border: "none", background: c.note ? C.amberBg : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={c.note ? C.amber : C.mute} strokeWidth="2.5" strokeLinecap="round">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
                   </button>
                   <button type="button" aria-label="Eliminar" onClick={() => { setCart(prev => prev.filter((_, j) => j !== i)); if (editingNote === i) setEditingNote(null); }}
-                    style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    style={{ width: 32, height: 32, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
