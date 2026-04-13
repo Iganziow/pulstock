@@ -174,7 +174,7 @@ export default function PosPage() {
   const tip           = useMemo(() => Math.max(0, Number(tipAmount) || 0), [tipAmount]);
   const grandTotal    = useMemo(() => total + tip, [total, tip]);
   const pendingAmount = useMemo(() => Math.max(0, grandTotal - totalPaid), [grandTotal, totalPaid]);
-  const change        = useMemo(() => totalPaid > grandTotal ? totalPaid - grandTotal : null, [totalPaid, grandTotal]);
+  const change        = useMemo(() => totalPaid >= grandTotal && grandTotal > 0 ? totalPaid - grandTotal : null, [totalPaid, grandTotal]);
 
   // ── Cart mutations ─────────────────────────────────────────────────────────
 

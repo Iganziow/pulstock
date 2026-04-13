@@ -278,11 +278,19 @@ export function PaymentSection({
             </div>
           )}
 
-          {/* ── Change ── */}
+          {/* ── Change / Exact payment ── */}
           {change !== null && change > 0 && (
-            <div style={{ padding:"10px 12px", borderRadius:C.r, background:C.greenBg, border:`1px solid ${C.greenBd}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <span style={{ fontSize:12, color:C.green, fontWeight:600 }}>Vuelto</span>
-              <span style={{ fontSize:20, fontWeight:800, color:C.green, fontVariantNumeric:"tabular-nums" }}>${formatCLP(change)}</span>
+            <div style={{ padding:"14px 16px", borderRadius:10, background:"#ECFDF5", border:"2px solid #16A34A", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:"#16A34A", textTransform:"uppercase", letterSpacing:".05em" }}>Vuelto</div>
+                <div style={{ fontSize:10, color:"#52525B", marginTop:2 }}>Devolver al cliente</div>
+              </div>
+              <span style={{ fontSize:28, fontWeight:900, color:"#16A34A", fontVariantNumeric:"tabular-nums" }}>${formatCLP(change)}</span>
+            </div>
+          )}
+          {change !== null && change === 0 && (
+            <div style={{ padding:"10px 14px", borderRadius:10, background:"#EEF2FF", border:"1.5px solid #C7D2FE", textAlign:"center" }}>
+              <span style={{ fontSize:13, fontWeight:700, color:"#4F46E5" }}>✓ Pago exacto</span>
             </div>
           )}
         </div>
