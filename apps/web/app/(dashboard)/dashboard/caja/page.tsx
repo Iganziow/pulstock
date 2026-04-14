@@ -34,6 +34,12 @@ export default function CajaPage() {
   const [moveAmt, setMoveAmt] = useState("");
   const [moveDesc, setMoveDesc] = useState("");
 
+  // New register modal
+  const [showNewRegister, setShowNewRegister] = useState(false);
+  const [newRegName, setNewRegName] = useState("");
+  const [newRegBusy, setNewRegBusy] = useState(false);
+  const [newRegErr, setNewRegErr] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
@@ -151,21 +157,23 @@ export default function CajaPage() {
                 {registers.length === 0 ? (
                   <div style={{ fontSize: 13, color: C.mute }}>
                     No hay cajas creadas.{" "}
-                    <button onClick={async () => {
-                      const name = prompt("Nombre de la nueva caja:");
-                      if (!name) return;
-                      await apiFetch("/caja/registers/", { method: "POST", body: JSON.stringify({ name }) });
-                      load();
-                    }} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Crear primera caja</button>
+                    <button onClick={() => { setNewRegName(""); setNewRegErr(""); setShowNewRegister(true); }}
+                      style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Crear primera caja</button>
                   </div>
                 ) : (
-                  <select value={selRegister} onChange={e => setSelRegister(e.target.value ? Number(e.target.value) : "")}
-                    style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14 }}>
-                    <option value="">-- Selecciona --</option>
-                    {registers.map(r => (
-                      <option key={r.id} value={r.id} disabled={r.has_open_session}>{r.name}{r.has_open_session ? " (ocupada)" : ""}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <select value={selRegister} onChange={e => setSelRegister(e.target.value ? Number(e.target.value) : "")}
+                      style={{ flex: 1, padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14 }}>
+                      <option value="">-- Selecciona --</option>
+                      {registers.map(r => (
+                        <option key={r.id} value={r.id} disabled={r.has_open_session}>{r.name}{r.has_open_session ? " (ocupada)" : ""}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={() => { setNewRegName(""); setNewRegErr(""); setShowNewRegister(true); }}
+                      style={{ padding: "9px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, color: C.accent, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      + Nueva caja
+                    </button>
+                  </div>
                 )}
               </div>
               <div>
@@ -190,6 +198,101 @@ export default function CajaPage() {
       {/* MODALS */}
       {showMove && <AddMovementModal moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
       {showClose && session?.live && <CloseSessionModal live={session.live} countedCash={countedCash} setCountedCash={setCountedCash} closeNote={closeNote} setCloseNote={setCloseNote} busy={busy} onClose={() => setShowClose(false)} onSubmit={closeSession} />}
+
+      {/* New register modal */}
+      {showNewRegister && (
+        <div
+          onClick={() => !newRegBusy && setShowNewRegister(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+            zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: C.surface, borderRadius: C.rMd, width: "100%", maxWidth: 420,
+              maxHeight: "90vh", overflowY: "auto", boxShadow: C.shMd,
+              animation: "fadeIn 0.15s ease",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Nueva caja</div>
+                <div style={{ fontSize: 12, color: C.mute, marginTop: 2 }}>Define el nombre de la caja registradora</div>
+              </div>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                onClick={() => !newRegBusy && setShowNewRegister(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 4, display: "flex", borderRadius: 4 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div style={{ padding: "18px 20px" }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.text, display: "block", marginBottom: 6 }}>
+                Nombre de la caja
+              </label>
+              <input
+                autoFocus
+                value={newRegName}
+                onChange={(e) => { setNewRegName(e.target.value); if (newRegErr) setNewRegErr(""); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newRegName.trim() && !newRegBusy) {
+                    (async () => {
+                      setNewRegBusy(true); setNewRegErr("");
+                      try {
+                        await apiFetch("/caja/registers/", { method: "POST", body: JSON.stringify({ name: newRegName.trim() }) });
+                        setShowNewRegister(false);
+                        load();
+                      } catch (err: any) {
+                        setNewRegErr(err?.message ?? "Error al crear la caja");
+                      } finally { setNewRegBusy(false); }
+                    })();
+                  }
+                  if (e.key === "Escape" && !newRegBusy) setShowNewRegister(false);
+                }}
+                placeholder="Caja 1, Barra, Caja rápida..."
+                disabled={newRegBusy}
+                style={{
+                  width: "100%", padding: "11px 14px",
+                  border: `1.5px solid ${newRegErr ? C.red : C.border}`,
+                  borderRadius: C.r, fontSize: 14, fontFamily: C.font,
+                  outline: "none", boxSizing: "border-box",
+                }}
+              />
+              {newRegErr && (
+                <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{newRegErr}</div>
+              )}
+              <div style={{ fontSize: 11, color: C.mute, marginTop: 8 }}>
+                Podrás crear más cajas después. Cada caja maneja su propio arqueo.
+              </div>
+            </div>
+            <div style={{ padding: "12px 20px 18px", display: "flex", justifyContent: "flex-end", gap: 8, borderTop: `1px solid ${C.border}` }}>
+              <Btn variant="secondary" onClick={() => setShowNewRegister(false)} disabled={newRegBusy}>Cancelar</Btn>
+              <Btn
+                variant="primary"
+                disabled={!newRegName.trim() || newRegBusy}
+                onClick={async () => {
+                  setNewRegBusy(true); setNewRegErr("");
+                  try {
+                    await apiFetch("/caja/registers/", { method: "POST", body: JSON.stringify({ name: newRegName.trim() }) });
+                    setShowNewRegister(false);
+                    load();
+                  } catch (err: any) {
+                    setNewRegErr(err?.message ?? "Error al crear la caja");
+                  } finally { setNewRegBusy(false); }
+                }}
+              >
+                {newRegBusy ? <><Spinner size={14} /> Creando...</> : "Crear caja"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
