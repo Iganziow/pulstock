@@ -122,7 +122,7 @@ export default function CatalogPage() {
       setItems(list);
       setTotalCount(data?.count ?? list.length);
     } catch (e: any) {
-      setErr(extractErr(e, "Error cargando cat\u00e1logo"));
+      setErr(extractErr(e, "Error cargando catálogo"));
       setItems([]); setTotalCount(0);
     } finally { setLoading(false); }
   }, []);
@@ -141,7 +141,7 @@ export default function CatalogPage() {
       list.sort((a: Category, b: Category) => a.name.localeCompare(b.name));
       setCategories(list);
     } catch (e: any) {
-      setCatErr(extractErr(e, "Error cargando categor\u00edas")); setCategories([]);
+      setCatErr(extractErr(e, "Error cargando categorías")); setCategories([]);
     }
   }, []);
   useEffect(() => { loadCategories(); }, [loadCategories]);
@@ -179,7 +179,7 @@ export default function CatalogPage() {
       await loadCategories();
       if (created?.id) setPCategoryId(created.id);
       resetCatForm(); setShowCat(false);
-    } catch (e: any) { setCatErr(extractErr(e, "Error creando categor\u00eda")); }
+    } catch (e: any) { setCatErr(extractErr(e, "Error creando categoría")); }
     finally { setSaving(false); }
   };
 
@@ -188,7 +188,7 @@ export default function CatalogPage() {
     const name = pName.trim();
     if (!name) { setErr("El nombre del producto es obligatorio."); return; }
     const price = parseFloat(pPrice);
-    if (isNaN(price) || price < 0) { setErr("El precio debe ser un n\u00famero positivo."); return; }
+    if (isNaN(price) || price < 0) { setErr("El precio debe ser un número positivo."); return; }
     setSaving(true); setErr(null);
     try {
       const created: Product = await apiFetch("/catalog/products/", {
@@ -220,7 +220,7 @@ export default function CatalogPage() {
     const name = eName.trim();
     if (!name) { setErr("El nombre del producto es obligatorio."); return; }
     const price = parseFloat(ePrice);
-    if (isNaN(price) || price < 0) { setErr("El precio debe ser un n\u00famero positivo."); return; }
+    if (isNaN(price) || price < 0) { setErr("El precio debe ser un número positivo."); return; }
     setSaving(true); setErr(null);
     try {
       const updated: Product = await apiFetch(`/catalog/products/${editId}/`, {
@@ -300,9 +300,9 @@ export default function CatalogPage() {
         <div>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
             <div style={{ width:4, height:26, background:C.accent, borderRadius:2 }}/>
-            <h1 style={{ margin:0, fontSize:22, fontWeight:800, color:C.text, letterSpacing:"-0.04em" }}>Cat\u00e1logo</h1>
+            <h1 style={{ margin:0, fontSize:22, fontWeight:800, color:C.text, letterSpacing:"-0.04em" }}>Catálogo</h1>
           </div>
-          <p style={{ margin:0, fontSize:13, color:C.mute, paddingLeft:14 }}>Busca por nombre, SKU o c\u00f3digo de barras</p>
+          <p style={{ margin:0, fontSize:13, color:C.mute, paddingLeft:14 }}>Busca por nombre, SKU o código de barras</p>
         </div>
 
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
@@ -318,7 +318,7 @@ export default function CatalogPage() {
             </svg>
             Asignar Barcodes
           </Btn>
-          <Btn variant="secondary" onClick={()=>{resetCatForm();setShowCat(true);}} disabled={saving}>+ Categor\u00eda</Btn>
+          <Btn variant="secondary" onClick={()=>{resetCatForm();setShowCat(true);}} disabled={saving}>+ Categoría</Btn>
           <Btn variant="ghost" onClick={()=>setShowCatManager(true)} disabled={saving}>Organizar</Btn>
           <Btn variant="primary" onClick={()=>{resetProdForm();setShowProd(true);}} disabled={saving}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -336,10 +336,10 @@ export default function CatalogPage() {
 
       {/* STAT CARDS */}
       <div style={{ display:"grid", gridTemplateColumns:mob?"1fr 1fr":"repeat(auto-fit,minmax(148px,1fr))", gap:10 }}>
-        <StatCard label="Total"      value={totalCount}               icon="\ud83d\udce6" color={C.accent} />
-        <StatCard label="Activos"    value={activeCount}              icon="\u2705" color={C.green}  />
-        <StatCard label="Inactivos"  value={totalCount-activeCount}   icon="\u23f8\ufe0f" color={C.amber}  />
-        <StatCard label="Categor\u00edas" value={categories.length}        icon="\ud83d\uddc2\ufe0f" color={C.violet} />
+        <StatCard label="Total"      value={totalCount}               icon="📦" color={C.accent} />
+        <StatCard label="Activos"    value={activeCount}              icon="✅" color={C.green}  />
+        <StatCard label="Inactivos"  value={totalCount-activeCount}   icon="⏸️" color={C.amber}  />
+        <StatCard label="Categorías" value={categories.length}        icon="\ud83d\uddc2️" color={C.violet} />
       </div>
 
       {/* SEARCH */}
@@ -355,17 +355,17 @@ export default function CatalogPage() {
           value={q}
           onChange={(e)=>setQ(e.target.value)}
           onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); setPage(1); load(endpoint); } }}
-          placeholder="Ej: arroz, 1002521, 7802810050232\u2026"
+          placeholder="Ej: arroz, 1002521, 7802810050232…"
           style={{ flex:1, minWidth:180, border:"none", background:"transparent", fontSize:14, outline:"none" }}
         />
         {q && (
-          <button onClick={clearSearch} className="ib" style={{ background:"none", border:"none", color:C.mute, cursor:"pointer", fontSize:16, padding:"0 4px", lineHeight:1 }}>{"\u2715"}</button>
+          <button onClick={clearSearch} className="ib" style={{ background:"none", border:"none", color:C.mute, cursor:"pointer", fontSize:16, padding:"0 4px", lineHeight:1 }}>{"✕"}</button>
         )}
         <div style={{ width:1, height:20, background:C.border }}/>
         <Btn variant="secondary" size="sm" onClick={()=>{setPage(1);load(endpoint);}}>Buscar</Btn>
         <Btn variant="ghost"     size="sm" onClick={clearSearch}>Limpiar</Btn>
         <div style={{ fontSize:12, color:C.mute, whiteSpace:"nowrap" }}>
-          Total: <b style={{ color:C.text }}>{totalCount}</b> {"\u00b7"} Categor\u00edas: <b style={{ color:C.text }}>{categories.length}</b>
+          Total: <b style={{ color:C.text }}>{totalCount}</b> {"·"} Categorías: <b style={{ color:C.text }}>{categories.length}</b>
           {catErr && <span style={{ marginLeft:8, color:C.red }}>({catErr})</span>}
         </div>
       </div>
@@ -391,7 +391,7 @@ export default function CatalogPage() {
             padding:mob?"11px 10px":"11px 20px", background:C.bg, borderBottom:`1px solid ${C.border}`,
             fontSize:10.5, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.08em",
           }}>
-            {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categor\u00eda</div>}
+            {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categoría</div>}
             <div style={{ textAlign:"right" }}>Precio</div>
             {!mob && <div>Barcodes</div>}<div style={{ textAlign:"center" }}>Activo</div>
             <div style={{ textAlign:"right" }}>Acciones</div>
@@ -427,7 +427,7 @@ export default function CatalogPage() {
                   <div style={{ fontWeight:700, fontSize:mob?13:14, marginBottom:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
                   {!mob && p.description && <div style={{ fontSize:12, color:C.mute, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.description}</div>}
                   <div style={{ fontSize:11, color:C.mute, marginTop:2, fontFamily:C.mono }}>
-                    {mob ? (p.sku || `ID:${p.id}`) : `ID: ${p.id} \u00b7 ${normalizeUnit(p.unit??"UN")}`}
+                    {mob ? (p.sku || `ID:${p.id}`) : `ID: ${p.id} · ${normalizeUnit(p.unit??"UN")}`}
                   </div>
                 </div>
 
@@ -471,9 +471,9 @@ export default function CatalogPage() {
       {/* PAGINATION */}
       {!loading && totalPages > 1 && (
         <div style={{ display:"flex", gap:8, alignItems:"center", justifyContent:"center", padding:"4px 0" }}>
-          <Btn variant="secondary" size="sm" disabled={page<=1||saving} onClick={()=>setPage((p)=>Math.max(1,p-1))}>{"\u2190 Anterior"}</Btn>
-          <span style={{ fontSize:13, color:C.mid }}>P\u00e1gina <b style={{ color:C.text }}>{page}</b> de <b style={{ color:C.text }}>{totalPages}</b></span>
-          <Btn variant="secondary" size="sm" disabled={page>=totalPages||saving} onClick={()=>setPage((p)=>Math.min(totalPages,p+1))}>{"Siguiente \u2192"}</Btn>
+          <Btn variant="secondary" size="sm" disabled={page<=1||saving} onClick={()=>setPage((p)=>Math.max(1,p-1))}>{"← Anterior"}</Btn>
+          <span style={{ fontSize:13, color:C.mid }}>Página <b style={{ color:C.text }}>{page}</b> de <b style={{ color:C.text }}>{totalPages}</b></span>
+          <Btn variant="secondary" size="sm" disabled={page>=totalPages||saving} onClick={()=>setPage((p)=>Math.min(totalPages,p+1))}>{"Siguiente →"}</Btn>
         </div>
       )}
 
@@ -490,7 +490,7 @@ export default function CatalogPage() {
           footer={<>
             <Btn variant="ghost" onClick={()=>!saving&&setShowImport(false)} disabled={saving}>Cerrar</Btn>
             <Btn variant="primary" onClick={runImport} disabled={saving||!importFile}>
-              {saving?<><Spinner/>Importando\u2026</>:"Importar"}
+              {saving?<><Spinner/>Importando…</>:"Importar"}
             </Btn>
           </>}
         >
@@ -512,7 +512,7 @@ export default function CatalogPage() {
                 onChange={(e)=>{ setImportFile(e.target.files?.[0]??null); setImportResult(null); }}
                 style={{ ...iS, paddingTop:9, height:"auto", cursor:"pointer" }} disabled={saving}
               />
-              <Hint>Sube directamente tu Excel o CSV. Los headers en espa\u00f1ol se mapean autom\u00e1ticamente.</Hint>
+              <Hint>Sube directamente tu Excel o CSV. Los headers en español se mapean automáticamente.</Hint>
             </div>
 
             {importResult && (
@@ -554,27 +554,27 @@ export default function CatalogPage() {
         </Modal>
       )}
 
-      {/* ── MODAL: CATEGOR\u00cdA ──────────────────────────────────────────── */}
+      {/* ── MODAL: CATEGORÍA ──────────────────────────────────────────── */}
       {showCat && (
         <Modal onClose={()=>!saving&&setShowCat(false)} width={420} accentColor={C.violet}
-          title="Nueva categor\u00eda"
+          title="Nueva categoría"
           footer={<>
             <Btn variant="ghost" onClick={()=>!saving&&setShowCat(false)} disabled={saving}>Cancelar</Btn>
             <Btn variant="primary" onClick={createCategory} disabled={saving||!catName.trim()}>
-              {saving?<><Spinner/>Creando\u2026</>:"Crear"}
+              {saving?<><Spinner/>Creando…</>:"Crear"}
             </Btn>
           </>}
         >
           <div style={{ display:"grid", gap:14 }}>
             <div style={FL}>
-              <FLabel>Categor\u00eda padre (opcional)</FLabel>
+              <FLabel>Categoría padre (opcional)</FLabel>
               <select value={catParentId} onChange={(e)=>setCatParentId(e.target.value?Number(e.target.value):"")} style={iS} disabled={saving}>
-                <option value="">Nivel principal (ra\u00edz)</option>
+                <option value="">Nivel principal (raíz)</option>
                 {categories.filter(c=>!c.parent_id).map(c=>(
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-              <span style={{ fontSize:11, color:C.mute, marginTop:2 }}>Deja vac\u00edo para crear una categor\u00eda principal</span>
+              <span style={{ fontSize:11, color:C.mute, marginTop:2 }}>Deja vacío para crear una categoría principal</span>
             </div>
             <div style={FL}>
               <FLabel req>Nombre</FLabel>
@@ -582,7 +582,7 @@ export default function CatalogPage() {
                 placeholder="Ej: Abarrotes" style={iS} disabled={saving} autoFocus/>
             </div>
             <div style={FL}>
-              <FLabel>C\u00f3digo (opcional)</FLabel>
+              <FLabel>Código (opcional)</FLabel>
               <input value={catCode} onChange={(e)=>setCatCode(e.target.value)}
                 placeholder="Ej: ABAR" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
             </div>
@@ -591,11 +591,11 @@ export default function CatalogPage() {
         </Modal>
       )}
 
-      {/* ── MODAL: ADMINISTRAR CATEGOR\u00cdAS (\u00c1RBOL) ─────────────────────── */}
+      {/* ── MODAL: ADMINISTRAR CATEGORÍAS (ÁRBOL) ─────────────────────── */}
       {showCatManager && (
         <Modal onClose={()=>setShowCatManager(false)} width={560} accentColor={C.violet}
-          title="Administrar categor\u00edas"
-          subtitle="Organiza tu cat\u00e1logo en categor\u00edas y subcategor\u00edas"
+          title="Administrar categorías"
+          subtitle="Organiza tu catálogo en categorías y subcategorías"
           footer={<Btn variant="ghost" onClick={()=>setShowCatManager(false)}>Cerrar</Btn>}
         >
           <CategoryTree
@@ -613,7 +613,7 @@ export default function CatalogPage() {
           footer={<>
             <Btn variant="ghost" onClick={()=>!saving&&setShowProd(false)} disabled={saving}>Cancelar</Btn>
             <Btn variant="primary" onClick={createProduct} disabled={saving||!pName.trim()}>
-              {saving?<><Spinner/>Creando\u2026</>:"Crear"}
+              {saving?<><Spinner/>Creando…</>:"Crear"}
             </Btn>
           </>}
         >
@@ -632,9 +632,9 @@ export default function CatalogPage() {
             </div>
 
             <div style={FL}>
-              <FLabel>Descripci\u00f3n</FLabel>
+              <FLabel>Descripción</FLabel>
               <textarea value={pDesc} onChange={(e)=>setPDesc(e.target.value)}
-                placeholder="Descripci\u00f3n (opcional)" style={tS} disabled={saving}/>
+                placeholder="Descripción (opcional)" style={tS} disabled={saving}/>
             </div>
 
             <div style={G2}>
@@ -659,7 +659,7 @@ export default function CatalogPage() {
                 <Hint>Costo inicial. Se actualiza con compras.</Hint>
               </div>
               <div style={FL}>
-                <FLabel>Stock m\u00ednimo</FLabel>
+                <FLabel>Stock mínimo</FLabel>
                 <input value={pMinStock} onChange={(e)=>setPMinStock(e.target.value)}
                   placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
                 <Hint>Alerta cuando baje de este nivel.</Hint>
@@ -670,10 +670,10 @@ export default function CatalogPage() {
               <div style={FL}>
                 <FLabel>Marca</FLabel>
                 <input value={pBrand} onChange={(e)=>setPBrand(e.target.value)}
-                  placeholder="Ej: Col\u00fan, Polpaico\u2026" style={iS} disabled={saving}/>
+                  placeholder="Ej: Colún, Polpaico…" style={iS} disabled={saving}/>
               </div>
               <div style={FL}>
-                <FLabel>Categor\u00eda</FLabel>
+                <FLabel>Categoría</FLabel>
                 <CascadeSelect categories={categories} value={pCategoryId} onChange={setPCategoryId} disabled={saving} />
               </div>
             </div>
@@ -699,7 +699,7 @@ export default function CatalogPage() {
             <div style={FL}>
               <FLabel>Barcodes</FLabel>
               <input value={pBarcodes} onChange={(e)=>setPBarcodes(e.target.value)}
-                placeholder="7802810050232, 123123\u2026" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
+                placeholder="7802810050232, 123123…" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
               <Hint>Separados por coma. Guardar crea la lista.</Hint>
             </div>
           </div>
@@ -714,7 +714,7 @@ export default function CatalogPage() {
           footer={<>
             <Btn variant="ghost" onClick={()=>!saving&&closeEditModal()} disabled={saving}>Cancelar</Btn>
             <Btn variant="primary" onClick={saveEditProduct} disabled={saving||!eName.trim()}>
-              {saving?<><Spinner/>Guardando\u2026</>:"Guardar"}
+              {saving?<><Spinner/>Guardando…</>:"Guardar"}
             </Btn>
           </>}
         >
@@ -731,7 +731,7 @@ export default function CatalogPage() {
             </div>
 
             <div style={FL}>
-              <FLabel>Descripci\u00f3n</FLabel>
+              <FLabel>Descripción</FLabel>
               <textarea value={eDesc} onChange={(e)=>setEDesc(e.target.value)} style={tS} disabled={saving}/>
             </div>
 
@@ -753,10 +753,10 @@ export default function CatalogPage() {
                 <FLabel>Costo compra</FLabel>
                 <input value={eCost} onChange={(e)=>setECost(e.target.value)}
                   placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
-                <Hint>Se actualiza autom\u00e1ticamente con compras.</Hint>
+                <Hint>Se actualiza automáticamente con compras.</Hint>
               </div>
               <div style={FL}>
-                <FLabel>Stock m\u00ednimo</FLabel>
+                <FLabel>Stock mínimo</FLabel>
                 <input value={eMinStock} onChange={(e)=>setEMinStock(e.target.value)}
                   placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
                 <Hint>Alerta cuando baje de este nivel.</Hint>
@@ -767,10 +767,10 @@ export default function CatalogPage() {
               <div style={FL}>
                 <FLabel>Marca</FLabel>
                 <input value={eBrand} onChange={(e)=>setEBrand(e.target.value)}
-                  placeholder="Ej: Col\u00fan, Polpaico\u2026" style={iS} disabled={saving}/>
+                  placeholder="Ej: Colún, Polpaico…" style={iS} disabled={saving}/>
               </div>
               <div style={FL}>
-                <FLabel>Categor\u00eda</FLabel>
+                <FLabel>Categoría</FLabel>
                 <CascadeSelect categories={categories} value={eCategoryId} onChange={setECategoryId} disabled={saving} />
               </div>
             </div>
@@ -796,7 +796,7 @@ export default function CatalogPage() {
             <div style={FL}>
               <FLabel>Barcodes</FLabel>
               <input value={eBarcodes} onChange={(e)=>setEBarcodes(e.target.value)}
-                placeholder="7802810050232, 123123\u2026" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
+                placeholder="7802810050232, 123123…" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
               <Hint>Guardar reemplaza la lista completa.</Hint>
             </div>
           </div>
