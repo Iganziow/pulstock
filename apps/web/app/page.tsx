@@ -41,17 +41,17 @@ const PROBLEMS = [
 ];
 
 const HOW_IT_WORKS = [
-  { num: "01", title: "Registra tu inventario", desc: "Sube tu catálogo desde Excel o créalo desde cero. Categorías, barcodes, unidades de medida, costos y precios.", icon: "📦" },
-  { num: "02", title: "Vende y registra compras", desc: "Cada venta y cada compra actualiza el stock automáticamente. Costo promedio ponderado se recalcula en tiempo real.", icon: "🛒" },
-  { num: "03", title: "La IA analiza tu demanda", desc: "11 algoritmos de forecasting compiten entre sí. El sistema elige el mejor para cada producto, automáticamente.", icon: "🤖" },
-  { num: "04", title: "Actúa con datos, no intuición", desc: "Recibes alertas de quiebre, sugerencias de compra, y un reporte ABC semanal. Decides con información, no con miedo.", icon: "📊" },
+  { num: "01", title: "Sube tu catálogo", desc: "Exporta tu Excel o créalo desde cero en minutos. Precios, costos y categorías listos para vender.", icon: "📦" },
+  { num: "02", title: "Vende y registra compras", desc: "Cada venta y cada compra actualiza tu stock automáticamente. No más planillas desactualizadas.", icon: "🛒" },
+  { num: "03", title: "Ve qué te da plata", desc: "El sistema te muestra qué productos son los que más ganas y cuáles te están haciendo perder.", icon: "💰" },
+  { num: "04", title: "Toma decisiones con datos", desc: "Te avisa antes del quiebre, te sugiere qué comprar, y te manda un reporte semanal. Sin adivinar.", icon: "📊" },
 ];
 
 const BENEFITS = [
-  { icon: "🔮", title: "Predicción de demanda con IA", desc: "11 algoritmos (Holt-Winters, Theta, ETS, Croston) compiten para predecir la demanda de cada producto. Se auto-selecciona el mejor.", tag: "Solo en Pulstock" },
-  { icon: "🚨", title: "Alertas antes del quiebre", desc: "Sabes 7 días antes qué productos se van a agotar. Con nivel de confianza y sugerencia de cantidad a comprar.", tag: "Automático" },
-  { icon: "📊", title: "Análisis ABC semanal", desc: "Cada lunes recibes un email con tus productos A (los que generan el 80% del ingreso), los B y los C.", tag: "Automático" },
-  { icon: "💰", title: "Margen real por producto", desc: "Costo promedio ponderado (PPP) se recalcula con cada compra. Sabes el margen real de cada venta, no un estimado.", tag: "Tiempo real" },
+  { icon: "💰", title: "Sabes qué productos te dan plata y cuáles te hacen perder", desc: "Ranking semanal de tus productos top y de los que están estancados. Dejas de comprar lo que no se vende.", tag: "Solo en Pulstock" },
+  { icon: "🚨", title: "Te avisa antes de quedarte sin stock", desc: "7 días antes de que se agote un producto, recibes una alerta con la cantidad exacta a pedir.", tag: "Automático" },
+  { icon: "📈", title: "Reporte semanal a tu correo", desc: "Cada lunes llega un email con tus ventas, tus productos estrella y los que están frenando tu negocio.", tag: "Automático" },
+  { icon: "🎯", title: "Margen real de cada venta", desc: "Sabes exactamente cuánto ganaste en cada producto, no un estimado. Costos se actualizan con cada compra.", tag: "Tiempo real" },
   { icon: "🏪", title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
 ];
 
@@ -91,10 +91,10 @@ const COMPARISON = [
 ];
 
 const IMPACT_STATS = [
-  { value: "40%", label: "Menos quiebres de stock", desc: "con alertas predictivas" },
-  { value: "25%", label: "Menos sobrestock", desc: "con análisis ABC" },
-  { value: "4h", label: "Ahorro semanal", desc: "en órdenes de compra" },
-  { value: "11", label: "Algoritmos de forecast", desc: "auto-selección por producto" },
+  { value: "40%", label: "Menos quiebres de stock", desc: "basado en implementación real" },
+  { value: "25%", label: "Menos sobrestock", desc: "basado en implementación real" },
+  { value: "4h", label: "Ahorro semanal", desc: "menos planillas, más ventas" },
+  { value: "100%", label: "Control de tu negocio", desc: "desde el primer día" },
 ];
 
 const PLANS = [
@@ -671,18 +671,18 @@ export default function LandingPage() {
             border: "1px solid #A7F3D0", animation: "pulse 2s ease-in-out infinite",
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />
-            No es otro POS — es inteligencia de inventario
+            Así es como los negocios chilenos dejan de perder plata
           </div>
           <h1 style={{ fontSize: "clamp(28px, 4.5vw, 58px)", fontWeight: 900, lineHeight: 1.08, margin: "0 0 20px", letterSpacing: "-.025em" }}>
-            Tu inventario te cuesta plata.
+            Pierdes plata todos los días
             <br />
             <span style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              Nosotros lo hacemos rentable.
+              sin darte cuenta.
             </span>
           </h1>
           <p style={{ fontSize: "clamp(15px, 2vw, 19px)", color: C.mid, lineHeight: 1.6, maxWidth: "min(580px, 90vw)", margin: "0 auto 36px" }}>
-            Pulstock predice tu demanda, te avisa antes de quedarte sin stock,
-            y te dice exactamente qué comprar y cuándo. Para pymes chilenas que quieren crecer con datos, no con intuición.
+            Tu inventario está desordenando tu negocio — aunque no lo veas.
+            Pulstock te muestra qué productos te dan plata y cuáles te hacen perder, en tiempo real.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <button onClick={() => go("/#precios")} className="l-btn" style={{
@@ -690,12 +690,12 @@ export default function LandingPage() {
               background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
               color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
               boxShadow: `0 4px 14px ${C.accent}40`,
-            }}>Comenzar ahora</button>
-            <a href="#como-funciona" className="l-btn" style={{
+            }}>Empieza hoy — gratis 7 días</button>
+            <a href="#contacto" className="l-btn" style={{
               padding: "16px 36px", fontSize: 16, fontWeight: 600,
               background: C.white, color: C.text, border: `1px solid ${C.border}`,
               borderRadius: 12, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center",
-            }}>Ver cómo funciona</a>
+            }}>Agenda demo</a>
           </div>
         </div>
 
@@ -737,8 +737,8 @@ export default function LandingPage() {
       <section id="como-funciona" style={{ padding: "100px 24px", background: C.white }}>
         <div style={{ maxWidth: 960, margin: "0 auto" }}>
           <RevealSection>
-            <SectionTitle tag="Cómo funciona" title="De Excel a inteligencia artificial en 4 pasos"
-              subtitle="Configura en minutos. El sistema aprende de tus ventas y empieza a predecir." />
+            <SectionTitle tag="Cómo funciona" title="En 4 pasos pasas de Excel a control total"
+              subtitle="Configura en minutos. Sin curva de aprendizaje, sin complicaciones técnicas." />
           </RevealSection>
           <RevealSection>
             <div className="steps-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 40, alignItems: "start" }}>
@@ -1014,21 +1014,22 @@ export default function LandingPage() {
       }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle at 30% 50%, ${C.accent}12 0%, transparent 50%)` }} />
         <div style={{ maxWidth: 600, margin: "0 auto", position: "relative" }}>
-          <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, color: "#fff", margin: "0 0 12px" }}>Deja de adivinar. Empieza a decidir con datos.</h2>
-          <p style={{ fontSize: 16, color: "rgba(255,255,255,.6)", margin: "0 0 32px" }}>Elige tu plan y configura tu negocio en 5 minutos.</p>
+          <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, color: "#fff", margin: "0 0 12px" }}>Cada día que esperas, sigues perdiendo plata.</h2>
+          <p style={{ fontSize: 16, color: "rgba(255,255,255,.75)", margin: "0 0 32px" }}>Prueba Pulstock gratis por 7 días. Sin tarjeta, sin compromiso. Configuras todo en 5 minutos.</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <button onClick={() => go("/#precios")} className="l-btn" style={{
               padding: "16px 40px", fontSize: 17, fontWeight: 800,
               background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
               color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
               boxShadow: `0 4px 20px ${C.accent}50`,
-            }}>Ver planes</button>
+            }}>Empieza hoy — gratis 7 días</button>
             <a href="#contacto" className="l-btn" style={{
               padding: "16px 40px", fontSize: 17, fontWeight: 600,
               background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.3)",
               borderRadius: 12, cursor: "pointer", textDecoration: "none",
-            }}>Contactar ventas</a>
+            }}>Agenda demo</a>
           </div>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,.5)", marginTop: 20 }}>⚡ Acceso inmediato · Sin instalación · Soporte en español</p>
         </div>
       </section>
 
