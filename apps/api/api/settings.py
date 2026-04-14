@@ -86,6 +86,12 @@ API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000")
 # URL pública del frontend Next.js (para redirigir al usuario tras pago)
 APP_BASE_URL     = os.getenv("APP_BASE_URL", "http://localhost:3000")
 
+# Tenants con acceso de por vida (dueño de la app, cuentas internas).
+# Estos NUNCA pagan ni se bloquean por el middleware de suscripción.
+# Lista separada por comas via env: BILLING_LIFETIME_SLUGS=marbrava,otro-slug
+_lifetime_raw = os.getenv("BILLING_LIFETIME_SLUGS", "marbrava")
+BILLING_LIFETIME_SLUGS = [s.strip() for s in _lifetime_raw.split(",") if s.strip()]
+
 # ======================================================
 # APPS
 # ======================================================

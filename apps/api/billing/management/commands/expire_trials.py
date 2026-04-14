@@ -16,13 +16,15 @@ class Command(BaseCommand):
     help = "Expire trials whose trial_ends_at has passed (backup for Celery task)"
 
     def handle(self, *args, **options):
+        from django.conf import settings
         from billing.models import Subscription
 
+        lifetime_slugs = getattr(settings, "BILLING_LIFETIME_SLUGS", [])
         now = timezone.now()
         expired_qs = Subscription.objects.filter(
             status=Subscription.Status.TRIALING,
             trial_ends_at__lte=now,
-        ).select_related("tenant", "plan")
+        ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
 
         count = expired_qs.count()
         if count == 0:

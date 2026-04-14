@@ -80,6 +80,15 @@ def change_plan(subscription: Subscription, new_plan_key: str) -> Subscription:
     - Upgrade: efectivo inmediato, nuevo período desde hoy.
     - Downgrade: efectivo inmediato, mismas fechas.
     """
+    from django.conf import settings as dj_settings
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
+    if subscription.tenant and subscription.tenant.slug in lifetime_slugs:
+        logger.warning(
+            "change_plan: intento de cambiar plan en tenant lifetime=%s (bloqueado)",
+            subscription.tenant.slug
+        )
+        return subscription
+
     new_plan = Plan.objects.get(key=new_plan_key, is_active=True)
     old_plan = subscription.plan
     now = timezone.now()

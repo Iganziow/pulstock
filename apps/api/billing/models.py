@@ -116,7 +116,17 @@ class Subscription(models.Model):
 
         Bloquea trials vencidos aunque Celery no haya corrido expire_trials.
         Guarda la app de dar acceso infinito si el cron no corre.
+
+        Lifetime/owner tenants (configurados en settings.BILLING_LIFETIME_SLUGS)
+        siempre tienen acceso, sin importar el status.
         """
+        # Lifetime tenants (dueño de la app, cuentas internas, etc.)
+        if self.tenant_id:
+            from django.conf import settings as dj_settings
+            lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
+            if lifetime_slugs and self.tenant.slug in lifetime_slugs:
+                return True
+
         if self.status == self.Status.TRIALING:
             # Trial: verificar que no haya vencido
             if self.trial_ends_at and timezone.now() > self.trial_ends_at:

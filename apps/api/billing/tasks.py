@@ -40,15 +40,17 @@ def process_renewals(self):
     Corre cada hora. Busca suscripciones cuyo período venció
     y que NO son gratuitas, e inicia el cobro.
     """
+    from django.conf import settings as dj_settings
     from .models import Subscription, Plan
     from .services import create_invoice, register_payment_failure
     from .gateway import charge_subscription
 
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
     due = Subscription.objects.filter(
         status=Subscription.Status.ACTIVE,
         current_period_end__lte=now,
-    ).select_related("tenant", "plan")
+    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
 
     processed = 0
     for sub in due:
@@ -172,15 +174,17 @@ def suspend_overdue_subscriptions(self):
     Corre cada hora. Si una suscripción está en past_due
     y ya pasaron los días de gracia (3), la suspende.
     """
+    from django.conf import settings as dj_settings
     from .models import Subscription
     from .services import GRACE_PERIOD_DAYS, RETRY_SCHEDULE
 
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
     suspended_count = 0
 
     past_due = Subscription.objects.filter(
         status=Subscription.Status.PAST_DUE,
-    ).select_related("tenant", "plan")
+    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
 
     for sub in past_due:
         # Calcular cuándo se debe suspender
@@ -211,10 +215,12 @@ def retry_failed_payments(self):
     """
     Corre cada hora. Reintenta cobros según el schedule [1, 3, 7] días.
     """
+    from django.conf import settings as dj_settings
     from .models import Subscription, Invoice
     from .services import create_invoice, register_payment_failure, activate_period
     from .gateway import charge_subscription
 
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
     retried = 0
 
@@ -222,7 +228,7 @@ def retry_failed_payments(self):
         status=Subscription.Status.PAST_DUE,
         next_retry_at__lte=now,
         next_retry_at__isnull=False,
-    ).select_related("tenant", "plan")
+    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
 
     for sub in to_retry:
         try:
@@ -259,15 +265,17 @@ def expire_trials(self):
     Corre diariamente. Los trials vencidos sin método de pago
     pasan a FREE. Los que sí tienen método de pago, se cobran.
     """
+    from django.conf import settings as dj_settings
     from .models import Subscription, Plan
     from .services import change_plan, create_invoice, activate_period, register_payment_failure
     from .gateway import charge_subscription
 
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
     expired = Subscription.objects.filter(
         status=Subscription.Status.TRIALING,
         trial_ends_at__lte=now,
-    ).select_related("tenant", "plan")
+    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
 
     converted = 0
     for sub in expired:
