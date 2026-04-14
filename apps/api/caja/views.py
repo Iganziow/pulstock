@@ -129,16 +129,19 @@ class RegisterListCreate(APIView):
         if not name:
             return Response({"detail": "name required"}, status=400)
 
-        # Verificar límite de cajas del plan
+        # Verificar límite de cajas del plan (por local, no global)
         from billing.models import Subscription
         from billing.services import check_plan_limit
         try:
             sub = Subscription.objects.select_related("plan").get(tenant_id=t_id)
-            current = CashRegister.objects.filter(tenant_id=t_id, is_active=True).count()
+            # Count per-store: each store can have up to max_registers cajas
+            current = CashRegister.objects.filter(
+                tenant_id=t_id, store_id=s_id, is_active=True,
+            ).count()
             result = check_plan_limit(sub, "registers", current)
             if not result["allowed"]:
                 return Response(
-                    {"detail": f"Tu plan permite máximo {result['limit']} caja(s)."},
+                    {"detail": f"Tu plan permite máximo {result['limit']} caja(s) por local."},
                     status=403,
                 )
         except Subscription.DoesNotExist:

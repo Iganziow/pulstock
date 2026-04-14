@@ -295,7 +295,15 @@ def check_plan_limit(subscription: Subscription, resource: str, current_count: i
     Verifica si el tenant puede crear más recursos según su plan.
     resource: 'products' | 'stores' | 'users' | 'registers'
     Retorna: { "allowed": bool, "limit": int, "current": int }
+
+    Lifetime tenants (dueño de la app) no tienen límites.
     """
+    # Lifetime tenants bypass all limits
+    from django.conf import settings as dj_settings
+    lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
+    if subscription.tenant and subscription.tenant.slug in lifetime_slugs:
+        return {"allowed": True, "limit": -1, "current": current_count}
+
     plan = subscription.plan
     limits = {
         "products":  plan.max_products,
