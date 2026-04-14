@@ -671,6 +671,7 @@ from .gateway import create_checkout_payment_link
 def _auto_create_checkout_account(session):
     """Crea Tenant + User automáticamente cuando session tiene los datos.
     Usa el password hash ya almacenado (no re-hashear)."""
+    from datetime import timedelta
     from django.db import transaction
     from django.utils.text import slugify
     from core.models import Tenant, User, Warehouse
