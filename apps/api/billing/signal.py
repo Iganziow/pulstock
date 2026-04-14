@@ -22,6 +22,7 @@ def create_tenant_subscription(sender, instance, created, **kwargs):
         return
 
     # Evitar import circular
+    from django.db import IntegrityError
     from .models import Subscription, Plan
     from .services import create_subscription
 
@@ -30,4 +31,8 @@ def create_tenant_subscription(sender, instance, created, **kwargs):
             create_subscription(instance, plan_key=Plan.PlanKey.PRO)
         except Plan.DoesNotExist:
             # Los planes aún no están en la DB (primera migración)
+            pass
+        except IntegrityError:
+            # Race: otra transacción ya creó la subscription. OneToOneField
+            # garantiza unicidad. Seguro ignorar.
             pass

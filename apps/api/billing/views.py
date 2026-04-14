@@ -548,11 +548,12 @@ class FlowWebhookView(APIView):
         # ── 2. Consultar estado real del pago en Flow ──
         payment_data = get_payment_status(token)
 
-        # Verificar firma si Flow la incluye
-        if payment_data.get("s"):
+        # Verificar firma SIEMPRE (security critical). Solo se skip en MOCK mode.
+        from django.conf import settings as dj_settings
+        if dj_settings.PAYMENT_GATEWAY != "mock":
             from .gateway import _verify_flow_token_signature
-            if not _verify_flow_token_signature(payment_data):
-                logger.warning("Flow webhook: firma HMAC inválida token=%s", token[:20])
+            if not payment_data.get("s") or not _verify_flow_token_signature(payment_data):
+                logger.warning("Flow webhook: firma HMAC inválida o ausente token=%s", token[:20])
                 return Response({"detail": "Firma inválida."}, status=status.HTTP_403_FORBIDDEN)
 
         flow_status = payment_data.get("status")
@@ -601,14 +602,29 @@ class FlowWebhookView(APIView):
 
             sub = invoice.subscription
 
+            # Idempotency by flowOrder: if a PaymentAttempt with this flowOrder exists,
+            # we already processed this webhook (Flow may send multiple notifications).
+            if flow_order and PaymentAttempt.objects.filter(
+                invoice=invoice, raw__flowOrder=str(flow_order)
+            ).exists():
+                logger.info(
+                    "Flow webhook: duplicate flowOrder=%s invoice=#%d (idempotente)",
+                    flow_order, invoice.pk,
+                )
+                return Response({"ok": True, "detail": "duplicate flowOrder"})
+
+            # If invoice is already PAID, never reprocess (prevents status=3 webhook
+            # arriving after status=2 from marking a paid invoice as FAILED).
+            if invoice.status == Invoice.Status.PAID:
+                logger.info(
+                    "Flow webhook: invoice #%d already PAID, ignoring status=%s",
+                    invoice.pk, flow_status,
+                )
+                return Response({"ok": True, "detail": "already paid"})
+
             # ── 4. Procesar según estado ──
             if flow_status == 2:
                 # PAGADO
-                # Idempotencia: si ya está pagada no reprocesar (webhook duplicado)
-                if invoice.status == Invoice.Status.PAID:
-                    logger.info("Flow webhook: invoice #%d ya procesada (idempotente)", invoice.pk)
-                    return Response({"ok": True, "detail": "already processed"})
-
                 # Guardar tx_id de Flow en la factura
                 invoice.gateway_tx_id = str(flow_order)
                 invoice.save(update_fields=["gateway_tx_id"])

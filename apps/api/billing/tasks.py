@@ -185,7 +185,9 @@ def suspend_overdue_subscriptions(self):
     for sub in past_due:
         # Calcular cuándo se debe suspender
         # Referencia: cuándo terminó el período legítimo
-        reference = sub.current_period_end or sub.suspended_at or sub.updated_at
+        # NO usar updated_at (se toca en cada save, extiende la gracia infinitamente)
+        # Preferir current_period_end; fallback a created_at si falta.
+        reference = sub.current_period_end or sub.created_at
         grace_ends = reference + timedelta(days=GRACE_PERIOD_DAYS)
 
         if now >= grace_ends and sub.payment_retry_count >= len(RETRY_SCHEDULE):
