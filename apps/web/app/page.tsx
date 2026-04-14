@@ -685,7 +685,7 @@ export default function LandingPage() {
             Pulstock te muestra qué productos te dan plata y cuáles te hacen perder, en tiempo real.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={() => go("/#precios")} className="l-btn" style={{
+            <button onClick={() => go("/trial")} className="l-btn" style={{
               padding: "16px 36px", fontSize: 16, fontWeight: 800,
               background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
               color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
@@ -1017,7 +1017,7 @@ export default function LandingPage() {
           <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, color: "#fff", margin: "0 0 12px" }}>Cada día que esperas, sigues perdiendo plata.</h2>
           <p style={{ fontSize: 16, color: "rgba(255,255,255,.75)", margin: "0 0 32px" }}>Prueba Pulstock gratis por 7 días. Sin tarjeta, sin compromiso. Configuras todo en 5 minutos.</p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={() => go("/#precios")} className="l-btn" style={{
+            <button onClick={() => go("/trial")} className="l-btn" style={{
               padding: "16px 40px", fontSize: 17, fontWeight: 800,
               background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`,
               color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
