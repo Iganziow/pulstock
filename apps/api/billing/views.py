@@ -652,14 +652,118 @@ from .models import CheckoutSession
 from .gateway import create_checkout_payment_link
 
 
+def _auto_create_checkout_account(session):
+    """Crea Tenant + User automáticamente cuando session tiene los datos.
+    Usa el password hash ya almacenado (no re-hashear)."""
+    from django.db import transaction
+    from django.utils.text import slugify
+    from core.models import Tenant, User, Warehouse
+    from stores.models import Store
+
+    if session.status == CheckoutSession.STATUS_COMPLETED:
+        return  # idempotente
+
+    # Generate unique slug
+    base_slug = slugify(session.business_name)[:60] or "negocio"
+    slug = base_slug
+    counter = 1
+    while Tenant.objects.filter(slug=slug).exists():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    parts = (session.owner_name or "").split(" ", 1)
+    first_name = parts[0] if parts else ""
+    last_name = parts[1] if len(parts) > 1 else ""
+    email = session.email
+    username = session.owner_username or email
+
+    if User.objects.filter(username=username).exists() or User.objects.filter(email=email).exists():
+        logger.warning("Auto-create skipped: user/email already exists (session #%d)", session.pk)
+        return
+
+    with transaction.atomic():
+        tenant = Tenant(name=session.business_name, slug=slug, is_active=True)
+        tenant._skip_default_store = True
+        tenant._skip_subscription = True
+        tenant.save()
+
+        store = Store.objects.create(
+            tenant=tenant, name="Local Principal",
+            code=f"{slug}-1", is_active=True,
+        )
+        warehouse = Warehouse.objects.create(
+            tenant=tenant, store=store, name="Bodega Principal", is_active=True,
+        )
+        tenant.default_warehouse = warehouse
+        tenant.save(update_fields=["default_warehouse"])
+        store.default_warehouse = warehouse
+        store.save(update_fields=["default_warehouse"])
+
+        try:
+            from catalog.management.commands.seed_units import seed_units_for_tenant
+            seed_units_for_tenant(tenant)
+        except Exception as e:
+            logger.warning("seed_units falló: %s", e)
+
+        # Create user with pre-hashed password (avoid re-hashing)
+        user = User(
+            username=username, email=email,
+            first_name=first_name, last_name=last_name,
+            tenant=tenant, active_store=store,
+        )
+        user.password = session.owner_password_hash  # already hashed
+        user.role = "owner"
+        user.save()
+
+        now = timezone.now()
+        sub = Subscription.objects.create(
+            tenant=tenant,
+            plan=session.plan,
+            status=Subscription.Status.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=30),
+        )
+        invoice = Invoice.objects.create(
+            subscription=sub,
+            status=Invoice.Status.PAID,
+            amount_clp=session.amount_clp,
+            period_start=now.date(),
+            period_end=(now + timedelta(days=30)).date(),
+            gateway="flow",
+            gateway_order_id=session.gateway_order_id,
+            gateway_tx_id=session.gateway_tx_id,
+            paid_at=now,
+        )
+        PaymentAttempt.objects.create(
+            invoice=invoice,
+            result=PaymentAttempt.Result.SUCCESS,
+            gateway="flow",
+            raw={"checkout_session": str(session.token)},
+        )
+
+        session.status = CheckoutSession.STATUS_COMPLETED
+        session.tenant = tenant
+        session.completed_at = now
+        session.save(update_fields=["status", "tenant", "completed_at"])
+        logger.info("Auto-created account: session=#%d user=%s tenant=%s", session.pk, username, slug)
+
+
 class CheckoutCreateView(APIView):
     """POST /api/billing/checkout/create/ — Inicia checkout pre-registro."""
     permission_classes = [AllowAny]
     throttle_classes = [RegisterRateThrottle]
 
     def post(self, request):
+        from django.contrib.auth.hashers import make_password
+        from core.models import User
+
         email = (request.data.get("email") or "").strip().lower()
         plan_key = (request.data.get("plan_key") or "").strip().lower()
+        business_name = (request.data.get("business_name") or "").strip()
+        business_type = (request.data.get("business_type") or "").strip()
+        owner_name = (request.data.get("owner_name") or "").strip()
+        owner_username = (request.data.get("owner_username") or "").strip()
+        owner_password = request.data.get("owner_password") or ""
 
         from django.core.validators import validate_email
         from django.core.exceptions import ValidationError as DjangoValError
@@ -676,6 +780,15 @@ class CheckoutCreateView(APIView):
         if plan.price_clp <= 0:
             return Response({"detail": "Este plan no requiere pago"}, status=400)
 
+        # Validate new required fields (backward-compatible: optional if missing)
+        if business_name and owner_username and owner_password:
+            if len(owner_password) < 8:
+                return Response({"detail": "La contraseña debe tener al menos 8 caracteres"}, status=400)
+            if User.objects.filter(email=email).exists():
+                return Response({"detail": "Ya existe una cuenta con este email. Inicia sesión."}, status=409)
+            if User.objects.filter(username=owner_username).exists():
+                return Response({"detail": "Ese nombre de usuario ya está tomado."}, status=409)
+
         # Idempotencia: reusar sesión pending del mismo email+plan del mismo día
         from datetime import timedelta as td
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -687,6 +800,18 @@ class CheckoutCreateView(APIView):
         ).first()
 
         if existing and existing.payment_url:
+            # Refresh business/owner data on reused session
+            if business_name or owner_username:
+                existing.business_name = business_name or existing.business_name
+                existing.business_type = business_type or existing.business_type
+                existing.owner_name = owner_name or existing.owner_name
+                existing.owner_username = owner_username or existing.owner_username
+                if owner_password:
+                    existing.owner_password_hash = make_password(owner_password)
+                existing.save(update_fields=[
+                    "business_name", "business_type", "owner_name",
+                    "owner_username", "owner_password_hash",
+                ])
             return Response({
                 "token": str(existing.token),
                 "payment_url": existing.payment_url,
@@ -694,12 +819,17 @@ class CheckoutCreateView(APIView):
                 "amount_clp": plan.price_clp,
             })
 
-        # Crear nueva sesión
+        # Crear nueva sesión (con datos de negocio/owner si vienen)
         session = CheckoutSession.objects.create(
             email=email,
             plan=plan,
             amount_clp=plan.price_clp,
             expires_at=timezone.now() + td(hours=2),
+            business_name=business_name,
+            business_type=business_type,
+            owner_name=owner_name,
+            owner_username=owner_username,
+            owner_password_hash=make_password(owner_password) if owner_password else "",
         )
 
         result = create_checkout_payment_link(session)
@@ -738,6 +868,17 @@ class CheckoutStatusView(APIView):
             session.status = CheckoutSession.STATUS_EXPIRED
             session.save(update_fields=["status"])
 
+        # Try to auto-create account if PAID + has data (fallback if webhook failed)
+        if (session.status == CheckoutSession.STATUS_PAID
+                and session.business_name
+                and session.owner_username
+                and session.owner_password_hash):
+            try:
+                _auto_create_checkout_account(session)
+                session.refresh_from_db()
+            except Exception as e:
+                logger.exception("Status view auto-create failed: %s", e)
+
         # Mask email: j***@domain.cl
         parts = session.email.split("@")
         masked = parts[0][0] + "***@" + parts[1] if len(parts) == 2 and parts[0] else session.email
@@ -748,6 +889,7 @@ class CheckoutStatusView(APIView):
             "plan_key": session.plan.key,
             "email_masked": masked,
             "amount_clp": session.amount_clp,
+            "username": session.owner_username if session.status == CheckoutSession.STATUS_COMPLETED else "",
         })
 
 
@@ -958,7 +1100,16 @@ class FlowCheckoutWebhookView(APIView):
                 session.gateway_tx_id = str(flow_order)
                 session.save(update_fields=["status", "gateway_tx_id"])
                 logger.info("Checkout webhook: session #%d marcada como PAID", session.pk)
-            # Idempotent — already paid is OK
+
+            # Auto-create account if we have the data (new flow)
+            if (session.status == CheckoutSession.STATUS_PAID
+                    and session.business_name
+                    and session.owner_username
+                    and session.owner_password_hash):
+                try:
+                    _auto_create_checkout_account(session)
+                except Exception as e:
+                    logger.exception("Auto-create account failed for session #%d: %s", session.pk, e)
         elif flow_status in (3, 4):
             if session.status == CheckoutSession.STATUS_PENDING:
                 session.status = CheckoutSession.STATUS_EXPIRED

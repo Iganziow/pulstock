@@ -248,6 +248,13 @@ class CheckoutSession(models.Model):
     gateway_order_id = models.CharField(max_length=120, blank=True, default="")
     gateway_tx_id    = models.CharField(max_length=120, blank=True, default="")
 
+    # Business/owner data collected upfront (so webhook can auto-create account)
+    business_name        = models.CharField(max_length=200, blank=True, default="")
+    business_type        = models.CharField(max_length=50, blank=True, default="")
+    owner_name           = models.CharField(max_length=150, blank=True, default="")
+    owner_username       = models.CharField(max_length=150, blank=True, default="")
+    owner_password_hash  = models.CharField(max_length=200, blank=True, default="")
+
     # After completion, link to created tenant
     tenant           = models.ForeignKey(
         "core.Tenant", on_delete=models.SET_NULL, null=True, blank=True
