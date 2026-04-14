@@ -75,7 +75,7 @@ class SubscriptionAccessMiddleware(MiddlewareMixin):
             try:
                 from .models import Subscription
                 sub = Subscription.objects.only(
-                    "status", "current_period_end", "suspended_at"
+                    "status", "current_period_end", "suspended_at", "trial_ends_at"
                 ).get(tenant_id=user.tenant_id)
                 cached = {"allowed": sub.is_access_allowed, "status": sub.status}
             except Subscription.DoesNotExist:

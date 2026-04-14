@@ -112,9 +112,17 @@ class Subscription(models.Model):
     # ── Helpers ──────────────────────────────
     @property
     def is_access_allowed(self):
-        """¿Puede el tenant usar el sistema ahora mismo?"""
+        """¿Puede el tenant usar el sistema ahora mismo?
+
+        Bloquea trials vencidos aunque Celery no haya corrido expire_trials.
+        Guarda la app de dar acceso infinito si el cron no corre.
+        """
+        if self.status == self.Status.TRIALING:
+            # Trial: verificar que no haya vencido
+            if self.trial_ends_at and timezone.now() > self.trial_ends_at:
+                return False
+            return True
         return self.status in (
-            self.Status.TRIALING,
             self.Status.ACTIVE,
             self.Status.PAST_DUE,   # gracia de 3 días antes de suspender
         )
