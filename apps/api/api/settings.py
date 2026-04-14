@@ -114,7 +114,7 @@ LOCAL_APPS = [
     "stores.apps.StoresConfig",
     "purchases",
     "forecast.apps.ForecastConfig",
-    "billing",
+    "billing.apps.BillingConfig",
     "caja",
     "tables",
     "onboarding",
