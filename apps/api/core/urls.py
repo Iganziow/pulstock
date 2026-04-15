@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 
 from stores.services import ensure_user_tenant_and_store
-from core.permissions import HasTenant, IsOwner
+from core.permissions import HasTenant, IsOwner, IsManager
 from core.models import Warehouse, User, AlertPreference
 from core.views import MeView
 
@@ -311,10 +311,14 @@ class StoreDetailView(APIView):
 
 class TenantUsersView(APIView):
     """
-    GET  /api/core/users/         — list all users of this tenant (owner only)
-    POST /api/core/users/         — create a new user (owner only)
+    GET  /api/core/users/         — list users of this tenant
+      - OWNER: all users
+      - MANAGER: only users whose store_access overlaps with manager's stores
+    POST /api/core/users/         — create a new user
+      - OWNER: can create any role, assign to any store
+      - MANAGER: can create cashier/inventory only, ONLY in their assigned stores
     """
-    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
 
     def get_throttles(self):
         if self.request.method == "POST":
@@ -325,9 +329,21 @@ class TenantUsersView(APIView):
     def get(self, request):
         from core.models import UserStoreAccess
 
-        users = User.objects.filter(
-            tenant_id=request.user.tenant_id
-        ).order_by("role", "first_name", "username")
+        base_qs = User.objects.filter(tenant_id=request.user.tenant_id)
+        # Managers only see: themselves + users whose store_access overlaps
+        if request.user.role == User.Role.MANAGER:
+            my_stores = UserStoreAccess.objects.filter(
+                tenant_id=request.user.tenant_id, user=request.user,
+            ).values_list("store_id", flat=True)
+            visible_user_ids = set(
+                UserStoreAccess.objects.filter(
+                    tenant_id=request.user.tenant_id, store_id__in=list(my_stores),
+                ).values_list("user_id", flat=True)
+            )
+            visible_user_ids.add(request.user.id)  # manager always sees self
+            base_qs = base_qs.filter(id__in=visible_user_ids)
+
+        users = base_qs.order_by("role", "first_name", "username")
 
         # Pre-fetch store access for all users
         access_map: dict[int, list[dict]] = {}
@@ -359,6 +375,7 @@ class TenantUsersView(APIView):
 
     def post(self, request):
         t_id = request.user.tenant_id
+        is_manager_only = (request.user.role == User.Role.MANAGER)
 
         # ── Plan limit check ──
         try:
@@ -387,6 +404,13 @@ class TenantUsersView(APIView):
         if role not in dict(User.Role.choices):
             return Response({"detail": f"Rol inválido. Opciones: {', '.join(dict(User.Role.choices).keys())}"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Manager restrictions: cannot create owner or manager, only cashier/inventory
+        if is_manager_only and role in (User.Role.OWNER, User.Role.MANAGER):
+            return Response(
+                {"detail": "Solo el dueño puede crear usuarios con rol owner o manager."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if User.objects.filter(username=username).exists():
             return Response({"detail": "Ese nombre de usuario ya existe."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -394,6 +418,21 @@ class TenantUsersView(APIView):
         store_ids = data.get("store_ids") or []
         if not store_ids and request.user.active_store_id:
             store_ids = [request.user.active_store_id]
+
+        # Manager restrictions: can only assign to stores they have access to
+        if is_manager_only:
+            from core.models import UserStoreAccess
+            allowed_store_ids = set(
+                UserStoreAccess.objects.filter(
+                    tenant_id=t_id, user=request.user,
+                ).values_list("store_id", flat=True)
+            )
+            invalid_stores = [sid for sid in store_ids if int(sid) not in allowed_store_ids]
+            if invalid_stores:
+                return Response(
+                    {"detail": "No puedes asignar un usuario a un local al que no tienes acceso."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         user = User.objects.create_user(
             username=username,
