@@ -653,15 +653,44 @@ class StockTransferCreate(APIView):
         if err:
             return err
 
+        # Cross-store transfers require the plan's "has_transfers" feature.
         if wh_from.store_id != wh_to.store_id:
-            return Response(
-                {
-                    "detail": "Warehouses must belong to the same active store.",
-                    "from_warehouse_store_id": wh_from.store_id,
-                    "to_warehouse_store_id": wh_to.store_id,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+            from billing.models import Subscription
+            try:
+                sub = Subscription.objects.select_related("plan").get(tenant_id=t_id)
+                # Lifetime tenants and plans with has_transfers=True can transfer cross-store
+                from django.conf import settings as dj_settings
+                lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
+                is_lifetime = sub.tenant and sub.tenant.slug in lifetime_slugs
+                if not is_lifetime and not sub.plan.has_transfers:
+                    return Response(
+                        {
+                            "detail": "Tu plan no permite transferencias entre locales. Mejora tu plan.",
+                            "code": "feature_not_available",
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            except Subscription.DoesNotExist:
+                pass
+
+            # Validate user has access to BOTH stores (UserStoreAccess) — managers
+            # only transfer between their assigned stores; owners always allowed.
+            if request.user.role != "owner":
+                from core.models import UserStoreAccess
+                user_stores = set(
+                    UserStoreAccess.objects.filter(
+                        tenant_id=t_id, user=request.user,
+                    ).values_list("store_id", flat=True)
+                )
+                if wh_from.store_id not in user_stores or wh_to.store_id not in user_stores:
+                    return Response(
+                        {
+                            "detail": "No tienes acceso a uno o ambos locales para transferir.",
+                            "from_store_id": wh_from.store_id,
+                            "to_store_id": wh_to.store_id,
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
         product_ids = sorted({int(l["product_id"]) for l in lines})
         existing = set(Product.objects.filter(tenant_id=t_id, id__in=product_ids).values_list("id", flat=True))
