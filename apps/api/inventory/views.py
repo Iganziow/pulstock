@@ -646,12 +646,27 @@ class StockTransferCreate(APIView):
         to_id = int(ser.validated_data["to_warehouse_id"])
         lines = ser.validated_data["lines"]
 
-        wh_from, err = _get_warehouse_for_user(request, from_id)
-        if err:
-            return err
-        wh_to, err = _get_warehouse_for_user(request, to_id)
-        if err:
-            return err
+        # For transfers, allow ANY warehouse of the tenant (cross-store
+        # transfers are valid for owners and for users with access to both
+        # stores). Permission to specific stores is enforced below.
+        wh_from = (
+            Warehouse.objects.filter(id=from_id, tenant_id=t_id, is_active=True)
+            .select_related("store").first()
+        )
+        wh_to = (
+            Warehouse.objects.filter(id=to_id, tenant_id=t_id, is_active=True)
+            .select_related("store").first()
+        )
+        if not wh_from or not wh_to:
+            return Response(
+                {"detail": "Bodega de origen o destino inválida."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if wh_from.store_id is None or wh_to.store_id is None:
+            return Response(
+                {"detail": "Bodega sin local asignado (migración pendiente)."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Cross-store transfers require the plan's "has_transfers" feature.
         if wh_from.store_id != wh_to.store_id:
