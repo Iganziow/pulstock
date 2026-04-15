@@ -173,6 +173,7 @@ def _mock_flow_status(invoice_pk, status=2, flow_order="FLOW-8888"):
         "amount": 59990,
         "currency": "CLP",
         "payer": "test@example.com",
+        "s": "mock_signature_for_tests",  # Presence of 's' allows webhook through
     }
 
 
@@ -385,8 +386,9 @@ class TestAutoChargeCycle:
 class TestFlowWebhookIntegration:
 
     @override_settings(PAYMENT_GATEWAY="flow", FLOW_API_KEY="k", FLOW_SECRET_KEY="s")
+    @patch("billing.gateway._verify_flow_token_signature", return_value=True)
     @patch("billing.gateway._flow_api_call")
-    def test_webhook_paid_activates_period(self, mock_api, subscription, pending_invoice):
+    def test_webhook_paid_activates_period(self, mock_api, _mock_sig, subscription, pending_invoice):
         """Webhook con status=2 → Invoice PAID + Subscription ACTIVE."""
         from rest_framework.test import APIClient
         client = APIClient()
@@ -404,8 +406,9 @@ class TestFlowWebhookIntegration:
         assert subscription.status == Subscription.Status.ACTIVE
 
     @override_settings(PAYMENT_GATEWAY="flow", FLOW_API_KEY="k", FLOW_SECRET_KEY="s")
+    @patch("billing.gateway._verify_flow_token_signature", return_value=True)
     @patch("billing.gateway._flow_api_call")
-    def test_webhook_creates_payment_attempt(self, mock_api, subscription, pending_invoice):
+    def test_webhook_creates_payment_attempt(self, mock_api, _mock_sig, subscription, pending_invoice):
         """Webhook exitoso crea PaymentAttempt SUCCESS."""
         from rest_framework.test import APIClient
         client = APIClient()
@@ -417,8 +420,9 @@ class TestFlowWebhookIntegration:
         assert pa.result == PaymentAttempt.Result.SUCCESS
 
     @override_settings(PAYMENT_GATEWAY="flow", FLOW_API_KEY="k", FLOW_SECRET_KEY="s")
+    @patch("billing.gateway._verify_flow_token_signature", return_value=True)
     @patch("billing.gateway._flow_api_call")
-    def test_webhook_idempotent(self, mock_api, subscription, pending_invoice):
+    def test_webhook_idempotent(self, mock_api, _mock_sig, subscription, pending_invoice):
         """Doble webhook no duplica activación."""
         from rest_framework.test import APIClient
         client = APIClient()
@@ -464,10 +468,10 @@ class TestPaymentFailureAndRetry:
         pending_invoice.refresh_from_db()
         assert pending_invoice.status == Invoice.Status.FAILED
 
-    def test_second_failure_retry_3_days(self, tenant, pro_plan):
+    def test_second_failure_retry_3_days(self, subscription):
         """Segundo fallo → reintento en 3 días."""
         now = timezone.now()
-        sub = Subscription.objects.filter(tenant=tenant).first()
+        sub = subscription
         sub.status = Subscription.Status.PAST_DUE
         sub.payment_retry_count = 1
         sub.save()
@@ -483,10 +487,10 @@ class TestPaymentFailureAndRetry:
         diff = abs((sub.next_retry_at - expected).total_seconds())
         assert diff < 60
 
-    def test_exhausted_retries_suspends(self, tenant, pro_plan):
+    def test_exhausted_retries_suspends(self, subscription):
         """Reintentos agotados → SUSPENDED."""
         now = timezone.now()
-        sub = Subscription.objects.filter(tenant=tenant).first()
+        sub = subscription
         sub.status = Subscription.Status.PAST_DUE
         sub.payment_retry_count = len(RETRY_SCHEDULE)
         sub.save()

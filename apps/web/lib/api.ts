@@ -131,6 +131,14 @@ function redirectToExpired() {
 
 // ─── Main Fetch ───────────────────────────────────────────────────────────────
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = getAccessToken();
 
@@ -142,12 +150,15 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${endpoint}`, {
+    res = await fetchWithTimeout(`${API_URL}${endpoint}`, {
       ...options,
       headers,
       credentials: "include",
     });
-  } catch {
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new ApiError(0, "El servidor tardó demasiado en responder. Intenta de nuevo.");
+    }
     throw new ApiError(0, "No se pudo conectar al servidor. Verifica tu conexión.");
   }
 
@@ -167,12 +178,15 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
     let retryRes: Response;
     try {
-      retryRes = await fetch(`${API_URL}${endpoint}`, {
+      retryRes = await fetchWithTimeout(`${API_URL}${endpoint}`, {
         ...options,
         headers: retryHeaders,
         credentials: "include",
       });
-    } catch {
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new ApiError(0, "El servidor tardó demasiado en responder. Intenta de nuevo.");
+      }
       throw new ApiError(0, "No se pudo conectar al servidor. Verifica tu conexión.");
     }
 

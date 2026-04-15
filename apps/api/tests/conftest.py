@@ -11,7 +11,11 @@ from catalog.models import Product
 
 @pytest.fixture
 def tenant(db):
-    return Tenant.objects.create(name="Empresa Test", slug="empresa-test")
+    # Skip auto-subscription so billing tests can control subscription state themselves
+    t = Tenant(name="Empresa Test", slug="empresa-test")
+    t._skip_subscription = True
+    t.save()
+    return t
 
 
 @pytest.fixture

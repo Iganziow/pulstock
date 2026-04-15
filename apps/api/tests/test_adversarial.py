@@ -550,12 +550,19 @@ class TestBillingAbuse:
         assert r.status_code == 200
 
     def test_webhook_falso_token(self):
-        """Webhook with fake token → should not crash."""
+        """Webhook with fake token → should not crash.
+
+        In PAYMENT_GATEWAY=flow mode, missing/invalid HMAC signature → 403.
+        In PAYMENT_GATEWAY=mock mode, signature is skipped → 200/400/502.
+        """
+        from django.conf import settings
         c = APIClient()
-        # Non-hex token: rejected by gateway format validation (returns -1 → 502)
-        # or in mock mode returns 200 (mock always returns status=2)
         r = c.post("/api/billing/webhook/flow/", {"token": "FAKE_TOKEN_12345"})
-        assert r.status_code in (200, 400, 502)
+        if settings.PAYMENT_GATEWAY == "mock":
+            assert r.status_code in (200, 400, 502)
+        else:
+            # Firma HMAC ausente → rechazo por seguridad
+            assert r.status_code == 403
 
     def test_webhook_sin_token(self):
         c = APIClient()

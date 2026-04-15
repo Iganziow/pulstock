@@ -6,6 +6,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { apiFetch, clearTokens } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -610,7 +611,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {sidebarContent}
           </aside>
         </>)}
-        <main style={{ flex: 1, overflow: "auto", paddingBottom: 72 }}>{children}</main>
+        <main style={{ flex: 1, overflow: "auto", paddingBottom: 72 }}><ErrorBoundary>{children}</ErrorBoundary></main>
         <nav className="safe-bottom" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 50, paddingBottom: "max(4px, env(safe-area-inset-bottom))" }}>
           {visibleBottom.map(item => {
             const active = isActive(item.href);
@@ -647,7 +648,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Content */}
         <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-          {children}
+          <ErrorBoundary>{children}</ErrorBoundary>
         </main>
       </div>
     </div>

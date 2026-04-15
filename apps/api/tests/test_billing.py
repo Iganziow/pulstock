@@ -591,7 +591,14 @@ class TestGateway:
 # 26-34: Webhook Flow
 # ══════════════════════════════════════════════════
 
+@pytest.fixture
+def _mock_flow_gateway(settings):
+    """Force PAYMENT_GATEWAY=mock for webhook tests (skips HMAC signature check)."""
+    settings.PAYMENT_GATEWAY = "mock"
+
+
 @pytest.mark.django_db
+@pytest.mark.usefixtures("_mock_flow_gateway")
 class TestFlowWebhook:
 
     def test_valid_payment_activates_period(self, api_client, subscription, pending_invoice):
@@ -615,7 +622,9 @@ class TestFlowWebhook:
             period_end_1 = Subscription.objects.get(pk=subscription.pk).current_period_end
             resp2 = api_client.post("/api/billing/webhook/flow/", {"token": "T1"}, format="multipart")
         assert resp2.status_code == 200
-        assert "already processed" in resp2.data.get("detail", "")
+        # Second webhook is detected as duplicate (by flowOrder) or as "already paid"
+        detail = resp2.data.get("detail", "")
+        assert "duplicate" in detail or "already" in detail
         subscription.refresh_from_db()
         assert subscription.current_period_end == period_end_1
 
@@ -744,7 +753,9 @@ class TestConfirmPayment:
     def test_tenant_mismatch_returns_404(self, auth_client, pro_plan):
         """Un usuario no puede confirmar pago de otro tenant."""
         from core.models import Tenant
-        other_tenant = Tenant.objects.create(name="Other Biz")
+        other_tenant = Tenant(name="Other Biz")
+        other_tenant._skip_subscription = True
+        other_tenant.save()
         other_sub = Subscription.objects.create(
             tenant=other_tenant, plan=pro_plan,
             status=Subscription.Status.ACTIVE,

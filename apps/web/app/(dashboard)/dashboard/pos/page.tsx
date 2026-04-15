@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiFetch } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { C } from "@/lib/theme";
 import { formatCLP } from "@/lib/format";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -31,7 +32,7 @@ type CartDraft = {
 };
 
 function saveCartDraft(d: CartDraft) {
-  try { localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(d)); } catch (e) { console.error("POS: error guardando borrador del carrito:", e); }
+  try { localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(d)); } catch (e) { logger.error("POS: error guardando borrador del carrito:", e); }
 }
 function loadCartDraft(): CartDraft | null {
   try {
@@ -41,13 +42,13 @@ function loadCartDraft(): CartDraft | null {
     if (!draft?.cart || !Array.isArray(draft.cart)) return null;
     return draft;
   } catch (e) {
-    console.error("POS: error leyendo borrador del carrito:", e);
+    logger.error("POS: error leyendo borrador del carrito:", e);
     localStorage.removeItem(POS_CART_STORAGE_KEY);
     return null;
   }
 }
 function clearCartDraft() {
-  try { localStorage.removeItem(POS_CART_STORAGE_KEY); } catch (e) { console.error("POS: error limpiando borrador del carrito:", e); }
+  try { localStorage.removeItem(POS_CART_STORAGE_KEY); } catch (e) { logger.error("POS: error limpiando borrador del carrito:", e); }
 }
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -149,8 +150,8 @@ export default function PosPage() {
         const hasDefault = me.default_warehouse_id && list.some((w) => w.id === me.default_warehouse_id);
         const nextId     = hasStored ? storedId! : hasDefault ? me.default_warehouse_id! : list[0].id;
         setWarehouseId(nextId);
-        try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(nextId)); } catch (e) { console.error("POS: error guardando bodega seleccionada:", e); }
-      } catch (e) { console.error("POS: error cargando bodegas:", e); setWarehouseId(null); }
+        try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(nextId)); } catch (e) { logger.error("POS: error guardando bodega seleccionada:", e); }
+      } catch (e) { logger.error("POS: error cargando bodegas:", e); setWarehouseId(null); }
     })();
   }, [me?.tenant_id, me?.default_warehouse_id]);
 
@@ -353,7 +354,7 @@ export default function PosPage() {
                 const next = Number(e.target.value);
                 const id   = Number.isFinite(next) && next > 0 ? next : null;
                 setWarehouseId(id);
-                if (id) { try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(id)); } catch (e) { console.error("POS: error persistiendo bodega seleccionada:", e); } }
+                if (id) { try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(id)); } catch (e) { logger.error("POS: error persistiendo bodega seleccionada:", e); } }
                 requestAnimationFrame(() => inputRef.current?.focus());
               }}
               disabled={busy || !!meErr}
