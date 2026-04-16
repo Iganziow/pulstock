@@ -610,7 +610,14 @@ class AlertPreferenceView(APIView):
               "merma_alta", "sin_rotacion", "resumen_diario")
 
     def _get_or_create(self, user):
-        prefs, _ = AlertPreference.objects.get_or_create(user=user)
+        prefs, _ = AlertPreference.objects.get_or_create(
+            user=user,
+            defaults={"tenant_id": user.tenant_id},
+        )
+        # Backfill tenant_id on legacy rows (created before this fix)
+        if not prefs.tenant_id and user.tenant_id:
+            prefs.tenant_id = user.tenant_id
+            prefs.save(update_fields=["tenant_id"])
         return prefs
 
     def get(self, request):
@@ -639,8 +646,14 @@ class NotificationsView(APIView):
         tid = user.tenant_id
         sid = getattr(user, "active_store_id", None)
 
-        # Load user preferences
-        prefs, _ = AlertPreference.objects.get_or_create(user=user)
+        # Load user preferences (ensure tenant_id is set)
+        prefs, _ = AlertPreference.objects.get_or_create(
+            user=user,
+            defaults={"tenant_id": tid},
+        )
+        if not prefs.tenant_id and tid:
+            prefs.tenant_id = tid
+            prefs.save(update_fields=["tenant_id"])
 
         notifications = []
 
@@ -684,8 +697,10 @@ class NotificationsView(APIView):
                         "link": "/dashboard/forecast",
                         "severity": "critical" if f.days_to_stockout <= 1 else "warning",
                     })
-            except Exception:
-                pass
+            except (ImportError, AttributeError, ValueError) as e:
+                logger.warning("Notifications: forecast queries failed: %s", e)
+            except Exception as e:
+                logger.exception("Notifications: unexpected error in forecast: %s", e)
 
         # ── Sugerencias de compra pendientes ──
         if prefs.sugerencia_compra:
@@ -703,8 +718,10 @@ class NotificationsView(APIView):
                         "link": "/dashboard/forecast/suggestions",
                         "severity": "info",
                     })
-            except Exception:
-                pass
+            except (ImportError, AttributeError, ValueError) as e:
+                logger.warning("Notifications: purchase suggestions failed: %s", e)
+            except Exception as e:
+                logger.exception("Notifications: unexpected error in suggestions: %s", e)
 
         # ── Merma alta (último mes) ──
         if prefs.merma_alta:

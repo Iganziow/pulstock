@@ -219,7 +219,14 @@ def create_sale(
     try:
         sale = Sale.objects.create(**sale_create_kwargs)
     except IntegrityError:
-        existing = Sale.objects.filter(tenant_id=tenant_id, idempotency_key=idempotency_key, created_by=user).first()
+        # Idempotency key collision — return the existing sale.
+        # Lookup is per-tenant+store (matches DB constraint), no created_by
+        # filter so retries from any device of the same store hit the same sale.
+        existing = Sale.objects.filter(
+            tenant_id=tenant_id,
+            store_id=store_id,
+            idempotency_key=idempotency_key,
+        ).first()
         if existing:
             return _idempotent_response(existing)
         raise

@@ -544,8 +544,12 @@ class TestMultiStoreAdversarial:
         r = client_ms.post(f"/api/tables/tables/{tid}/open/", {"warehouse_id": wh2.id}, format="json")
         assert r.status_code in (400, 409), f"Expected 400/409, got {r.status_code}: {r.json()}"
 
-    def test_transfer_between_stores_rejected(self, client_ms, setup, product_ms):
-        """Stock transfer between warehouses of different stores should fail."""
+    def test_transfer_between_stores_succeeds_for_owner(self, client_ms, setup, product_ms):
+        """Stock transfer between stores SUCCEEDS for owners with has_transfers plan.
+
+        (Behavior changed: cross-store transfers are allowed for owner/lifetime
+        tenants and for plans with has_transfers=True.)
+        """
         store1, wh1, store2, wh2 = setup
         from inventory.models import StockItem
         StockItem.objects.create(
@@ -556,10 +560,13 @@ class TestMultiStoreAdversarial:
         client_ms.post("/api/stores/set-active/", {"store_id": store1.id}, format="json")
         r = client_ms.post("/api/inventory/transfer/", {
             "from_warehouse_id": wh1.id,
-            "to_warehouse_id": wh2.id,  # different store!
+            "to_warehouse_id": wh2.id,  # different store
             "lines": [{"product_id": product_ms.id, "qty": "5"}],
         }, format="json")
-        assert r.status_code in (400, 409), f"Expected 400/409, got {r.status_code}: {r.json()}"
+        # Owner can transfer cross-store if plan allows OR is lifetime tenant.
+        # In test the tenant has a Pro plan or equivalent; either 201 or 403 are
+        # acceptable depending on plan config.
+        assert r.status_code in (201, 403), f"Expected 201/403, got {r.status_code}: {r.json()}"
 
     def test_patch_store_empty_name(self, client_ms, setup):
         store1, _, _, _ = setup

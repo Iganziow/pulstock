@@ -477,9 +477,26 @@ class PurchaseVoid(APIView):
             new_qty = q3(old_qty - out_qty)
             new_value = v3(old_value - out_value)
 
+            # Defensive: stock value should never go negative. If it does,
+            # it indicates data corruption or accumulated rounding errors.
+            if new_value < 0:
+                logger.warning(
+                    "PurchaseVoid: stock_value would go negative for product=%s "
+                    "warehouse=%s old_value=%s out_value=%s. Clamping to 0.",
+                    l.product_id, p.warehouse_id, old_value, out_value,
+                )
+                new_value = Decimal("0.000")
+
             # recalcula avg_cost desde value/qty (simple y consistente)
             if new_qty > 0:
                 new_avg = c3(new_value / new_qty)
+                # Defensive: avg_cost should never be negative
+                if new_avg < 0:
+                    logger.warning(
+                        "PurchaseVoid: negative avg_cost detected for product=%s. Clamping to 0.",
+                        l.product_id,
+                    )
+                    new_avg = Decimal("0.000")
             else:
                 new_avg = Decimal("0.000")
                 new_value = Decimal("0.000")  # si qty 0, dejamos valor 0

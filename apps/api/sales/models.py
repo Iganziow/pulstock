@@ -85,9 +85,9 @@ class Sale(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "idempotency_key"],
+                fields=["tenant", "store", "idempotency_key"],
                 condition=~Q(idempotency_key=""),
-                name="unique_sale_idempotency_key_per_tenant",
+                name="unique_sale_idempotency_key_per_store",
             ),
             models.UniqueConstraint(
                 fields=["tenant", "sale_number"],
