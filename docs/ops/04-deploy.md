@@ -16,7 +16,7 @@ git push origin main
 ### Paso 2 — En el servidor (pull + rebuild)
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 ```
 
 **Si solo cambió el backend (Python):**

@@ -3,7 +3,7 @@
 ## Conectar por SSH
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 ```
 
 Si te pide password usa el que guardaste. Si ya configuraste tu llave SSH (`~/.ssh/id_ed25519.pub` en `authorized_keys` del servidor), entra sin password.
@@ -17,7 +17,7 @@ Desde tu máquina local (una sola vez):
 cat ~/.ssh/id_ed25519.pub
 
 # 2. Copiar al servidor
-ssh root@65.108.148.200 "mkdir -p ~/.ssh && echo 'TU_LLAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+ssh root@<TU_SERVIDOR> "mkdir -p ~/.ssh && echo 'TU_LLAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 ```
 
 ## Ubicaciones importantes

@@ -101,7 +101,7 @@ Para evitar pérdida total si el servidor muere:
 
 ```bash
 # Descarga el backup más reciente a tu máquina local
-scp root@65.108.148.200:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/
+scp root@<TU_SERVIDOR>:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/
 ```
 
 Guárdalo en Google Drive / Dropbox / disco externo.

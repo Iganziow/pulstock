@@ -5,7 +5,7 @@ Tareas que tienes que hacer **aunque todo funcione bien**.
 ## 📅 Semanal (5 minutos)
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 
 # 1. Estado general
 pm2 list
@@ -37,7 +37,7 @@ grep -c Traceback /var/log/pulstock/gunicorn-error.log
 
 ```bash
 # Desde tu máquina local
-scp root@65.108.148.200:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/pulstock_backup_$(date +%Y%m).sql.gz
+scp root@<TU_SERVIDOR>:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/pulstock_backup_$(date +%Y%m).sql.gz
 ```
 
 Guarda en Google Drive / Dropbox / disco externo.
@@ -45,7 +45,7 @@ Guarda en Google Drive / Dropbox / disco externo.
 ### 2. Actualización de paquetes del sistema (con cuidado)
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 
 # Ver qué se actualizaría
 apt list --upgradable 2>/dev/null | head -20
@@ -108,7 +108,7 @@ tail -20 /var/backups/pulstock/backup.log
 ```bash
 # En una VPS de prueba o en Docker
 # 1. Copia el último backup
-scp root@65.108.148.200:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz /tmp/
+scp root@<TU_SERVIDOR>:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz /tmp/
 
 # 2. Crea BD temporal y restaura
 sudo -u postgres psql -c "CREATE DATABASE pulstock_test;"

@@ -8,7 +8,7 @@ Guía para cuando todo está mal. Sigue los pasos en orden.
 
 ```bash
 # Desde tu máquina local
-ping 65.108.148.200
+ping <TU_SERVIDOR>
 ```
 
 - **Responde:** el servidor está arriba, problema es con los servicios → salta al Paso 2
@@ -21,7 +21,7 @@ ping 65.108.148.200
 ### Paso 2 — SSH al servidor
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 ```
 
 - **No conecta:** red o firewall → panel Hetzner, verificar firewall

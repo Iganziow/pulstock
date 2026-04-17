@@ -18,9 +18,9 @@ Guía práctica para mantener Pulstock en producción sin soporte externo.
 
 | Item | Valor |
 |------|-------|
-| Servidor | `65.108.148.200` (Hetzner) |
+| Servidor | `<TU_SERVIDOR>` (Hetzner) |
 | Usuario SSH | `root` |
-| URL app | http://65.108.148.200 |
+| URL app | http://<TU_SERVIDOR> |
 | Rama producción | `main` |
 | Base de datos | PostgreSQL (local, puerto 5432) |
 | Frontend | Next.js en puerto 3000 (PM2) |

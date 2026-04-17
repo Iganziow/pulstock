@@ -5,7 +5,7 @@ Los comandos que más vas a usar, listos para copiar y pegar.
 ## Verificar estado general (5 segundos)
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 pm2 list && pgrep -fl "gunicorn.*api.wsgi" | head -1 && df -h / | tail -1
 ```
 

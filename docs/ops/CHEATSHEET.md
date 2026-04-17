@@ -4,7 +4,7 @@ Imprime esto y tenlo a mano.
 
 ## Entrar al servidor
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 ```
 
 ## Verificar estado (4 líneas)

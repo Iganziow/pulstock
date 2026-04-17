@@ -9,7 +9,7 @@ Los problemas que más vas a ver en producción, con su solución.
 ### Diagnóstico rápido
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 pm2 list
 pgrep -fl "gunicorn.*api.wsgi"
 systemctl is-active nginx
@@ -342,7 +342,7 @@ systemctl status pm2-root
 ## 🚨 Cuando nada funciona — reinicio completo
 
 ```bash
-ssh root@65.108.148.200
+ssh root@<TU_SERVIDOR>
 
 # 1. Reiniciar todo
 systemctl restart postgresql
