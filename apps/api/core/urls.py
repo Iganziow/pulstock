@@ -753,6 +753,73 @@ class NotificationsView(APIView):
         })
 
 
+class NetworkPrintProxyView(APIView):
+    """
+    POST /api/core/print/network/
+    Body: { "host": "192.168.1.50", "port": 9100, "data_b64": "<base64 ESC/POS>" }
+
+    Proxy para impresoras de red (ESC/POS sobre TCP raw — puerto 9100 estándar).
+    Permite que el navegador (que no puede abrir sockets TCP) imprima a
+    impresoras de red como Epson TM-T20III, Xprinter WiFi, Bixolon, etc.
+
+    Solo redirige TCP en la red LOCAL del servidor — NO accede a internet público
+    por seguridad (validación de rango IP privado).
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def post(self, request):
+        import base64
+        import ipaddress
+        import socket
+
+        host = (request.data.get("host") or "").strip()
+        port = int(request.data.get("port") or 9100)
+        data_b64 = request.data.get("data_b64") or ""
+
+        if not host or not data_b64:
+            return Response({"detail": "host y data_b64 son requeridos."}, status=400)
+
+        # Security: only allow private/local addresses (anti-SSRF)
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(host))
+            if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+                return Response(
+                    {"detail": "Solo se permiten impresoras en red privada/local."},
+                    status=400,
+                )
+        except (ValueError, socket.gaierror) as e:
+            return Response({"detail": f"Host inválido: {e}"}, status=400)
+
+        if not (1 <= port <= 65535):
+            return Response({"detail": "Puerto inválido (1-65535)."}, status=400)
+
+        try:
+            data = base64.b64decode(data_b64)
+        except Exception as e:
+            return Response({"detail": f"data_b64 inválido: {e}"}, status=400)
+
+        if len(data) > 200_000:  # 200KB max per print (safety)
+            return Response({"detail": "Payload demasiado grande."}, status=400)
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((host, port))
+            sock.sendall(data)
+            sock.close()
+            return Response({"ok": True, "bytes_sent": len(data)})
+        except (socket.timeout, ConnectionRefusedError) as e:
+            return Response(
+                {"detail": f"No se pudo conectar a {host}:{port}. {e}"},
+                status=502,
+            )
+        except OSError as e:
+            return Response(
+                {"detail": f"Error de red: {e}"},
+                status=502,
+            )
+
+
 urlpatterns = [
     path("health/", HealthView.as_view()),
     path("me/", MeView.as_view()),
@@ -766,4 +833,5 @@ urlpatterns = [
     path("users/<int:user_id>/", TenantUserDetailView.as_view()),
     path("alerts/", AlertPreferenceView.as_view()),
     path("notifications/", NotificationsView.as_view()),
+    path("print/network/", NetworkPrintProxyView.as_view()),
 ]

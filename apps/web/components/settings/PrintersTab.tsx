@@ -124,6 +124,22 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
     flash("ok", "Impresora de red agregada");
   };
 
+  const handleTestNetworkConnection = async () => {
+    if (!addAddress.trim()) { flash("err", "Ingresa la dirección IP primero"); return; }
+    setPairing(true);
+    try {
+      const { testNetworkPrinter } = require("@/lib/printer");
+      const result = await testNetworkPrinter(addAddress.trim());
+      if (result.ok) {
+        flash("ok", "✓ Conexión exitosa — la impresora responde");
+      } else {
+        flash("err", result.error || "No se pudo conectar a la impresora");
+      }
+    } catch (e: any) {
+      flash("err", e?.message || "Error al probar la conexión");
+    } finally { setPairing(false); }
+  };
+
   const handleAddSystem = () => {
     const { savePrinter, generateId } = require("@/lib/printer");
     const cfg: PrinterConfig = { id: generateId(), name: addName || "Impresora del sistema", type: "system", paperWidth: addWidth };
@@ -256,12 +272,23 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
                   </div>
                 </div>
                 {addType === "network" && (
-                  <div style={FL}>
-                    <Label req>Dirección IP</Label>
-                    <input style={iS} value={addAddress} onChange={e => setAddAddress(e.target.value)}
-                      placeholder="192.168.1.100:9100" />
-                    <Hint>IP y puerto de la impresora en tu red local</Hint>
-                  </div>
+                  <>
+                    <div style={{ background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: C.green, lineHeight: 1.5 }}>
+                      <strong>✓ Funciona con cualquier dispositivo</strong> (iPhone, Android, PC, tablet). La impresora se conecta al WiFi de tu local y TODOS imprimen desde allí sin configuración individual.
+                    </div>
+                    <div style={FL}>
+                      <Label req>Dirección IP : Puerto</Label>
+                      <input style={iS} value={addAddress} onChange={e => setAddAddress(e.target.value)}
+                        placeholder="192.168.1.100:9100" />
+                      <Hint>
+                        Puerto 9100 es el estándar ESC/POS (no lo cambies si no sabes).
+                        Revisa la IP de tu impresora en su menú de red o imprime el reporte de configuración.
+                      </Hint>
+                    </div>
+                    <Btn onClick={handleTestNetworkConnection} disabled={pairing || !addAddress.trim()} variant="secondary">
+                      {pairing ? "Probando..." : "🔍 Probar conexión"}
+                    </Btn>
+                  </>
                 )}
                 <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                   <Btn onClick={() => {

@@ -216,16 +216,57 @@ async function sendBTChunks(ch: any, data: Uint8Array): Promise<void> {
 
 // ── Network ──────────────────────────────────────────────────────────────────
 
+/**
+ * Parse "192.168.1.50:9100" → { host, port }
+ * Defaults to port 9100 (standard ESC/POS).
+ */
+function parseNetworkAddress(address: string): { host: string; port: number } {
+  const clean = address.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const [host, portStr] = clean.split(":");
+  const port = portStr ? parseInt(portStr, 10) : 9100;
+  return { host: host.trim(), port: Number.isFinite(port) ? port : 9100 };
+}
+
+/**
+ * Send ESC/POS bytes to a network printer (LAN).
+ *
+ * Browsers cannot open raw TCP sockets, so this POSTs to our backend proxy
+ * (/api/core/print/network/) which opens the TCP connection on port 9100
+ * (or whatever is specified) and forwards the ESC/POS data.
+ *
+ * The backend validates the target IP is in a private LAN range (anti-SSRF).
+ */
 async function sendNetwork(data: Uint8Array, address: string): Promise<void> {
-  // Try HTTP POST — works with some modern thermal printers
-  // and with print server proxies
-  const url = address.startsWith("http") ? address : `http://${address}`;
-  const res = await fetch(url, {
+  const { host, port } = parseNetworkAddress(address);
+
+  // Convert bytes to base64 for JSON transport
+  let binary = "";
+  for (let i = 0; i < data.byteLength; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  const data_b64 = typeof btoa !== "undefined" ? btoa(binary) : Buffer.from(data).toString("base64");
+
+  // Import dynamically to avoid circular deps
+  const { apiFetch } = await import("@/lib/api");
+  await apiFetch("/core/print/network/", {
     method: "POST",
-    headers: { "Content-Type": "application/octet-stream" },
-    body: data as any,
+    body: JSON.stringify({ host, port, data_b64 }),
   });
-  if (!res.ok) throw new Error(`Error de red: ${res.status}`);
+}
+
+/**
+ * Test connectivity to a network printer (without actually printing).
+ * Sends a minimal ESC/POS beep/feed command.
+ */
+export async function testNetworkPrinter(address: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    // ESC @ (initialize) + LF (feed) — totally harmless
+    const testBytes = new Uint8Array([0x1b, 0x40, 0x0a]);
+    await sendNetwork(testBytes, address);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
 
 // ── Main print function ──────────────────────────────────────────────────────
@@ -262,32 +303,206 @@ export function printSystemReceipt(html: string, printer?: PrinterConfig | null)
   printHTML(html, p?.paperWidth ?? 80);
 }
 
+// ── Universal print orchestrator ─────────────────────────────────────────────
+
+export interface UniversalPrintInput {
+  /** Raw ESC/POS bytes (for thermal printers). Optional if only html provided. */
+  bytes?: Uint8Array;
+  /** HTML receipt (for system dialog fallback). Always required. */
+  html: string;
+  /** Preferred paper width for HTML fallback. */
+  paperWidth?: 58 | 80;
+}
+
+/**
+ * Imprime usando el método más universal disponible.
+ *
+ * Intenta en orden:
+ *   1. La impresora por defecto (BLE/USB/Network), si está configurada
+ *   2. Cae a window.print() (AirPrint/Google Cloud Print/cualquier impresora del sistema)
+ *
+ * SIEMPRE termina imprimiendo (mediante el diálogo del navegador) si todo lo demás falla.
+ */
+export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string }> {
+  const p = getDefaultPrinter();
+  const width: 58 | 80 = input.paperWidth || p?.paperWidth || 80;
+
+  // If no default printer → straight to system dialog
+  if (!p || p.type === "system") {
+    try {
+      printHTML(input.html, width);
+      return { method: "system", ok: true };
+    } catch (e: any) {
+      return { method: "system", ok: false, error: e?.message || "Error al imprimir" };
+    }
+  }
+
+  // If we have bytes, try the configured printer
+  if (input.bytes) {
+    try {
+      await printBytes(input.bytes, p);
+      return { method: p.type, ok: true };
+    } catch (e: any) {
+      // Fall through to system dialog
+      const err = e?.message || String(e);
+      try {
+        printHTML(input.html, width);
+        return { method: "system", ok: true, error: `Fallback desde ${p.type}: ${err}` };
+      } catch (e2: any) {
+        return { method: "failed", ok: false, error: `${p.type} falló: ${err}. Diálogo tampoco funcionó: ${e2?.message}` };
+      }
+    }
+  }
+
+  // No bytes available → go straight to system dialog
+  try {
+    printHTML(input.html, width);
+    return { method: "system", ok: true };
+  } catch (e: any) {
+    return { method: "system", ok: false, error: e?.message || "Error al imprimir" };
+  }
+}
+
 // ── HTML fallback (window.print) ─────────────────────────────────────────────
 
 export function printHTML(html: string, paperWidth: 58 | 80 = 80): void {
+  // Inner body width with margins for thermal printers (safe-zone)
   const bodyW = paperWidth === 58 ? "48mm" : "72mm";
   const pageW = `${paperWidth}mm`;
 
   const CSS = `
-    @page { margin: 0; size: ${pageW} auto; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: ${bodyW}; margin: 0 auto; padding: 3mm 2mm; }
-    body {
-      font-family: 'Courier New', 'Lucida Console', monospace;
-      font-size: 11px; line-height: 1.4; color: #000;
+    /* ─── Thermal printer page settings ───────────────────────── */
+    @page {
+      margin: 0;
+      size: ${pageW} auto;
     }
-    .title { text-align: center; font-size: 16px; font-weight: 900; letter-spacing: 1px; padding: 4px 0; }
+    @media print {
+      @page {
+        margin: 0 !important;
+        size: ${pageW} auto !important;
+      }
+      html, body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      /* Hide anything that shouldn't print */
+      .no-print { display: none !important; }
+    }
+
+    /* ─── Reset ───────────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ─── Base body ───────────────────────────────────────────── */
+    html, body {
+      width: ${bodyW};
+      margin: 0 auto;
+      padding: 3mm 2mm;
+      background: #fff;
+    }
+    body {
+      font-family: 'Courier New', 'Lucida Console', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #000;
+      /* Improve font rendering for thermal */
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: none;
+      text-rendering: optimizeLegibility;
+      /* Prevent text from being cut off */
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    /* ─── Receipt elements ────────────────────────────────────── */
+    .title {
+      text-align: center;
+      font-size: ${paperWidth === 58 ? "14px" : "16px"};
+      font-weight: 900;
+      letter-spacing: 1px;
+      padding: 4px 0;
+    }
     .center { text-align: center; }
-    .bold { font-weight: bold; }
-    .sep { border-top: 1px dashed #000; margin: 5px 0; }
-    .sep-double { border-top: 2px solid #000; margin: 5px 0; }
-    .row { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 0; }
-    .row .price { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .info { font-size: 10px; color: #333; }
-    .total-row { font-size: 14px; font-weight: 900; padding: 3px 0; }
-    .disclaimer { font-size: 9px; text-align: center; padding: 6px 0 2px; color: #555; }
-    .item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; padding-right: 8px; }
-    .footer { text-align: center; font-size: 10px; padding-top: 6px; color: #555; }
+    .right  { text-align: right; }
+    .left   { text-align: left; }
+    .bold   { font-weight: bold; }
+    .big    { font-size: ${paperWidth === 58 ? "13px" : "15px"}; }
+    .small  { font-size: ${paperWidth === 58 ? "9px" : "10px"}; }
+
+    /* ─── Separators ──────────────────────────────────────────── */
+    .sep {
+      border-top: 1px dashed #000;
+      margin: 5px 0;
+    }
+    .sep-double {
+      border-top: 2px solid #000;
+      margin: 5px 0;
+    }
+    .sep-thick {
+      border-top: 3px solid #000;
+      margin: 6px 0;
+    }
+
+    /* ─── Rows (item name + price) ────────────────────────────── */
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 1px 0;
+      gap: 4px;
+    }
+    .row .price {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+    .item-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+      padding-right: 8px;
+    }
+
+    /* ─── Information blocks ──────────────────────────────────── */
+    .info   { font-size: 10px; color: #333; }
+    .total-row {
+      font-size: ${paperWidth === 58 ? "13px" : "14px"};
+      font-weight: 900;
+      padding: 3px 0;
+    }
+    .disclaimer {
+      font-size: 9px;
+      text-align: center;
+      padding: 6px 0 2px;
+      color: #555;
+    }
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      padding-top: 6px;
+      color: #555;
+    }
+
+    /* ─── Barcode / QR placeholder ────────────────────────────── */
+    .barcode {
+      text-align: center;
+      font-family: 'Libre Barcode 128', monospace;
+      font-size: 24px;
+      letter-spacing: 1px;
+      margin: 4px 0;
+    }
+    .qr {
+      text-align: center;
+      margin: 6px auto;
+    }
+    .qr img {
+      max-width: 30mm;
+      height: auto;
+      display: inline-block;
+    }
   `;
 
   // Use hidden iframe to print without opening a new window
@@ -297,21 +512,49 @@ export function printHTML(html: string, paperWidth: 58 | 80 = 80): void {
 
   iframe = document.createElement("iframe");
   iframe.id = id;
-  iframe.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:80mm;height:0;border:none;";
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText = `
+    position:fixed;left:-9999px;top:-9999px;
+    width:${paperWidth}mm;height:0;border:none;
+    visibility:hidden;
+  `;
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument || iframe.contentWindow?.document;
   if (!doc) return;
 
   doc.open();
-  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Boleta</title><style>${CSS}</style></head><body>${html}</body></html>`);
+  doc.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Boleta Pulstock</title>
+  <style>${CSS}</style>
+</head>
+<body>${html}</body>
+</html>`);
   doc.close();
 
-  // Wait for content to render, then print
-  setTimeout(() => {
-    iframe!.contentWindow?.focus();
-    iframe!.contentWindow?.print();
-    // Cleanup after print dialog closes
-    setTimeout(() => iframe?.remove(), 2000);
-  }, 250);
+  // Wait for fonts/content to load, then trigger print
+  const doPrint = () => {
+    try {
+      iframe!.contentWindow?.focus();
+      iframe!.contentWindow?.print();
+    } catch (e) {
+      // Silently ignore — user may have cancelled
+    } finally {
+      // Cleanup after print dialog closes
+      setTimeout(() => iframe?.remove(), 3000);
+    }
+  };
+
+  // Give the browser time to render fonts + layout
+  if (iframe.contentDocument?.readyState === "complete") {
+    setTimeout(doPrint, 150);
+  } else {
+    iframe.addEventListener("load", () => setTimeout(doPrint, 150), { once: true });
+    // Fallback if load never fires
+    setTimeout(doPrint, 500);
+  }
 }
