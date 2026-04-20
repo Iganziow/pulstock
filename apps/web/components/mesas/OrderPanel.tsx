@@ -123,7 +123,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           if (getDefaultPrinter()) {
             await handlePrintReceipt(saleId);
           }
-        } catch { /* silently skip auto-print errors */ }
+        } catch (e) {
+          // Auto-print falló (impresora desconectada, agente offline, 402 suscripción…).
+          // No bloqueamos el cobro — pero lo logueamos para no quedar ciegos.
+          // eslint-disable-next-line no-console
+          console.warn("[auto-print] falló:", e);
+        }
       }
       onRefresh();
     } catch (e: unknown) {

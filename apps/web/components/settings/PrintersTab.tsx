@@ -2,8 +2,21 @@
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 import type { PrinterConfig, PrinterType } from "@/lib/printer";
+import {
+  getSavedPrinters, getDefaultPrinter, savePrinter, removePrinter,
+  setDefaultPrinter, generateId, pairUSBPrinter, pairBluetoothPrinter,
+  testNetworkPrinter, printSystemReceipt, printBytes,
+} from "@/lib/printer";
 import { apiFetch } from "@/lib/api";
+import { EscPos } from "@/lib/escpos";
 import { Card, SectionHeader, Divider, Btn, Spinner, Label, Hint, iS, FL } from "./SettingsUI";
+
+// Escape HTML for safe interpolation in receipt test prints.
+function esc(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 // ── Types for agent API ──────────────────────────────────────────────
 interface AgentPrinterDTO {
@@ -53,7 +66,6 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
 
   const reload = () => {
     try {
-      const { getSavedPrinters, getDefaultPrinter } = require("@/lib/printer");
       setPrinters(getSavedPrinters());
       setDefaultId(getDefaultPrinter()?.id || null);
     } catch { setPrinters([]); }
@@ -63,14 +75,12 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
 
   const handleRemove = (id: string) => {
     if (!confirm("¿Eliminar esta impresora?")) return;
-    const { removePrinter } = require("@/lib/printer");
     removePrinter(id);
     reload();
     flash("ok", "Impresora eliminada");
   };
 
   const handleSetDefault = (id: string) => {
-    const { setDefaultPrinter } = require("@/lib/printer");
     setDefaultPrinter(id);
     setDefaultId(id);
     flash("ok", "Impresora predeterminada actualizada");
@@ -79,12 +89,11 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
   const handleTest = async (p: PrinterConfig) => {
     try {
       if (p.type === "system") {
-        const { printSystemReceipt } = require("@/lib/printer");
         const html = `
           <div class="title">PRUEBA</div>
           <div class="sep-double"></div>
-          <div class="row"><span>Impresora:</span><span>${p.name}</span></div>
-          <div class="row"><span>Tipo:</span><span>${p.type.toUpperCase()}</span></div>
+          <div class="row"><span>Impresora:</span><span>${esc(p.name)}</span></div>
+          <div class="row"><span>Tipo:</span><span>${esc(p.type.toUpperCase())}</span></div>
           <div class="row"><span>Ancho:</span><span>${p.paperWidth}mm</span></div>
           <div class="sep-double"></div>
           <div class="center">Impresión OK!</div>
@@ -92,8 +101,6 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
         printSystemReceipt(html, p);
         flash("ok", "Prueba enviada al diálogo de impresión");
       } else {
-        const { EscPos } = require("@/lib/escpos");
-        const { printBytes } = require("@/lib/printer");
         const cols = p.paperWidth === 58 ? 32 : 48;
         const esc = new EscPos();
         esc.init()
@@ -116,15 +123,18 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
     }
   };
 
+  const resetAddForm = () => {
+    setShowAdd(false); setAddType(null); setAddName(""); setAddAddress(""); setAddWidth(80);
+  };
+
   const handleAddUSB = async () => {
     setPairing(true);
     try {
-      const { pairUSBPrinter, savePrinter, generateId } = require("@/lib/printer");
       await pairUSBPrinter();
       const cfg: PrinterConfig = { id: generateId(), name: addName || "Impresora USB", type: "usb", paperWidth: addWidth };
       savePrinter(cfg);
       reload();
-      setShowAdd(false); setAddType(null); setAddName(""); setAddAddress("");
+      resetAddForm();
       flash("ok", "Impresora USB agregada");
     } catch (e: any) {
       flash("err", e?.message || "No se pudo conectar la impresora USB");
@@ -134,12 +144,11 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
   const handleAddBluetooth = async () => {
     setPairing(true);
     try {
-      const { pairBluetoothPrinter, savePrinter, generateId } = require("@/lib/printer");
       await pairBluetoothPrinter();
       const cfg: PrinterConfig = { id: generateId(), name: addName || "Impresora Bluetooth", type: "bluetooth", paperWidth: addWidth };
       savePrinter(cfg);
       reload();
-      setShowAdd(false); setAddType(null); setAddName(""); setAddAddress("");
+      resetAddForm();
       flash("ok", "Impresora Bluetooth agregada");
     } catch (e: any) {
       flash("err", e?.message || "No se pudo conectar la impresora Bluetooth");
@@ -148,11 +157,10 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
 
   const handleAddNetwork = () => {
     if (!addAddress.trim()) { flash("err", "Ingresa la dirección IP"); return; }
-    const { savePrinter, generateId } = require("@/lib/printer");
     const cfg: PrinterConfig = { id: generateId(), name: addName || "Impresora Red", type: "network", paperWidth: addWidth, address: addAddress.trim() };
     savePrinter(cfg);
     reload();
-    setShowAdd(false); setAddType(null); setAddName(""); setAddAddress("");
+    resetAddForm();
     flash("ok", "Impresora de red agregada");
   };
 
@@ -160,7 +168,6 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
     if (!addAddress.trim()) { flash("err", "Ingresa la dirección IP primero"); return; }
     setPairing(true);
     try {
-      const { testNetworkPrinter } = require("@/lib/printer");
       const result = await testNetworkPrinter(addAddress.trim());
       if (result.ok) {
         flash("ok", "✓ Conexión exitosa — la impresora responde");
@@ -173,11 +180,10 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
   };
 
   const handleAddSystem = () => {
-    const { savePrinter, generateId } = require("@/lib/printer");
     const cfg: PrinterConfig = { id: generateId(), name: addName || "Impresora del sistema", type: "system", paperWidth: addWidth };
     savePrinter(cfg);
     reload();
-    setShowAdd(false); setAddType(null); setAddName(""); setAddAddress("");
+    resetAddForm();
     flash("ok", "Impresora del sistema agregada");
   };
 
@@ -198,14 +204,17 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
   const [pairingInfo, setPairingInfo] = useState<{
     agentId: number; name: string; code: string; expires_at: string;
   } | null>(null);
+  const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
 
   const reloadAgents = async () => {
     setLoadingAgents(true);
     try {
       const data = (await apiFetch("/printing/agents/")) as AgentDTO[];
       setAgents(Array.isArray(data) ? data : []);
-    } catch {
-      setAgents([]);
+      setAgentsLoadError(null);
+    } catch (e: any) {
+      // Distinguir "sin agentes" de "error cargando" — importante para UX
+      setAgentsLoadError(e?.message || "No se pudieron cargar los agentes");
     } finally {
       setLoadingAgents(false);
     }
@@ -247,10 +256,9 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
     try {
       await apiFetch(`/printing/agents/${id}/`, { method: "DELETE" });
       // Also clean up local printer configs that referenced this agent
-      const list = require("@/lib/printer").getSavedPrinters() as PrinterConfig[];
-      list.filter(p => p.type === "agent" && p.agentId === id).forEach(p => {
-        require("@/lib/printer").removePrinter(p.id);
-      });
+      getSavedPrinters()
+        .filter(p => p.type === "agent" && p.agentId === id)
+        .forEach(p => removePrinter(p.id));
       await reloadAgents();
       reload();
       flash("ok", "Agente eliminado");
@@ -274,7 +282,6 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
   };
 
   const handleAdoptPrinter = (agent: AgentDTO, p: AgentPrinterDTO) => {
-    const { savePrinter, generateId } = require("@/lib/printer");
     const cfg: PrinterConfig = {
       id: generateId(),
       name: `${agent.name} · ${p.display_name || p.name}`,
@@ -462,7 +469,20 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
           <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
         )}
 
-        {!loadingAgents && agents.length === 0 && !showAddAgent && (
+        {agentsLoadError && (
+          <div style={{
+            background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8,
+            padding: "10px 14px", fontSize: 12, color: C.red, marginBottom: 10,
+          }}>
+            ⚠ Error al cargar agentes: {agentsLoadError}
+            <button onClick={reloadAgents} style={{
+              marginLeft: 8, border: "none", background: "transparent", color: C.red,
+              cursor: "pointer", fontSize: 12, fontWeight: 700, textDecoration: "underline", padding: 0,
+            }}>Reintentar</button>
+          </div>
+        )}
+
+        {!loadingAgents && !agentsLoadError && agents.length === 0 && !showAddAgent && (
           <div style={{ textAlign: "center", padding: "24px 0" }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>💻</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.mid, marginBottom: 4 }}>No hay agentes PC</div>
@@ -650,7 +670,16 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
                 <li>El PC aparecerá como "En línea" en esta página</li>
               </ol>
               <div style={{ marginTop: 8, color: C.amber }}>
-                ⚠ El código expira en 15 minutos. Si expira, puedes regenerar uno nuevo.
+                {(() => {
+                  try {
+                    const mins = Math.max(1, Math.round(
+                      (new Date(pairingInfo.expires_at).getTime() - Date.now()) / 60000
+                    ));
+                    return `⚠ El código expira en ${mins} minutos. Si expira, puedes regenerar uno nuevo.`;
+                  } catch {
+                    return "⚠ El código expira pronto. Si expira, puedes regenerar uno nuevo.";
+                  }
+                })()}
               </div>
             </div>
 

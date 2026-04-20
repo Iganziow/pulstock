@@ -247,7 +247,7 @@ async function sendNetwork(data: Uint8Array, address: string): Promise<void> {
   for (let i = 0; i < data.byteLength; i++) {
     binary += String.fromCharCode(data[i]);
   }
-  const data_b64 = typeof btoa !== "undefined" ? btoa(binary) : Buffer.from(data).toString("base64");
+  const data_b64 = btoa(binary);
 
   // Import dynamically to avoid circular deps
   const { apiFetch } = await import("@/lib/api");
@@ -291,9 +291,7 @@ async function sendAgent(data: Uint8Array, printer: PrinterConfig): Promise<void
   for (let i = 0; i < data.byteLength; i++) {
     binary += String.fromCharCode(data[i]);
   }
-  const data_b64 = typeof btoa !== "undefined"
-    ? btoa(binary)
-    : Buffer.from(data).toString("base64");
+  const data_b64 = btoa(binary);
 
   const { apiFetch } = await import("@/lib/api");
   await apiFetch("/printing/jobs/queue/", {

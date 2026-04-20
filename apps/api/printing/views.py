@@ -17,13 +17,26 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 
+from django.db import models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+# printer_name debe ser un nombre "seguro" — sin guiones iniciales (evita flags
+# tipo `lp -d -oraw`), sin caracteres de control.
+_PRINTER_NAME_RE = re.compile(r"^[A-Za-z0-9 _\-\.\(\)\#/]{1,150}$")
+
+def _is_safe_printer_name(name: str) -> bool:
+    if not name:
+        return True  # vacío = usar default (permitido)
+    if name.startswith("-"):
+        return False
+    return bool(_PRINTER_NAME_RE.match(name))
 
 from core.permissions import HasTenant, IsManager
 from .models import AgentPrinter, PrintAgent, PrintJob
@@ -140,6 +153,16 @@ class AgentDetailView(APIView):
         )
         agent.is_active = False
         agent.save(update_fields=["is_active"])
+        # Cancela cualquier job pendiente/en curso — evita huérfanos que
+        # quedan vivos para siempre si el agente desaparece.
+        PrintJob.objects.filter(
+            agent=agent,
+            status__in=[PrintJob.STATUS_PENDING, PrintJob.STATUS_PRINTING],
+        ).update(
+            status=PrintJob.STATUS_CANCELLED,
+            completed_at=timezone.now(),
+            error_msg="Agente eliminado",
+        )
         return Response(status=204)
 
 
@@ -201,10 +224,22 @@ class JobQueueView(APIView):
             except Exception:
                 return Response({"detail": "data_b64 inválido."}, status=400)
 
+        # Bound HTML payload (evita llenar la DB con MB de HTML)
+        if html and len(html) > 100_000:
+            return Response({"detail": "HTML demasiado grande."}, status=400)
+
+        # Sanitizar printer_name — evita flags maliciosas hacia lp/lpr en Linux
+        printer_name = (request.data.get("printer_name") or "").strip()[:150]
+        if not _is_safe_printer_name(printer_name):
+            return Response(
+                {"detail": "printer_name contiene caracteres inválidos."},
+                status=400,
+            )
+
         job = PrintJob.objects.create(
             tenant_id=request.user.tenant_id,
             agent=agent,
-            printer_name=(request.data.get("printer_name") or "").strip(),
+            printer_name=printer_name,
             data_b64=data_b64,
             html=html,
             source=(request.data.get("source") or "")[:30],
@@ -283,27 +318,53 @@ class AgentPollView(APIView):
 
         agent.touch()
 
-        # Fetch one pending job (FIFO)
-        job = PrintJob.objects.filter(
-            agent=agent, status=PrintJob.STATUS_PENDING,
-        ).order_by("created_at").first()
+        # Watchdog: jobs que quedaron en "printing" por >60s (agente crasheó
+        # entre poll y complete) → devolverlos a pending para reintento.
+        from datetime import timedelta
+        stale_cutoff = timezone.now() - timedelta(seconds=60)
+        PrintJob.objects.filter(
+            agent=agent,
+            status=PrintJob.STATUS_PRINTING,
+            picked_at__lt=stale_cutoff,
+            retry_count__lt=3,
+        ).update(
+            status=PrintJob.STATUS_PENDING,
+            picked_at=None,
+            retry_count=models.F("retry_count") + 1,
+        )
+        # Jobs con retry_count >=3 se marcan failed definitivamente.
+        PrintJob.objects.filter(
+            agent=agent,
+            status=PrintJob.STATUS_PRINTING,
+            picked_at__lt=stale_cutoff,
+            retry_count__gte=3,
+        ).update(
+            status=PrintJob.STATUS_FAILED,
+            completed_at=timezone.now(),
+            error_msg="Agente no completó el trabajo tras 3 reintentos",
+        )
 
-        if not job:
-            return Response({"job": None})
-
-        # Mark as printing (atomic — prevent double pickup)
-        from django.db import transaction
-        with transaction.atomic():
+        # Claim next pending job (FIFO) — con retry si otro proceso lo robó.
+        # El UPDATE ... WHERE status=PENDING es atómico a nivel de fila.
+        job = None
+        for _ in range(5):  # hasta 5 candidatos
+            candidate = PrintJob.objects.filter(
+                agent=agent, status=PrintJob.STATUS_PENDING,
+            ).order_by("created_at").first()
+            if not candidate:
+                return Response({"job": None})
             updated = PrintJob.objects.filter(
-                pk=job.pk, status=PrintJob.STATUS_PENDING,
+                pk=candidate.pk, status=PrintJob.STATUS_PENDING,
             ).update(
                 status=PrintJob.STATUS_PRINTING,
                 picked_at=timezone.now(),
             )
-            if not updated:
-                # Someone else picked it (shouldn't happen with single agent but safe)
-                return Response({"job": None})
-
+            if updated:
+                job = candidate
+                break
+            # otro poll lo tomó — prueba con el siguiente
+        if not job:
+            return Response({"job": None})
         job.refresh_from_db()
         return Response({
             "job": {
