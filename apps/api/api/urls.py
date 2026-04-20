@@ -54,4 +54,5 @@ urlpatterns = [
     path("api/tables/", include("tables.urls")),
     path("api/superadmin/", include("superadmin.urls")),
     path("api/promotions/", include("promotions.urls")),
+    path("api/printing/", include("printing.urls")),
 ]

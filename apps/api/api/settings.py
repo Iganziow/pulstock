@@ -126,6 +126,7 @@ LOCAL_APPS = [
     "onboarding",
     "superadmin.apps.SuperadminConfig",
     "promotions.apps.PromotionsConfig",
+    "printing.apps.PrintingConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

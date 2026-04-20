@@ -32,6 +32,13 @@ ALWAYS_ALLOWED_PREFIXES = [
     "/api/auth/",
     "/api/billing/",
     "/api/core/health/",
+    # Agent-facing endpoints (api_key auth, not JWT) — bypass subscription check
+    "/api/printing/agents/pair/",
+    "/api/printing/agents/poll/",
+    "/api/printing/agents/printers/",
+    # Note: /api/printing/jobs/queue/ is user-facing → subscription required
+    #       /api/printing/jobs/<id>/complete/ uses api_key → middleware will pass
+    #       (no JWT user resolved) via the fallthrough below.
     "/admin/",
     "/static/",
 ]

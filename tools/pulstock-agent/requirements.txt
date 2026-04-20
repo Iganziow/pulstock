@@ -1,0 +1,5 @@
+# Pulstock Printer Agent dependencies
+# Solo Windows necesita pywin32 para manejar impresoras del sistema.
+# En Mac/Linux usa `lp` / `lpstat` que ya vienen con el sistema.
+
+pywin32>=306; sys_platform == "win32"
