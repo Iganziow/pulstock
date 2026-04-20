@@ -424,6 +424,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "billing.tasks.expire_trials",
         "schedule": crontab(hour=2, minute=0),
     },
+    # ── Printing: cleanup de jobs terminales viejos ──────────────
+    "printing-cleanup-old-jobs": {
+        "task": "printing.tasks.cleanup_old_jobs",
+        "schedule": crontab(hour=3, minute=30),
+    },
     # ── Forecast pipeline (nightly, sequential) ──────────────
     "forecast-aggregate-daily-sales": {
         "task": "forecast.tasks.aggregate_daily_sales",

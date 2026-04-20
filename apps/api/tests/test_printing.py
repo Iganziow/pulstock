@@ -291,7 +291,58 @@ def test_soft_delete_deactivates_printers(jwt_client, agent):
     assert p.is_active is False
 
 
-# ─── 7. Idempotent complete ──────────────────────────────────────────
+# ─── 7. Celery cleanup task ──────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_cleanup_old_jobs_task_deletes_terminal_jobs(agent, tenant):
+    from printing.tasks import cleanup_old_jobs, PRINT_JOB_RETENTION_DAYS
+    old_cutoff = timezone.now() - timedelta(days=PRINT_JOB_RETENTION_DAYS + 1)
+    recent_cutoff = timezone.now() - timedelta(days=1)
+
+    old_done = PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="done", completed_at=old_cutoff,
+    )
+    old_failed = PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="failed", completed_at=old_cutoff,
+    )
+    old_cancelled = PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="cancelled", completed_at=old_cutoff,
+    )
+    recent_done = PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="done", completed_at=recent_cutoff,
+    )
+    pending = PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="pending",  # no completed_at
+    )
+
+    deleted = cleanup_old_jobs()
+    assert deleted == 3
+
+    # Viejos terminales borrados
+    assert not PrintJob.objects.filter(pk=old_done.pk).exists()
+    assert not PrintJob.objects.filter(pk=old_failed.pk).exists()
+    assert not PrintJob.objects.filter(pk=old_cancelled.pk).exists()
+    # Recientes y pending preservados
+    assert PrintJob.objects.filter(pk=recent_done.pk).exists()
+    assert PrintJob.objects.filter(pk=pending.pk).exists()
+
+
+@pytest.mark.django_db
+def test_cleanup_task_returns_zero_when_nothing_to_delete(agent, tenant):
+    from printing.tasks import cleanup_old_jobs
+    PrintJob.objects.create(
+        tenant=tenant, agent=agent, data_b64="dGVzdA==",
+        status="done", completed_at=timezone.now(),
+    )
+    assert cleanup_old_jobs() == 0
+
+
+# ─── 8. Idempotent complete ──────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_complete_is_idempotent(agent, tenant):

@@ -360,21 +360,8 @@ class AgentPollView(APIView):
 
         agent.touch()
 
-        # Cleanup probabilístico (1 de cada 200 polls ≈ ~1/10min) — borra jobs
-        # completados hace >30 días para evitar crecimiento indefinido de la tabla.
-        # Barato: DELETE con índice (status, created_at).
-        import secrets as _secrets
-        if _secrets.randbelow(200) == 0:
-            from datetime import timedelta as _td
-            cutoff = timezone.now() - _td(days=30)
-            PrintJob.objects.filter(
-                status__in=[
-                    PrintJob.STATUS_DONE,
-                    PrintJob.STATUS_FAILED,
-                    PrintJob.STATUS_CANCELLED,
-                ],
-                completed_at__lt=cutoff,
-            ).delete()
+        # (El cleanup de jobs terminales >30d ya lo hace Celery beat
+        # en printing.tasks.cleanup_old_jobs — corre diario 03:30.)
 
         # Watchdog: jobs que quedaron en "printing" por >60s (agente crasheó
         # entre poll y complete) → devolverlos a pending para reintento.
