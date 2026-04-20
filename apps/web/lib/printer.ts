@@ -15,7 +15,7 @@ declare global {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type PrinterType = "usb" | "bluetooth" | "network" | "system";
+export type PrinterType = "usb" | "bluetooth" | "network" | "system" | "agent";
 
 export interface PrinterConfig {
   id: string;
@@ -23,6 +23,9 @@ export interface PrinterConfig {
   type: PrinterType;
   paperWidth: 58 | 80;
   address?: string; // IP:port for network printers
+  // For type === "agent": identifica el agente PC y la impresora dentro del agente
+  agentId?: number;
+  agentPrinterName?: string;
 }
 
 // ── localStorage keys ────────────────────────────────────────────────────────
@@ -269,6 +272,41 @@ export async function testNetworkPrinter(address: string): Promise<{ ok: boolean
   }
 }
 
+// ── Agent PC (cloud-pull) ────────────────────────────────────────────────────
+
+/**
+ * Queue a print job on an agent PC via the Pulstock API.
+ * The agent polls the API and will pick up the job within ~3 seconds.
+ *
+ * Works from any device (celular con datos, tablet en otra red, etc) —
+ * la única condición es que el PC con el agente tenga internet.
+ */
+async function sendAgent(data: Uint8Array, printer: PrinterConfig): Promise<void> {
+  if (!printer.agentId) {
+    throw new Error("Agente no configurado en la impresora");
+  }
+
+  // Convert bytes to base64
+  let binary = "";
+  for (let i = 0; i < data.byteLength; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  const data_b64 = typeof btoa !== "undefined"
+    ? btoa(binary)
+    : Buffer.from(data).toString("base64");
+
+  const { apiFetch } = await import("@/lib/api");
+  await apiFetch("/printing/jobs/queue/", {
+    method: "POST",
+    body: JSON.stringify({
+      agent_id: printer.agentId,
+      printer_name: printer.agentPrinterName || "",
+      data_b64,
+      source: "web",
+    }),
+  });
+}
+
 // ── Main print function ──────────────────────────────────────────────────────
 
 export async function printBytes(data: Uint8Array, printer?: PrinterConfig | null): Promise<void> {
@@ -288,6 +326,9 @@ export async function printBytes(data: Uint8Array, printer?: PrinterConfig | nul
     case "network":
       if (!p.address) throw new Error("Dirección de red no configurada");
       await sendNetwork(data, p.address);
+      break;
+    case "agent":
+      await sendAgent(data, p);
       break;
     case "system":
       // System printers can't receive raw bytes — caller should use printSystemReceipt instead

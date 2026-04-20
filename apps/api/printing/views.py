@@ -63,7 +63,8 @@ class AgentListCreateView(APIView):
     def get(self, request):
         qs = PrintAgent.objects.filter(
             tenant_id=request.user.tenant_id,
-        ).order_by("-created_at")
+            is_active=True,
+        ).prefetch_related("printers").order_by("-created_at")
         return Response([
             {
                 "id": a.pk,
@@ -76,7 +77,19 @@ class AgentListCreateView(APIView):
                 "version": a.version,
                 "os_info": a.os_info,
                 "created_at": a.created_at.isoformat(),
-                "printers_count": a.printers.filter(is_active=True).count(),
+                "printers_count": sum(1 for p in a.printers.all() if p.is_active),
+                "printers": [
+                    {
+                        "id": p.pk,
+                        "name": p.name,
+                        "display_name": p.display_name,
+                        "connection_type": p.connection_type,
+                        "paper_width": p.paper_width,
+                        "network_address": p.network_address,
+                        "is_default": p.is_default,
+                    }
+                    for p in a.printers.all() if p.is_active
+                ],
             }
             for a in qs
         ])
