@@ -1,4 +1,5 @@
 # purchases/views.py
+import logging
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction, IntegrityError
@@ -17,6 +18,9 @@ from catalog.models import Product
 from inventory.models import StockItem, StockMove
 
 from .models import Purchase, PurchaseLine
+
+logger = logging.getLogger(__name__)
+
 from .serializers import (
     PurchaseCreateSerializer,
     PurchaseListSerializer,

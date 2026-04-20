@@ -5,15 +5,18 @@ Uso desde cron (diario 09:00):
     0 9 * * * cd /var/www/pulstock/apps/api && venv/bin/python manage.py billing_send_reminders
 """
 from django.core.management.base import BaseCommand
+from core.cron_utils import cron_wrapper
 
 
 class Command(BaseCommand):
     help = "Envía emails de recordatorio de pago (wrapper de cron)"
 
     def handle(self, *args, **options):
-        from billing.tasks import send_payment_reminders
-        result = send_payment_reminders.apply()
-        if result.failed():
-            self.stderr.write(self.style.ERROR(f"ERROR: {result.traceback}"))
-            raise SystemExit(1)
-        self.stdout.write(self.style.SUCCESS(f"OK: {result.result}"))
+        # Max age 36h: corre diario, tolera 1.5 días por si hay skip
+        with cron_wrapper("billing.send_reminders", max_age_min=36 * 60):
+            from billing.tasks import send_payment_reminders
+            result = send_payment_reminders.apply()
+            if result.failed():
+                self.stderr.write(self.style.ERROR(f"ERROR: {result.traceback}"))
+                raise SystemExit(1)
+            self.stdout.write(self.style.SUCCESS(f"OK: {result.result}"))

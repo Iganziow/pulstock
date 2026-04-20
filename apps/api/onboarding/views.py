@@ -221,7 +221,29 @@ class RegisterView(APIView):
             _set_token_cookies(response, access_str, refresh_str)
             return response
 
-        except (IntegrityError, ValueError, TypeError) as e:
+        except IntegrityError as e:
+            # Race TOCTOU típico: dos signups con mismo email/slug casi al mismo
+            # tiempo pasaron la validación y cayeron al unique constraint del DB.
+            # Devolvemos 409 con mensaje útil para que el usuario reintente o
+            # entienda que ya existe.
+            err_str = str(e).lower()
+            if "email" in err_str or "username" in err_str or "user" in err_str:
+                return Response(
+                    {"errors": {"email": "Ya existe una cuenta con este email. Inicia sesión."}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if "slug" in err_str or "tenant" in err_str:
+                return Response(
+                    {"errors": {"business_name": "Hubo un conflicto con el nombre del negocio. Intenta con otro."}},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            # IntegrityError desconocido — logueamos y devolvemos 409 genérico
+            logger.exception("IntegrityError en registro: %s", e)
+            return Response(
+                {"detail": "No se pudo crear la cuenta por un conflicto de datos. Intenta con otros valores."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except (ValueError, TypeError) as e:
             logger.exception("Error en registro de cuenta")
             return Response(
                 {"detail": "No se pudo crear la cuenta. Por favor intenta de nuevo."},

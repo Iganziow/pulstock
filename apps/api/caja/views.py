@@ -222,12 +222,29 @@ class AddMovementView(APIView):
     """POST /caja/sessions/<id>/movements/ — add a manual cash movement."""
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @transaction.atomic
     def post(self, request, pk):
+        """Crear un movimiento manual en una sesión abierta.
+
+        Race-safe: lockeamos la CashSession con select_for_update y re-validamos
+        que siga OPEN bajo el lock. Así un movimiento no puede sumarse a una
+        sesión que se está cerrando en paralelo (se contabilizaría mal el
+        arqueo).
+        """
         t_id = _t(request); s_id = _s(request)
         try:
-            session = CashSession.objects.get(id=pk, tenant_id=t_id, store_id=s_id, status=CashSession.STATUS_OPEN)
+            session = (
+                CashSession.objects
+                .select_for_update()
+                .get(id=pk, tenant_id=t_id, store_id=s_id)
+            )
         except CashSession.DoesNotExist:
             return Response({"detail": "Open session not found"}, status=404)
+        if session.status != CashSession.STATUS_OPEN:
+            return Response(
+                {"detail": "La sesión ya no está abierta."},
+                status=409,
+            )
 
         mov_type = (request.data.get("type") or "").upper()
         if mov_type not in (CashMovement.TYPE_IN, CashMovement.TYPE_OUT):

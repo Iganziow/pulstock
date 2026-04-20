@@ -52,8 +52,12 @@ class Promotion(models.Model):
         return "active"
 
     def compute_promo_price(self, original_price, override_value=None):
-        """Calcula el precio promocional dado un precio original."""
-        value = override_value or self.discount_value
+        """Calcula el precio promocional dado un precio original.
+
+        IMPORTANTE: usamos `is not None` en vez de `or` porque override_value=0
+        es un valor válido (producto gratis como promo, o 0% descuento).
+        """
+        value = override_value if override_value is not None else self.discount_value
         if self.discount_type == self.TYPE_PCT:
             return (original_price * (Decimal("1") - value / Decimal("100"))).quantize(Decimal("1"))
         return value  # fixed_price

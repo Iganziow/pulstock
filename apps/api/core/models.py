@@ -253,3 +253,51 @@ class UserStoreAccess(models.Model):
 
     def __str__(self) -> str:
         return f"User {self.user_id} → Store {self.store_id}"
+
+
+class CronHeartbeat(models.Model):
+    """
+    Tracker de última ejecución de cada cron / task periódica.
+    Cada comando actualiza su heartbeat cuando termina OK.
+    El endpoint /api/core/health/deep revisa si los heartbeats están fresh.
+    """
+    task_name = models.CharField(max_length=100, primary_key=True)
+    last_run_at = models.DateTimeField(auto_now=True)
+    last_duration_s = models.FloatField(default=0)
+    last_result = models.CharField(max_length=20, default="ok",
+        help_text="ok / failed / running")
+    last_error = models.CharField(max_length=500, blank=True, default="")
+    # Cuán "viejo" puede estar antes de considerarse stale
+    expected_max_age_minutes = models.IntegerField(default=90,
+        help_text="Minutos máximos entre ejecuciones esperadas")
+
+    class Meta:
+        db_table = "core_cron_heartbeat"
+
+    def __str__(self) -> str:
+        return f"{self.task_name} @ {self.last_run_at}"
+
+    @property
+    def is_stale(self) -> bool:
+        """True si hace más de expected_max_age_minutes que no corre."""
+        from django.utils import timezone as _tz
+        from datetime import timedelta as _td
+        if not self.last_run_at:
+            return True
+        cutoff = _tz.now() - _td(minutes=self.expected_max_age_minutes)
+        return self.last_run_at < cutoff
+
+
+def record_cron_heartbeat(task_name: str, duration_s: float = 0,
+                          result: str = "ok", error: str = "",
+                          expected_max_age_minutes: int = 90):
+    """Helper que registra heartbeat desde cualquier management command/task."""
+    CronHeartbeat.objects.update_or_create(
+        task_name=task_name,
+        defaults={
+            "last_duration_s": round(duration_s, 2),
+            "last_result": result,
+            "last_error": error[:500],
+            "expected_max_age_minutes": expected_max_age_minutes,
+        },
+    )

@@ -117,27 +117,35 @@ def _get_product_for_user(request, product_id: int):
 def _get_or_create_stockitem_locked(*, tenant_id: int, warehouse_id: int, product_id: int) -> StockItem:
     """
     Devuelve StockItem con lock select_for_update.
-    Maneja carrera de create por unique constraint.
-    """
-    try:
-        si = (
-            StockItem.objects
-            .select_for_update()
-            .filter(tenant_id=tenant_id, warehouse_id=warehouse_id, product_id=product_id)
-            .first()
-        )
-        if si:
-            return si
 
-        return StockItem.objects.create(
-            tenant_id=tenant_id,
-            warehouse_id=warehouse_id,
-            product_id=product_id,
-            on_hand=Decimal("0.000"),
-            avg_cost=Decimal("0.000"),
-            stock_value=Decimal("0.000"),
-        )
+    Para evitar que un IntegrityError en el INSERT rompa la transacción
+    externa, envolvemos el create en un savepoint anidado (`transaction.atomic`
+    dentro de otro block ya atomic). Así si otro proceso creó primero,
+    podemos recuperar con .get() sin abortar todo.
+    """
+    si = (
+        StockItem.objects
+        .select_for_update()
+        .filter(tenant_id=tenant_id, warehouse_id=warehouse_id, product_id=product_id)
+        .first()
+    )
+    if si:
+        return si
+
+    try:
+        # Savepoint anidado: si otro proceso ya creó este StockItem, el
+        # IntegrityError no invalida la transacción externa.
+        with transaction.atomic():
+            return StockItem.objects.create(
+                tenant_id=tenant_id,
+                warehouse_id=warehouse_id,
+                product_id=product_id,
+                on_hand=Decimal("0.000"),
+                avg_cost=Decimal("0.000"),
+                stock_value=Decimal("0.000"),
+            )
     except IntegrityError:
+        # Otro proceso ganó la race — leemos con lock
         return (
             StockItem.objects
             .select_for_update()
@@ -312,7 +320,11 @@ class StockReceive(APIView):
         old_avg = c3(si.avg_cost or Decimal("0.000"))
         old_val = v3(si.stock_value if si.stock_value is not None else (old_qty * old_avg))
 
-        # costo “de entrada”
+        # Nota: si unit_cost es None y old_avg=0 (primer receive sin costo),
+        # se asume costo 0 — los reports van a mostrar 100% de margen hasta
+        # que se haga un adjust con el costo real. El frontend debe advertir
+        # al user en ese caso. No rechazamos porque muchos flujos de onboarding
+        # cargan stock inicial sin saber costo todavía.
         in_cost = unit_cost if unit_cost is not None else old_avg
         in_cost = c3(in_cost)
 

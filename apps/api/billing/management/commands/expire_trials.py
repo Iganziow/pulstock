@@ -10,12 +10,17 @@ Usage (from cron, daily):
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from core.cron_utils import cron_wrapper
 
 
 class Command(BaseCommand):
     help = "Expire trials whose trial_ends_at has passed (backup for Celery task)"
 
     def handle(self, *args, **options):
+        with cron_wrapper("billing.expire_trials", max_age_min=36 * 60):
+            self._run()
+
+    def _run(self):
         from django.conf import settings
         from billing.models import Subscription
 

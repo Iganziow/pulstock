@@ -23,10 +23,122 @@ class BootstrapView(APIView):
 
 
 class HealthView(APIView):
+    """Simple liveness check — responde 200 si el proceso está up."""
     permission_classes = [AllowAny]
 
     def get(self, request):
         return Response({"status": "ok"})
+
+
+class DeepHealthView(APIView):
+    """
+    Deep health check — verifica DB, Redis, cron heartbeats, cert SSL.
+
+    Uso:
+      GET /api/core/health/deep/              → overall: "ok" | "degraded" | "down"
+      GET /api/core/health/deep/?token=<SECRET>   → incluye detalles (protegido)
+
+    El monitor externo puede hacer polling cada ~5 min y alertar si status != ok.
+    Sin token: responde summary mínimo (evita exponer estado interno).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.conf import settings as dj_settings
+        from django.db import connection
+        import time as _time
+
+        # Secret opcional — si está configurado, da detalles completos
+        expected_token = getattr(dj_settings, "DEEP_HEALTH_TOKEN", "")
+        provided = request.GET.get("token", "")
+        show_details = bool(expected_token) and provided == expected_token
+
+        checks = {}
+        overall_ok = True
+        overall_degraded = False
+
+        # ── DB ──
+        try:
+            t0 = _time.monotonic()
+            with connection.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            db_ms = round((_time.monotonic() - t0) * 1000, 1)
+            checks["db"] = {"ok": True, "latency_ms": db_ms}
+        except Exception as e:
+            checks["db"] = {"ok": False, "error": str(e)[:200]}
+            overall_ok = False
+
+        # ── Redis (si está configurado) ──
+        redis_url = getattr(dj_settings, "REDIS_URL", "")
+        if redis_url:
+            try:
+                import redis as _redis
+                r = _redis.from_url(redis_url, socket_connect_timeout=2)
+                t0 = _time.monotonic()
+                r.ping()
+                checks["redis"] = {
+                    "ok": True,
+                    "latency_ms": round((_time.monotonic() - t0) * 1000, 1),
+                }
+            except Exception as e:
+                checks["redis"] = {"ok": False, "error": str(e)[:200]}
+                overall_degraded = True
+
+        # ── Cron heartbeats ──
+        try:
+            from core.models import CronHeartbeat
+            heartbeats = list(CronHeartbeat.objects.all())
+            stale_tasks = [h.task_name for h in heartbeats if h.is_stale]
+            failed_tasks = [h.task_name for h in heartbeats if h.last_result == "failed"]
+            checks["cron"] = {
+                "ok": not stale_tasks and not failed_tasks,
+                "registered": len(heartbeats),
+                "stale": stale_tasks,
+                "failed": failed_tasks,
+            }
+            if stale_tasks or failed_tasks:
+                overall_degraded = True
+        except Exception as e:
+            checks["cron"] = {"ok": False, "error": str(e)[:200]}
+            overall_degraded = True
+
+        # ── Disk space ──
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage("/")
+            free_pct = round(free / total * 100, 1)
+            checks["disk"] = {
+                "ok": free_pct > 10,
+                "free_pct": free_pct,
+                "free_gb": round(free / 1024**3, 1),
+            }
+            if free_pct < 10:
+                overall_degraded = True
+            if free_pct < 5:
+                overall_ok = False  # crítico
+        except Exception as e:
+            checks["disk"] = {"ok": False, "error": str(e)[:200]}
+
+        # ── Resumen ──
+        if not overall_ok:
+            status_str = "down"
+        elif overall_degraded:
+            status_str = "degraded"
+        else:
+            status_str = "ok"
+
+        # Sin token: respuesta mínima (no filtrar estado interno a cualquiera)
+        if not show_details:
+            return Response(
+                {"status": status_str},
+                status=200 if status_str == "ok" else 503,
+            )
+
+        return Response(
+            {"status": status_str, "checks": checks},
+            status=200 if status_str == "ok" else 503,
+        )
 
 
 class WarehousesView(APIView):
@@ -419,7 +531,11 @@ class TenantUsersView(APIView):
         if not store_ids and request.user.active_store_id:
             store_ids = [request.user.active_store_id]
 
-        # Manager restrictions: can only assign to stores they have access to
+        # Manager restrictions: can only assign to stores they have access to.
+        # IMPORTANTE: validamos TAMBIÉN el fallback active_store_id del manager
+        # — antes había un bypass donde si no mandaba store_ids, el fallback
+        # no pasaba por validación (podía asignar a un local al que no tenía
+        # acceso si su active_store_id apuntaba ahí por algún bug legacy).
         if is_manager_only:
             from core.models import UserStoreAccess
             allowed_store_ids = set(
@@ -434,6 +550,17 @@ class TenantUsersView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+        # Determinar active_store_id final con la misma validación anti-privesc:
+        # si el manager no tiene acceso al store que intentaría poner, rechazamos
+        fallback_active_store = request.user.active_store_id
+        final_active_store = store_ids[0] if store_ids else fallback_active_store
+        if is_manager_only and final_active_store is not None:
+            if int(final_active_store) not in allowed_store_ids:
+                return Response(
+                    {"detail": "No puedes asignar usuarios al local actual — no tienes acceso."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         user = User.objects.create_user(
             username=username,
             password=password,
@@ -441,7 +568,7 @@ class TenantUsersView(APIView):
             first_name=(data.get("first_name") or "").strip(),
             last_name=(data.get("last_name") or "").strip(),
             tenant_id=t_id,
-            active_store_id=store_ids[0] if store_ids else request.user.active_store_id,
+            active_store_id=final_active_store,
             role=role,
         )
 
@@ -780,12 +907,22 @@ class NetworkPrintProxyView(APIView):
             return Response({"detail": "host y data_b64 son requeridos."}, status=400)
 
         # Security: only allow private/local addresses (anti-SSRF)
+        # IMPORTANT: Resolvemos DNS UNA SOLA VEZ y conectamos a la IP literal
+        # (no al hostname) para prevenir DNS rebinding — un atacante podría
+        # tener un DNS que devuelve IP privada la primera vez y IP pública
+        # (ej. metadata AWS 169.254.169.254 o interno) la segunda vez.
         try:
-            ip = ipaddress.ip_address(socket.gethostbyname(host))
+            resolved_ip_str = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(resolved_ip_str)
             if not (ip.is_private or ip.is_loopback or ip.is_link_local):
                 return Response(
                     {"detail": "Solo se permiten impresoras en red privada/local."},
                     status=400,
+                )
+            # Rechazar explícitamente metadata services (doble defensa)
+            if resolved_ip_str.startswith("169.254.169.254"):
+                return Response(
+                    {"detail": "IP no permitida."}, status=400,
                 )
         except (ValueError, socket.gaierror) as e:
             return Response({"detail": f"Host inválido: {e}"}, status=400)
@@ -804,7 +941,10 @@ class NetworkPrintProxyView(APIView):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(5)
-            sock.connect((host, port))
+            # Conectar a la IP literal resuelta (no al hostname) para que el
+            # socket.connect no dispare una segunda resolución DNS que pueda
+            # devolver una IP distinta (DNS rebinding).
+            sock.connect((resolved_ip_str, port))
             sock.sendall(data)
             sock.close()
             return Response({"ok": True, "bytes_sent": len(data)})
@@ -822,6 +962,7 @@ class NetworkPrintProxyView(APIView):
 
 urlpatterns = [
     path("health/", HealthView.as_view()),
+    path("health/deep/", DeepHealthView.as_view()),
     path("me/", MeView.as_view()),
     path("warehouses/", WarehousesView.as_view()),
     path("warehouses/<int:wh_id>/", WarehouseDetailView.as_view()),

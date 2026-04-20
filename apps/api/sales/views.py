@@ -282,20 +282,14 @@ class SaleVoid(APIView):
         total_cost_reversed = Decimal("0.000")
 
         for l in lines:
-            try:
-                si, _ = StockItem.objects.select_for_update().get_or_create(
-                    tenant_id=t_id,
-                    warehouse_id=sale.warehouse_id,
-                    product_id=l.product_id,
-                    defaults={"on_hand": Decimal("0.000"), "avg_cost": Decimal("0.000"), "stock_value": Decimal("0.000")},
-                )
-            except IntegrityError:
-                # Retry once on race condition
-                si = StockItem.objects.select_for_update().get(
-                    tenant_id=t_id,
-                    warehouse_id=sale.warehouse_id,
-                    product_id=l.product_id,
-                )
+            # Importar helper race-safe (usa savepoint para no romper la
+            # transacción externa si hay IntegrityError en la creación)
+            from inventory.views import _get_or_create_stockitem_locked
+            si = _get_or_create_stockitem_locked(
+                tenant_id=t_id,
+                warehouse_id=sale.warehouse_id,
+                product_id=l.product_id,
+            )
 
             m_sale = sale_moves.get(int(l.product_id))
             unit_cost = Decimal("0.000")

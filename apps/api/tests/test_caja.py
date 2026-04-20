@@ -255,7 +255,9 @@ class TestMovements:
             "amount": "1000",
             "description": "Late movement",
         })
-        assert resp.status_code == 404  # open session not found
+        # Post-fix RACE-10: lockeamos sesión y validamos status bajo lock.
+        # Ahora devuelve 409 (conflict) — distingue de "sesión no existe".
+        assert resp.status_code == 409
 
     def test_add_movement_nonexistent_session(self, api_client):
         resp = api_client.post(movements_url(99999), {

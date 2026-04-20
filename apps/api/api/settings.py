@@ -84,6 +84,13 @@ FLOW_SECRET_KEY  = os.getenv("FLOW_SECRET_KEY", "")
 # no cobra plata real. Para activar producción hay que setearlo explícitamente a
 # https://www.flow.cl/api en el .env.
 FLOW_BASE_URL    = os.getenv("FLOW_BASE_URL", "https://sandbox.flow.cl/api")
+
+# ======================================================
+# DEEP HEALTH — token para endpoint /api/core/health/deep/?token=X
+# ======================================================
+# Si está configurado, /health/deep/?token=<value> devuelve detalles completos.
+# Sin token, el endpoint solo devuelve status (ok/degraded/down).
+DEEP_HEALTH_TOKEN = os.getenv("DEEP_HEALTH_TOKEN", "")
 # URL pública del backend Django (para callbacks de Flow)
 API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000")
 # URL pública del frontend Next.js (para redirigir al usuario tras pago)
