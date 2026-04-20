@@ -218,7 +218,80 @@ def test_agent_list_excludes_soft_deleted(jwt_client, agent):
     assert not any(a["id"] == agent.pk for a in r.json())
 
 
-# ─── 6. Idempotent complete ──────────────────────────────────────────
+# ─── 6. New hardening: source whitelist, max agents, debounce, cleanup ───
+
+@pytest.mark.django_db
+def test_source_whitelist_normalizes_unknown_source(jwt_client, agent):
+    r = jwt_client.post(
+        "/api/printing/jobs/queue/",
+        {"agent_id": agent.pk, "data_b64": "dGVzdA==", "source": "hacker_payload"},
+        format="json",
+    )
+    assert r.status_code == 201
+    job = PrintJob.objects.get(pk=r.json()["id"])
+    assert job.source == "api"  # normalized
+
+
+@pytest.mark.django_db
+def test_source_whitelist_preserves_valid(jwt_client, agent):
+    r = jwt_client.post(
+        "/api/printing/jobs/queue/",
+        {"agent_id": agent.pk, "data_b64": "dGVzdA==", "source": "pos"},
+        format="json",
+    )
+    job = PrintJob.objects.get(pk=r.json()["id"])
+    assert job.source == "pos"
+
+
+@pytest.mark.django_db
+def test_max_agents_per_tenant_cap(jwt_client, tenant):
+    from printing.views import MAX_AGENTS_PER_TENANT
+    # Pre-create up to the cap
+    for i in range(MAX_AGENTS_PER_TENANT):
+        PrintAgent.objects.create(tenant=tenant, name=f"Agent {i}")
+
+    r = jwt_client.post(
+        "/api/printing/agents/",
+        {"name": "One too many"}, format="json",
+    )
+    assert r.status_code == 400
+    assert "máximo" in r.json()["detail"].lower()
+
+
+@pytest.mark.django_db
+def test_touch_is_debounced(agent):
+    """Llamadas a touch() dentro de 20s no escriben en DB."""
+    import time as _time
+    from django.utils import timezone as _tz
+    # Fija last_seen_at hace 5s (dentro del debounce)
+    agent.last_seen_at = _tz.now() - timedelta(seconds=5)
+    agent.save()
+    original = agent.last_seen_at
+    agent.touch()
+    agent.refresh_from_db()
+    assert agent.last_seen_at == original  # no cambió
+
+
+@pytest.mark.django_db
+def test_touch_updates_after_debounce(agent):
+    agent.last_seen_at = timezone.now() - timedelta(seconds=30)
+    agent.save()
+    original = agent.last_seen_at
+    agent.touch()
+    agent.refresh_from_db()
+    assert agent.last_seen_at > original
+
+
+@pytest.mark.django_db
+def test_soft_delete_deactivates_printers(jwt_client, agent):
+    p = AgentPrinter.objects.create(agent=agent, name="TestPrinter", is_active=True)
+    r = jwt_client.delete(f"/api/printing/agents/{agent.pk}/")
+    assert r.status_code == 204
+    p.refresh_from_db()
+    assert p.is_active is False
+
+
+# ─── 7. Idempotent complete ──────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_complete_is_idempotent(agent, tenant):

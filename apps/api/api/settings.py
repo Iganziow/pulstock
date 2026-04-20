@@ -268,6 +268,8 @@ REST_FRAMEWORK = {
         "register": "10/hour",
         "sensitive_action": "20/hour",
         "webhook": "60/minute",
+        "agent_pair": "20/hour",  # anti-brute-force on pairing code exchange
+        "agent_poll": "60/minute",  # 3s poll = 20/min normal, 60 tolera hipo
     },
     "EXCEPTION_HANDLER": "api.exception_handler.custom_exception_handler",
 }

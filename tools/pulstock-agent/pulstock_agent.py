@@ -80,6 +80,12 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    # chmod 0o600 en POSIX — evita que otras cuentas del mismo PC lean
+    # la api_key. En Windows os.chmod es no-op (ACLs manejan esto).
+    try:
+        os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
     log.debug("Config guardada en %s", CONFIG_FILE)
 
 
@@ -192,13 +198,24 @@ def print_bytes_system(printer_name: str, data: bytes) -> None:
             win32print.ClosePrinter(h)
     elif system in ("Darwin", "Linux"):
         import subprocess
+        # Defensa en profundidad: aunque el server valida printer_name,
+        # rechazamos localmente cualquier cosa que empiece con "-" (flag)
+        if printer_name.startswith("-"):
+            raise RuntimeError(f"printer_name inválido: {printer_name!r}")
         proc = subprocess.Popen(
             ["lp", "-d", printer_name, "-o", "raw"],
             stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        proc.communicate(data, timeout=30)
+        try:
+            out, err = proc.communicate(data, timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise RuntimeError("lp timeout (>30s) imprimiendo")
         if proc.returncode != 0:
-            raise RuntimeError(f"lp exited with {proc.returncode}")
+            err_txt = (err or b"").decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"lp exited with {proc.returncode}: {err_txt or '(sin stderr)'}")
     else:
         raise RuntimeError(f"OS no soportado: {system}")
 

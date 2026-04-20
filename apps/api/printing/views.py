@@ -25,7 +25,21 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
+
+
+class AgentPairThrottle(AnonRateThrottle):
+    """Throttle separado para el endpoint de pair. Si alguien intenta hacer
+    brute-force de códigos de emparejado, lo bloquea tras 20 intentos/hora
+    por IP."""
+    scope = "agent_pair"
+
+
+class AgentPollThrottle(AnonRateThrottle):
+    """Throttle para poll del agente — protege contra agente defectuoso
+    que pollea en bucle sin delay."""
+    scope = "agent_poll"
 
 # printer_name debe ser un nombre "seguro" — sin guiones iniciales (evita flags
 # tipo `lp -d -oraw`), sin caracteres de control.
@@ -37,6 +51,12 @@ def _is_safe_printer_name(name: str) -> bool:
     if name.startswith("-"):
         return False
     return bool(_PRINTER_NAME_RE.match(name))
+
+# Whitelist de orígenes válidos para PrintJob.source (evita basura en DB)
+_VALID_JOB_SOURCES = {"pos", "mesa", "manual", "test", "web", "api", "receipt", "precuenta", ""}
+
+# Límite de agentes activos por tenant (anti-abuso + UX razonable)
+MAX_AGENTS_PER_TENANT = 20
 
 from core.permissions import HasTenant, IsManager
 from .models import AgentPrinter, PrintAgent, PrintJob
@@ -108,9 +128,21 @@ class AgentListCreateView(APIView):
         ])
 
     def post(self, request):
-        name = (request.data.get("name") or "").strip()
+        name = (request.data.get("name") or "").strip()[:100]
         if not name:
             return Response({"detail": "El nombre es obligatorio."}, status=400)
+
+        # Cap de agentes activos por tenant — anti-abuso
+        active_count = PrintAgent.objects.filter(
+            tenant_id=request.user.tenant_id, is_active=True,
+        ).count()
+        if active_count >= MAX_AGENTS_PER_TENANT:
+            return Response(
+                {"detail": f"Máximo {MAX_AGENTS_PER_TENANT} agentes por cuenta. "
+                           "Elimina alguno antes de crear uno nuevo."},
+                status=400,
+            )
+
         store_id = request.data.get("store_id") or None
 
         # Optional: verify store belongs to tenant
@@ -163,6 +195,9 @@ class AgentDetailView(APIView):
             completed_at=timezone.now(),
             error_msg="Agente eliminado",
         )
+        # Desactiva AgentPrinters del agente — para que no sigan apareciendo
+        # en listados si alguien olvidó filtrar por agent.is_active
+        AgentPrinter.objects.filter(agent=agent).update(is_active=False)
         return Response(status=204)
 
 
@@ -236,13 +271,18 @@ class JobQueueView(APIView):
                 status=400,
             )
 
+        # Whitelist de source — si vienen cosas raras, las descartamos
+        source = (request.data.get("source") or "")[:30].lower()
+        if source not in _VALID_JOB_SOURCES:
+            source = "api"
+
         job = PrintJob.objects.create(
             tenant_id=request.user.tenant_id,
             agent=agent,
             printer_name=printer_name,
             data_b64=data_b64,
             html=html,
-            source=(request.data.get("source") or "")[:30],
+            source=source,
             created_by=request.user,
         )
         logger.info(
@@ -265,6 +305,7 @@ class AgentPairView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AgentPairThrottle]
 
     def post(self, request):
         code = (request.data.get("pairing_code") or "").strip().upper()
@@ -310,6 +351,7 @@ class AgentPollView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [AgentPollThrottle]
 
     def get(self, request):
         agent = _resolve_agent_by_key(request)
@@ -317,6 +359,22 @@ class AgentPollView(APIView):
             return Response({"detail": "api_key inválida."}, status=401)
 
         agent.touch()
+
+        # Cleanup probabilístico (1 de cada 200 polls ≈ ~1/10min) — borra jobs
+        # completados hace >30 días para evitar crecimiento indefinido de la tabla.
+        # Barato: DELETE con índice (status, created_at).
+        import secrets as _secrets
+        if _secrets.randbelow(200) == 0:
+            from datetime import timedelta as _td
+            cutoff = timezone.now() - _td(days=30)
+            PrintJob.objects.filter(
+                status__in=[
+                    PrintJob.STATUS_DONE,
+                    PrintJob.STATUS_FAILED,
+                    PrintJob.STATUS_CANCELLED,
+                ],
+                completed_at__lt=cutoff,
+            ).delete()
 
         # Watchdog: jobs que quedaron en "printing" por >60s (agente crasheó
         # entre poll y complete) → devolverlos a pending para reintento.

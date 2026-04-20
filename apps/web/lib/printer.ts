@@ -293,16 +293,32 @@ async function sendAgent(data: Uint8Array, printer: PrinterConfig): Promise<void
   }
   const data_b64 = btoa(binary);
 
-  const { apiFetch } = await import("@/lib/api");
-  await apiFetch("/printing/jobs/queue/", {
-    method: "POST",
-    body: JSON.stringify({
-      agent_id: printer.agentId,
-      printer_name: printer.agentPrinterName || "",
-      data_b64,
-      source: "web",
-    }),
-  });
+  const { apiFetch, ApiError } = await import("@/lib/api");
+  try {
+    await apiFetch("/printing/jobs/queue/", {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: printer.agentId,
+        printer_name: printer.agentPrinterName || "",
+        data_b64,
+        source: "web",
+      }),
+    });
+  } catch (e: any) {
+    // Mensajes específicos para ayudar al usuario a diagnosticar
+    if (e instanceof ApiError) {
+      if (e.status === 404) {
+        throw new Error("Agente no encontrado. Puede que lo hayan eliminado — quita esta impresora y vuelve a agregarla.");
+      }
+      if (e.status === 402) {
+        throw new Error("Suscripción no activa — renueva tu plan para imprimir.");
+      }
+      if (e.status === 400) {
+        throw new Error("Datos del trabajo de impresión inválidos.");
+      }
+    }
+    throw e;
+  }
 }
 
 // ── Main print function ──────────────────────────────────────────────────────

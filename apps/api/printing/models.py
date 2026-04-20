@@ -136,8 +136,18 @@ class PrintAgent(models.Model):
         ])
 
     def touch(self) -> None:
-        """Update last_seen_at. Called on every poll."""
-        self.last_seen_at = timezone.now()
+        """Update last_seen_at. Called on every poll.
+
+        Debounced: como `is_online` considera online <2min, no necesitamos
+        precisión al segundo. Solo actualizamos si la última vez fue hace
+        >=20s — reduce escrituras de DB de 1200/hora/agente a 180/hora/agente.
+        """
+        now = timezone.now()
+        if self.last_seen_at is not None:
+            delta = (now - self.last_seen_at).total_seconds()
+            if delta < 20:
+                return
+        self.last_seen_at = now
         self.save(update_fields=["last_seen_at"])
 
 
