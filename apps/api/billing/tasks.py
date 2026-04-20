@@ -39,38 +39,68 @@ def process_renewals(self):
     """
     Corre cada hora. Busca suscripciones cuyo período venció
     y que NO son gratuitas, e inicia el cobro.
+
+    Thread-safe: cada sub se lockea con select_for_update(skip_locked=True)
+    para evitar double-charge si el job corre duplicado (dos beats, race).
+    Si otro proceso ya tiene el lock, lo saltamos en esta iteración.
     """
     from django.conf import settings as dj_settings
+    from django.db import transaction as db_transaction
     from .models import Subscription, Plan
     from .services import create_invoice, register_payment_failure
     from .gateway import charge_subscription
 
     lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
-    due = Subscription.objects.filter(
-        status=Subscription.Status.ACTIVE,
-        current_period_end__lte=now,
-    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
+
+    # Listar IDs primero (sin lock) para no hacer lock de toda la tabla
+    due_ids = list(
+        Subscription.objects.filter(
+            status=Subscription.Status.ACTIVE,
+            current_period_end__lte=now,
+        ).exclude(tenant__slug__in=lifetime_slugs).values_list("pk", flat=True)
+    )
 
     processed = 0
-    for sub in due:
+    skipped_locked = 0
+    for sub_id in due_ids:
         try:
-            invoice = create_invoice(sub)
-            result  = charge_subscription(sub, invoice)
+            # Atomic + lock por subscription individual
+            with db_transaction.atomic():
+                try:
+                    sub = (
+                        Subscription.objects
+                        .select_for_update(skip_locked=True)
+                        .select_related("tenant", "plan")
+                        .get(pk=sub_id)
+                    )
+                except Subscription.DoesNotExist:
+                    # Fue cancelada entre el listado y ahora
+                    continue
 
-            if result["success"]:
-                from .services import activate_period
-                activate_period(sub, invoice)
-                logger.info("Renovación exitosa: tenant=%s", sub.tenant_id)
-            else:
-                register_payment_failure(
-                    sub, invoice,
-                    error_msg=result.get("error", ""),
-                    raw=result.get("raw", {}),
-                )
-            processed += 1
+                # Re-chequear condición bajo el lock (puede haberse renovado
+                # por otro proceso o haber cambiado de estado)
+                if sub.status != Subscription.Status.ACTIVE:
+                    continue
+                if sub.current_period_end > now:
+                    continue
+
+                invoice = create_invoice(sub)
+                result = charge_subscription(sub, invoice)
+
+                if result["success"]:
+                    from .services import activate_period
+                    activate_period(sub, invoice)
+                    logger.info("Renovación exitosa: tenant=%s", sub.tenant_id)
+                else:
+                    register_payment_failure(
+                        sub, invoice,
+                        error_msg=result.get("error", ""),
+                        raw=result.get("raw", {}),
+                    )
+                processed += 1
         except Exception as exc:
-            logger.error("Error procesando renovación tenant=%s: %s", sub.tenant_id, exc)
+            logger.error("Error procesando renovación sub=%s: %s", sub_id, exc)
 
     logger.info("process_renewals: %d suscripciones procesadas", processed)
     return {"processed": processed}

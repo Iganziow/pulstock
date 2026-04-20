@@ -63,7 +63,7 @@ def _flow_cfg():
     return {
         "api_key":  getattr(settings, "FLOW_API_KEY", ""),
         "secret":   getattr(settings, "FLOW_SECRET_KEY", ""),
-        "base_url": getattr(settings, "FLOW_BASE_URL", "https://www.flow.cl/api"),
+        "base_url": getattr(settings, "FLOW_BASE_URL", "https://sandbox.flow.cl/api"),
         "api_base": getattr(settings, "API_BASE_URL", "http://localhost:8000"),
         "app_base": getattr(settings, "APP_BASE_URL", "http://localhost:3000"),
     }

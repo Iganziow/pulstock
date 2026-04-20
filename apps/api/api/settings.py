@@ -80,7 +80,10 @@ DJANGO_ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/")
 PAYMENT_GATEWAY  = os.getenv("PAYMENT_GATEWAY", "mock")
 FLOW_API_KEY     = os.getenv("FLOW_API_KEY", "")
 FLOW_SECRET_KEY  = os.getenv("FLOW_SECRET_KEY", "")
-FLOW_BASE_URL    = os.getenv("FLOW_BASE_URL", "https://www.flow.cl/api")
+# Default a sandbox por seguridad: si alguien olvida setear FLOW_BASE_URL en prod,
+# no cobra plata real. Para activar producción hay que setearlo explícitamente a
+# https://www.flow.cl/api en el .env.
+FLOW_BASE_URL    = os.getenv("FLOW_BASE_URL", "https://sandbox.flow.cl/api")
 # URL pública del backend Django (para callbacks de Flow)
 API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000")
 # URL pública del frontend Next.js (para redirigir al usuario tras pago)
