@@ -38,7 +38,7 @@ __version__ = "1.0.0"
 
 # ─── Config ──────────────────────────────────────────────────────────────
 
-DEFAULT_API_URL = os.environ.get("PULSTOCK_API_URL", "http://65.108.148.200/api")
+DEFAULT_API_URL = os.environ.get("PULSTOCK_API_URL", "https://api.pulstock.cl/api")
 DEFAULT_POLL_INTERVAL = 3  # seconds between polls when idle
 DEFAULT_ERROR_BACKOFF = 10  # seconds to wait after an error
 

@@ -95,7 +95,7 @@ Si algo no funciona:
    ```
 3. Verifica conectividad:
    ```bash
-   curl -s http://65.108.148.200/api/core/health/
+   curl -s https://api.pulstock.cl/api/core/health/
    ```
 
 ## Cómo funciona
