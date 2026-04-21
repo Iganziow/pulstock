@@ -119,14 +119,14 @@ export default function SalesPage() {
               <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
             </svg>
           )}
-          {loading ? "Cargando\u2026" : "Recargar"}
+          {loading ? "Cargando…" : "Recargar"}
         </Btn>
       </div>
 
       {/* STAT CARDS */}
       <div style={{ display:"grid", gridTemplateColumns:mob?"1fr 1fr":"repeat(auto-fit, minmax(160px,1fr))", gap:10 }}>
         <SaleStatCard label="Total ventas" value={String(metrics.ventas)}
-          sub={`${metrics.completadas} completadas \u00B7 ${metrics.anuladas} anuladas`}
+          sub={`${metrics.completadas} completadas · ${metrics.anuladas} anuladas`}
           color={C.accent}
           icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>}
         />
@@ -161,7 +161,7 @@ export default function SalesPage() {
           <input
             value={q}
             onChange={e => setQ(e.target.value)}
-            placeholder="Buscar por # venta o ID\u2026"
+            placeholder="Buscar por # venta o ID…"
             style={{
               width:"100%", height:36, padding:"0 10px 0 34px",
               border:`1px solid ${C.border}`, borderRadius:C.r,
@@ -336,7 +336,7 @@ export default function SalesPage() {
 
           {!loading && items.length > 0 && (
             <div style={{ padding:"10px 4px", fontSize:12, color:C.mute }}>
-              {items.length} venta{items.length!==1?"s":""} \u00B7 haz clic en una fila para ver el detalle
+              {items.length} venta{items.length!==1?"s":""} · haz clic en una fila para ver el detalle
             </div>
           )}
         </div>

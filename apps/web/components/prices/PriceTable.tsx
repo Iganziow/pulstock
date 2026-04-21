@@ -85,14 +85,14 @@ export function PriceTable({
                     <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} style={{ cursor: "pointer" }} />
                   </td>
                   <td style={{ ...tdStyle, fontFamily: C.mono, fontSize: 12, color: C.mid }}>
-                    {row.sku || "\u2014"}
+                    {row.sku || "—"}
                   </td>
                   <td style={{ ...tdStyle, fontWeight: 600 }}>{row.name}</td>
-                  <td style={{ ...tdStyle, color: C.mid, fontSize: 12 }}>{row.category_name || "\u2014"}</td>
+                  <td style={{ ...tdStyle, color: C.mid, fontSize: 12 }}>{row.category_name || "—"}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono }}>${formatCLP(row.cost)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: 600 }}>${formatCLP(row.price)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: Number.isFinite(currentMargin) ? (currentMargin < 0 ? C.red : currentMargin < 15 ? C.amber : C.green) : C.mute }}>
-                    {Number.isFinite(currentMargin) ? `${currentMargin.toFixed(1)}%` : "\u2014"}
+                    {Number.isFinite(currentMargin) ? `${currentMargin.toFixed(1)}%` : "—"}
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>
                     <input
@@ -110,7 +110,7 @@ export function PriceTable({
                     />
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: hasEdit ? 700 : 400, color: newMargin !== null ? (newMargin < 0 ? C.red : newMargin < 15 ? C.amber : C.green) : C.mute }}>
-                    {newMargin !== null ? `${newMargin.toFixed(1)}%` : "\u2014"}
+                    {newMargin !== null ? `${newMargin.toFixed(1)}%` : "—"}
                   </td>
                 </tr>
               );
@@ -126,7 +126,7 @@ export function PriceTable({
             disabled={page <= 1}
             onClick={() => setPage(p => p - 1)}
             style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: page <= 1 ? "default" : "pointer", opacity: page <= 1 ? 0.4 : 1, fontSize: 13 }}
-          >\u2190 Anterior</button>
+          >← Anterior</button>
           <span style={{ fontSize: 13, color: C.mid, alignSelf: "center" }}>
             Pagina {page} de {Math.ceil(total / pageSize)}
           </span>
@@ -134,7 +134,7 @@ export function PriceTable({
             disabled={page >= Math.ceil(total / pageSize)}
             onClick={() => setPage(p => p + 1)}
             style={{ padding: "6px 14px", borderRadius: C.r, border: `1px solid ${C.border}`, background: C.surface, cursor: page >= Math.ceil(total / pageSize) ? "default" : "pointer", opacity: page >= Math.ceil(total / pageSize) ? 0.4 : 1, fontSize: 13 }}
-          >Siguiente \u2192</button>
+          >Siguiente →</button>
         </div>
       )}
     </div>

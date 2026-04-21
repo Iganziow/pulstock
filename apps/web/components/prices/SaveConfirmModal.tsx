@@ -48,7 +48,7 @@ export function SaveConfirmModal({ edits, rows, onCancel, onConfirm }: SaveConfi
                     <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(row.price)}</td>
                     <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(newP)}</td>
                     <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: nm !== null ? (nm < 0 ? C.red : nm < 15 ? C.amber : C.green) : C.mute }}>
-                      {nm !== null ? `${nm.toFixed(1)}%` : "\u2014"}
+                      {nm !== null ? `${nm.toFixed(1)}%` : "—"}
                     </td>
                   </tr>
                 );

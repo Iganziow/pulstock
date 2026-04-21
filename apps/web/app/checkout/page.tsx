@@ -10,7 +10,7 @@ type Plan = { key: string; name: string; price_clp: number; max_products: number
 function fmt(n: number) { return Math.round(n).toLocaleString("es-CL"); }
 
 function slugify(text: string): string {
-  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  return text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30);
 }
 

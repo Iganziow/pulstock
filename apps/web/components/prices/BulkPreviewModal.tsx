@@ -50,7 +50,7 @@ export function BulkPreviewModal({ bulkDir, bulkType, bulkValue, bulkPreview, on
                   <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono }}>${formatCLP(p.oldPrice)}</td>
                   <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, fontWeight: 700 }}>${formatCLP(p.newPrice)}</td>
                   <td style={{ padding: "6px 8px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontFamily: C.mono, color: p.newMargin !== null ? (p.newMargin < 0 ? C.red : p.newMargin < 15 ? C.amber : C.green) : C.mute }}>
-                    {p.newMargin !== null ? `${p.newMargin.toFixed(1)}%` : "\u2014"}
+                    {p.newMargin !== null ? `${p.newMargin.toFixed(1)}%` : "—"}
                   </td>
                 </tr>
               ))}

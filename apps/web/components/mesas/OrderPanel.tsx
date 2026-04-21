@@ -32,7 +32,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [cancelErr, setCancelErr] = useState("");
 
   async function cancelOrder() {
-    if (!confirm("\u00bfCerrar esta mesa sin cobrar?")) return;
+    if (!confirm("¿Cerrar esta mesa sin cobrar?")) return;
     setCancelling(true); setCancelErr("");
     try {
       await apiFetch(`/tables/orders/${order.id}/cancel/`, { method: "POST" });
@@ -114,7 +114,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       setShowPayment(false);
       const saleId = res?.sale_id || res?.id || null;
       setLastSaleId(saleId);
-      setSuccessMsg("\u00a1Cobro registrado!");
+      setSuccessMsg("¡Cobro registrado!");
       setTimeout(() => setSuccessMsg(""), 6000);
       // Auto-print receipt if printer configured
       if (saleId) {
@@ -186,7 +186,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         <button type="button" aria-label="Volver" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <span style={{ fontSize: 16 }}>{isCounter ? "\uD83D\uDCE6" : "\uD83E\uDE91"}</span>
+        <span style={{ fontSize: 16 }}>{isCounter ? "📦" : "🪑"}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>
             {order.customer_name || tableName}

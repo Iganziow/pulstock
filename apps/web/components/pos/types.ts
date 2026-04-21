@@ -29,10 +29,10 @@ export type Shortage = {
 export type PosPayRow = { method: string; amount: string };
 
 export const PAY_METHODS = [
-  { value: "cash", label: "Efectivo", icon: "\uD83D\uDCB5" },
-  { value: "debit", label: "D\u00E9bito", icon: "\uD83D\uDCB3" },
-  { value: "card", label: "Cr\u00E9dito", icon: "\uD83D\uDCB3" },
-  { value: "transfer", label: "Transferencia", icon: "\uD83C\uDFE6" },
+  { value: "cash", label: "Efectivo", icon: "💵" },
+  { value: "debit", label: "Débito", icon: "💳" },
+  { value: "card", label: "Crédito", icon: "💳" },
+  { value: "transfer", label: "Transferencia", icon: "🏦" },
 ] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

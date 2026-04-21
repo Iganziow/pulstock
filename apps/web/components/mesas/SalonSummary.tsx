@@ -19,7 +19,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>{"\uD83D\uDCCB"}</span>
+          <span style={{ fontSize: 16 }}>{"📋"}</span>
           <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Comandas activas</span>
           {openTables.length > 0 && (
             <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBd}` }}>
@@ -34,7 +34,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
 
       {openTables.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>{"\uD83C\uDF7D\uFE0F"}</div>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>{"🍽️"}</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sin comandas abiertas</div>
           <div style={{ fontSize: 12, color: C.mute }}>Selecciona una mesa para abrir una comanda.</div>
         </div>
@@ -52,7 +52,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
                 {/* Row header */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 14 }}>{t.is_counter ? "\uD83D\uDCE6" : "\uD83E\uDE91"}</span>
+                    <span style={{ fontSize: 14 }}>{t.is_counter ? "📦" : "🪑"}</span>
                     <span style={{ fontWeight: 700, fontSize: 13, color: C.text }}>
                       {(t.is_counter && t.active_order?.customer_name) ? t.active_order.customer_name : t.name}
                     </span>
@@ -78,7 +78,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
                     ))}
                     {unpaidLines.length > 5 && (
                       <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, background: C.bg, color: C.mute }}>
-                        +{unpaidLines.length - 5} m\u00e1s
+                        +{unpaidLines.length - 5} más
                       </span>
                     )}
                   </div>

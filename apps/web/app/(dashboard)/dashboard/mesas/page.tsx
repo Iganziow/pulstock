@@ -185,7 +185,7 @@ export default function MesasPage() {
             <h1 style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: 0 }}>Mesas</h1>
             <div style={{ fontSize: 12, color: C.mute, marginTop: 1 }}>
               <span style={{ color: C.amber, fontWeight: 600 }}>{occupiedCount}</span> ocupada{occupiedCount !== 1 ? "s" : ""}
-              {" \u00b7 "}<span style={{ color: C.green, fontWeight: 600 }}>{freeCount}</span> libre{freeCount !== 1 ? "s" : ""}
+              {" · "}<span style={{ color: C.green, fontWeight: 600 }}>{freeCount}</span> libre{freeCount !== 1 ? "s" : ""}
               {counterOrders.length > 0 && <> &middot; <span style={{ fontWeight: 600 }}>{counterOrders.length}</span> para llevar</>}
             </div>
           </div>
@@ -246,7 +246,7 @@ export default function MesasPage() {
             <div style={{ display: "flex", justifyContent: "center", padding: 40, color: C.mute }}><Spinner size={24} /></div>
           ) : regularTables.length === 0 && counterOrders.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>{"\uD83C\uDF7D\uFE0F"}</div>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>{"🍽️"}</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sin mesas configuradas</div>
               <div style={{ fontSize: 12, color: C.mute, marginBottom: 16 }}>Configura tus mesas para empezar.</div>
               <a href="/dashboard/mesas/config" style={{ textDecoration: "none" }}><Btn variant="primary">Configurar mesas</Btn></a>
@@ -298,18 +298,18 @@ export default function MesasPage() {
             selectedTable.status === "FREE" ? (
               /* Free table -- open order prompt */
               <div style={{ padding: 20, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1 }}>
-                <span style={{ fontSize: 36, marginBottom: 10 }}>{"\uD83E\uDE91"}</span>
+                <span style={{ fontSize: 36, marginBottom: 10 }}>{"🪑"}</span>
                 <div style={{ fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 2 }}>{selectedTable.name}</div>
                 <div style={{ fontSize: 12, color: C.mute, marginBottom: 20 }}>
-                  {selectedTable.zone ? `${selectedTable.zone} \u00b7 ` : ""}{selectedTable.capacity} personas &middot; Libre
+                  {selectedTable.zone ? `${selectedTable.zone} · ` : ""}{selectedTable.capacity} personas &middot; Libre
                 </div>
                 {openErr && <div style={{ marginBottom: 12, padding: "6px 10px", borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 11, width: "100%", maxWidth: 280 }}>{openErr}</div>}
                 <MesaBtn variant="primary" size="lg" disabled={openingTable === selectedTable.id} onClick={() => openOrder(selectedTable)}>
                   {openingTable === selectedTable.id ? <Spinner size={14} /> : null}
-                  {openingTable === selectedTable.id ? "Abriendo\u2026" : "Abrir comanda"}
+                  {openingTable === selectedTable.id ? "Abriendo…" : "Abrir comanda"}
                 </MesaBtn>
                 <div style={{ marginTop: 8 }}>
-                  <MesaBtn variant="ghost" size="sm" onClick={() => setSelectedTable(null)}>{"\u2190"} Volver al resumen</MesaBtn>
+                  <MesaBtn variant="ghost" size="sm" onClick={() => setSelectedTable(null)}>{"←"} Volver al resumen</MesaBtn>
                 </div>
               </div>
             ) : orderLoading ? (

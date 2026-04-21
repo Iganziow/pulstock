@@ -107,7 +107,7 @@ export function ImportRecipesModal({
         <div style={{ padding: "14px 22px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "flex-end", gap: 8, background: C.bg }}>
           <Btn variant="secondary" onClick={() => !importing && setShowImport(false)} disabled={importing}>Cerrar</Btn>
           <Btn variant="primary" onClick={runImport} disabled={importing || !importFile}>
-            {importing ? <><Spinner/>Importando\u2026</> : "Importar recetas"}
+            {importing ? <><Spinner/>Importando…</> : "Importar recetas"}
           </Btn>
         </div>
       </div>

@@ -45,7 +45,7 @@ export function VoidModal({ saleId, onClose, onDone }: { saleId: number; onClose
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Ej: Error en el cobro, devolucion del cliente\u2026"
+            placeholder="Ej: Error en el cobro, devolucion del cliente…"
             rows={3}
             disabled={busy}
             autoFocus
@@ -65,7 +65,7 @@ export function VoidModal({ saleId, onClose, onDone }: { saleId: number; onClose
           <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:16 }}>
             <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Btn>
             <Btn variant="danger" onClick={doVoid} disabled={busy || !reason.trim()}>
-              {busy ? <><Spinner/>Anulando\u2026</> : "Confirmar anulacion"}
+              {busy ? <><Spinner/>Anulando…</> : "Confirmar anulacion"}
             </Btn>
           </div>
         </div>

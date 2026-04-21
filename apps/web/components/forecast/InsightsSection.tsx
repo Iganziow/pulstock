@@ -31,13 +31,13 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
 
   // 1. Algorithm
   const algLabel = ALG_LABELS[model.algorithm] || model.algorithm;
-  insights.push({ icon: "\uD83E\uDDE0", text: `Metodo: ${algLabel}` });
+  insights.push({ icon: "🧠", text: `Metodo: ${algLabel}` });
 
   // 2. Demand pattern
   const dp = model.demand_pattern || p.demand_pattern;
   if (dp && PATTERN_LABELS[dp]) {
     const pl = PATTERN_LABELS[dp];
-    insights.push({ icon: "\uD83D\uDCCA", text: `Patron de demanda: ${pl.label} \u2014 ${pl.desc}` });
+    insights.push({ icon: "📊", text: `Patron de demanda: ${pl.label} — ${pl.desc}` });
   }
 
   // 3. Accuracy
@@ -45,7 +45,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
   if (mape != null) {
     const acc = Math.round(100 - mape);
     const label = acc >= 85 ? "Excelente" : acc >= 70 ? "Buena" : acc >= 50 ? "Aceptable" : "Baja";
-    insights.push({ icon: acc >= 70 ? "\u2705" : "\u26A0\uFE0F", text: `Precision del modelo: ${acc}% (${label}) \u2014 error promedio ${Math.round(mape)}%` });
+    insights.push({ icon: acc >= 70 ? "✅" : "⚠️", text: `Precision del modelo: ${acc}% (${label}) — error promedio ${Math.round(mape)}%` });
   }
 
   // 4. Trend
@@ -54,7 +54,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
     const pct = trend.slope && avgDemand > 0 ? Math.abs(Math.round((trend.slope / avgDemand) * 30 * 100)) : null;
     const dir = trend.direction === "up" ? "subiendo" : "bajando";
     const txt = pct ? `Tendencia: la demanda viene ${dir} (~${pct}% mensual)` : `Tendencia: la demanda viene ${dir}`;
-    insights.push({ icon: trend.direction === "up" ? "\uD83D\uDCC8" : "\uD83D\uDCC9", text: txt });
+    insights.push({ icon: trend.direction === "up" ? "📈" : "📉", text: txt });
   }
 
   // 5. Monthly seasonality (payday effect)
@@ -68,7 +68,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
       const bucketLabels: Record<string, string> = { early: "inicio de mes (1-5)", mid_early: "primera quincena (6-12)", mid: "mediados (13-19)", mid_late: "antes del dia de pago (20-25)", late: "fin de mes (26-31)" };
       const peakLabel = peakKey ? bucketLabels[peakKey] || peakKey : "";
       const boost = Math.round((max - 1) * 100);
-      insights.push({ icon: "\uD83D\uDCB0", text: `Efecto dia de pago: vende ${boost}% mas a ${peakLabel}` });
+      insights.push({ icon: "💰", text: `Efecto dia de pago: vende ${boost}% mas a ${peakLabel}` });
     }
   }
 
@@ -81,7 +81,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
       const best = entries.reduce((a, b) => b.factor > a.factor ? b : a);
       const worst = entries.reduce((a, b) => b.factor < a.factor ? b : a);
       if (best.factor / Math.max(worst.factor, 0.01) > 1.3) {
-        insights.push({ icon: "\uD83D\uDCC5", text: `Mejor dia: ${dayNames[best.day] || best.day} (${Math.round((best.factor - 1) * 100)}% sobre promedio) \u00B7 Peor: ${dayNames[worst.day] || worst.day}` });
+        insights.push({ icon: "📅", text: `Mejor dia: ${dayNames[best.day] || best.day} (${Math.round((best.factor - 1) * 100)}% sobre promedio) · Peor: ${dayNames[worst.day] || worst.day}` });
       }
     }
   }
@@ -90,24 +90,24 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
   const yoy = p.yoy_growth;
   if (yoy && Math.abs(yoy) > 0.05) {
     const pctY = Math.round(yoy * 100);
-    insights.push({ icon: pctY > 0 ? "\uD83D\uDE80" : "\u2B07\uFE0F", text: `Crecimiento anual: ${pctY > 0 ? "+" : ""}${pctY}% respecto al ano pasado` });
+    insights.push({ icon: pctY > 0 ? "🚀" : "⬇️", text: `Crecimiento anual: ${pctY > 0 ? "+" : ""}${pctY}% respecto al ano pasado` });
   }
 
   // 8. Bias correction
   const bias = p.bias_correction;
   if (bias && Math.abs(bias) > 0.1) {
-    insights.push({ icon: "\uD83D\uDD27", text: `Auto-correccion aplicada: el modelo ajusto ${bias > 0 ? "hacia arriba" : "hacia abajo"} para compensar predicciones recientes` });
+    insights.push({ icon: "🔧", text: `Auto-correccion aplicada: el modelo ajusto ${bias > 0 ? "hacia arriba" : "hacia abajo"} para compensar predicciones recientes` });
   }
 
   // 9. Price sensitivity
   const ps = p.price_sensitivity;
   if (ps && ps.is_sensitive) {
-    insights.push({ icon: "\uD83D\uDCB2", text: "Producto sensible al precio: cambios de precio afectan la demanda" });
+    insights.push({ icon: "💲", text: "Producto sensible al precio: cambios de precio afectan la demanda" });
   }
 
   // 10. Data quality
   if (model.data_points < 14) {
-    insights.push({ icon: "\u23F3", text: `Solo ${model.data_points} dias de datos \u2014 la prediccion mejorara con mas historial` });
+    insights.push({ icon: "⏳", text: `Solo ${model.data_points} dias de datos — la prediccion mejorara con mas historial` });
   }
 
   if (insights.length === 0) return null;
@@ -115,7 +115,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "10px 10px" : "14px 16px" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: C.mid, marginBottom: 8 }}>
-        \uD83D\uDD0D ¿Por que el sistema predice esto?
+        🔍 ¿Por que el sistema predice esto?
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {insights.map((ins, i) => (

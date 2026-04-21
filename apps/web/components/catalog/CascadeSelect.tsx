@@ -48,7 +48,7 @@ export function CascadeSelect({
     }
   }
 
-  const labels = ["Categor\u00eda", "Subcategor\u00eda", "Familia", "Subfamilia", "Nivel 5"];
+  const labels = ["Categoría", "Subcategoría", "Familia", "Subfamilia", "Nivel 5"];
 
   const handleChange = (levelIdx: number, newVal: number | "") => {
     if (newVal === "") {
@@ -67,14 +67,14 @@ export function CascadeSelect({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {levels.map((lvl, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {i > 0 && <span style={{ fontSize: 10, color: C.mute, marginLeft: i * 8 }}>{"\u21b3"}</span>}
+          {i > 0 && <span style={{ fontSize: 10, color: C.mute, marginLeft: i * 8 }}>{"↳"}</span>}
           <select
             value={lvl.selected}
             onChange={e => handleChange(i, e.target.value ? Number(e.target.value) : "")}
             style={{ ...iS, flex: 1 }}
             disabled={disabled}
           >
-            <option value="">{i === 0 ? "Sin categor\u00eda" : `Sin ${labels[i] || "subcategor\u00eda"}`}</option>
+            <option value="">{i === 0 ? "Sin categoría" : `Sin ${labels[i] || "subcategoría"}`}</option>
             {lvl.options.map(c => (
               <option key={c.id} value={c.id}>{c.name}{c.code ? ` (${c.code})` : ""}</option>
             ))}
@@ -83,7 +83,7 @@ export function CascadeSelect({
       ))}
       {levels.length > 0 && value !== "" && (
         <div style={{ fontSize: 10, color: C.mute }}>
-          {getChain(value).map(id => categories.find(c => c.id === id)?.name).join(" \u2192 ")}
+          {getChain(value).map(id => categories.find(c => c.id === id)?.name).join(" → ")}
         </div>
       )}
     </div>

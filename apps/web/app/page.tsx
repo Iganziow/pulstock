@@ -637,7 +637,7 @@ export default function LandingPage() {
             <button onClick={() => go("/#precios")} className="l-btn" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 700, background: C.accent, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Ver planes</button>
           </div>
           <button className="mob-toggle" onClick={() => setMobileMenu(!mobileMenu)} style={{ display: "none", background: "none", border: "none", fontSize: 22, cursor: "pointer", padding: 4, color: C.text }}>
-            {mobileMenu ? "\u2715" : "\u2630"}
+            {mobileMenu ? "✕" : "☰"}
           </button>
         </div>
         {mobileMenu && (
@@ -836,7 +836,7 @@ export default function LandingPage() {
                   background: !row.them ? "#FAFAFE" : C.white }}>
                   <div style={{ padding: "11px 20px", fontSize: 13, color: C.mid, fontWeight: !row.them ? 600 : 400 }}>{row.feature}</div>
                   <div style={{ padding: "11px 8px", textAlign: "center", fontSize: 16, color: C.green }}>&#10003;</div>
-                  <div style={{ padding: "11px 8px", textAlign: "center", fontSize: 16, color: row.them ? C.green : "#D4D4D8" }}>{row.them ? "\u2713" : "\u2715"}</div>
+                  <div style={{ padding: "11px 8px", textAlign: "center", fontSize: 16, color: row.them ? C.green : "#D4D4D8" }}>{row.them ? "✓" : "✕"}</div>
                 </div>
               ))}
             </div>

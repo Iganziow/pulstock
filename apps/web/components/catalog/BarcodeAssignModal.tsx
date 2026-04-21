@@ -47,7 +47,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
       });
       setAssigned(prev => prev + 1);
-      setSuccessMsg(`\u2713 ${code.trim()} \u2192 ${selected.name}`);
+      setSuccessMsg(`✓ ${code.trim()} → ${selected.name}`);
       setCode("");
       // Remove from list and advance
       setProducts(prev => {
@@ -92,7 +92,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Asignar Barcodes</div>
             <div style={{ fontSize: 12, color: C.mute, marginTop: 3 }}>
-              Escanea con pistola o escribe el c\u00f3digo. {products.length} productos sin barcode.
+              Escanea con pistola o escribe el código. {products.length} productos sin barcode.
               {assigned > 0 && <span style={{ color: C.green, fontWeight: 600, marginLeft: 6 }}>{assigned} asignados</span>}
             </div>
           </div>
@@ -100,7 +100,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
             width: 30, height: 30, borderRadius: C.r, border: `1px solid ${C.border}`,
             background: C.surface, color: C.mid, fontSize: 14,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>{"\u2715"}</button>
+          }}>{"✕"}</button>
         </div>
 
         {/* Body */}
@@ -111,7 +111,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
               <input
                 value={filterQ}
                 onChange={e => setFilterQ(e.target.value)}
-                placeholder="Filtrar por nombre/SKU\u2026"
+                placeholder="Filtrar por nombre/SKU…"
                 style={{ ...iS, height: 32, fontSize: 12 }}
               />
             </div>
@@ -136,7 +136,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
                   <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
                     {p.sku && <span style={{ fontFamily: C.mono }}>{p.sku}</span>}
-                    {p.sku && p.category__name && " \u00b7 "}
+                    {p.sku && p.category__name && " · "}
                     {p.category__name}
                   </div>
                 </div>
@@ -167,14 +167,14 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
                 )}
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>C\u00f3digo de barras</label>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>Código de barras</label>
                   <input
                     id="bc-scan-input"
                     ref={inputRef}
                     value={code}
                     onChange={e => setCode(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAssign(); } }}
-                    placeholder="Escanea o escribe el c\u00f3digo\u2026"
+                    placeholder="Escanea o escribe el código…"
                     style={{ ...iS, fontFamily: C.mono, fontSize: 16, height: 46, textAlign: "center", letterSpacing: "0.05em" }}
                     autoComplete="off"
                     disabled={assigning}
@@ -184,10 +184,10 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
 
                 <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                   <Btn variant="primary" onClick={handleAssign} disabled={assigning || !code.trim()}>
-                    {assigning ? <><Spinner /> Asignando\u2026</> : "Asignar"}
+                    {assigning ? <><Spinner /> Asignando…</> : "Asignar"}
                   </Btn>
                   <Btn variant="ghost" onClick={handleSkip} disabled={assigning}>
-                    {"Saltar \u2192"}
+                    {"Saltar →"}
                   </Btn>
                 </div>
               </>

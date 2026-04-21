@@ -47,7 +47,7 @@ export function CategoryTree({
       setNewName(""); setNewCode(""); setAddingTo(null);
       if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     } catch (e: any) {
-      setError(humanizeError(e, "Error creando categor\u00eda"));
+      setError(humanizeError(e, "Error creando categoría"));
     } finally { setBusy(false); }
   };
 
@@ -93,7 +93,7 @@ export function CategoryTree({
             background: "none", border: "none", cursor: hasKids ? "pointer" : "default",
             color: hasKids ? C.mid : "#ddd", fontSize: 11, flexShrink: 0,
           }}>
-            {hasKids ? (isOpen ? "\u25bc" : "\u25b6") : "\u2022"}
+            {hasKids ? (isOpen ? "▼" : "▶") : "•"}
           </button>
 
           {/* Name or edit input */}
@@ -109,7 +109,7 @@ export function CategoryTree({
               <button type="button" aria-label="Cerrar" onClick={() => { setEditingId(null); setEditName(""); }} style={{
                 padding: "4px 8px", fontSize: 11, cursor: "pointer",
                 background: "none", border: `1px solid ${C.border}`, borderRadius: 4, color: C.mid,
-              }}>{"\u2715"}</button>
+              }}>{"✕"}</button>
             </div>
           ) : (
             <span style={{
@@ -127,12 +127,12 @@ export function CategoryTree({
           {!isEditing && (
             <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
               <button type="button" onClick={() => { setAddingTo(cat.id); setNewName(""); setNewCode(""); }} title="Agregar sub" aria-label="Agregar sub"
-                style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.accent }}>{"\uff0b"}</button>
+                style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.accent }}>{"＋"}</button>
               <button type="button" onClick={() => { setEditingId(cat.id); setEditName(cat.name); }} title="Renombrar" aria-label="Renombrar"
-                style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.mid }}>{"\u270f\ufe0f"}</button>
+                style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: C.mid }}>{"✏️"}</button>
               <button type="button" onClick={() => handleToggleActive(cat)} title={cat.is_active !== false ? "Desactivar" : "Activar"} aria-label={cat.is_active !== false ? "Desactivar" : "Activar"}
                 style={{ padding: "2px 6px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: cat.is_active !== false ? C.green : C.red }}>
-                {cat.is_active !== false ? "\u25cf" : "\u25cb"}
+                {cat.is_active !== false ? "●" : "○"}
               </button>
             </div>
           )}
@@ -144,10 +144,10 @@ export function CategoryTree({
             display: "flex", gap: 4, padding: "6px 8px", paddingLeft: 28 + depth * 20,
             borderBottom: `1px solid ${C.border}`, background: C.bg,
           }}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre subcategor\u00eda"
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre subcategoría"
               onKeyDown={e => e.key === "Enter" && handleCreate(cat.id)}
               style={{ ...iS, flex: 1, padding: "4px 8px", fontSize: 12 }} autoFocus disabled={busy} />
-            <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="C\u00f3d."
+            <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Cód."
               style={{ ...iS, width: 60, padding: "4px 6px", fontSize: 11, fontFamily: "monospace" }} disabled={busy} />
             <button type="button" onClick={() => handleCreate(cat.id)} disabled={busy || !newName.trim()} style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
@@ -156,7 +156,7 @@ export function CategoryTree({
             <button type="button" aria-label="Cerrar" onClick={() => setAddingTo(null)} style={{
               padding: "4px 8px", fontSize: 11, cursor: "pointer",
               background: "none", border: `1px solid ${C.border}`, borderRadius: 4, color: C.mid,
-            }}>{"\u2715"}</button>
+            }}>{"✕"}</button>
           </div>
         )}
 
@@ -171,7 +171,7 @@ export function CategoryTree({
       {error && (
         <div style={{ padding: "8px 12px", marginBottom: 8, background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 6, fontSize: 12, color: C.red }}>
           {error}
-          <button type="button" aria-label="Cerrar" onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.red }}>{"\u2715"}</button>
+          <button type="button" aria-label="Cerrar" onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.red }}>{"✕"}</button>
         </div>
       )}
 
@@ -179,10 +179,10 @@ export function CategoryTree({
       <div style={{ display: "flex", gap: 4, padding: "8px 0", marginBottom: 4 }}>
         {addingTo === "root" ? (
           <>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre categor\u00eda principal"
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre categoría principal"
               onKeyDown={e => e.key === "Enter" && handleCreate(null)}
               style={{ ...iS, flex: 1, padding: "6px 10px", fontSize: 13 }} autoFocus disabled={busy} />
-            <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="C\u00f3d."
+            <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Cód."
               style={{ ...iS, width: 60, padding: "6px 6px", fontSize: 12, fontFamily: "monospace" }} disabled={busy} />
             <button type="button" onClick={() => handleCreate(null)} disabled={busy || !newName.trim()} style={{
               padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -191,14 +191,14 @@ export function CategoryTree({
             <button type="button" aria-label="Cerrar" onClick={() => setAddingTo(null)} style={{
               padding: "6px 10px", fontSize: 12, cursor: "pointer",
               background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.mid,
-            }}>{"\u2715"}</button>
+            }}>{"✕"}</button>
           </>
         ) : (
           <button type="button" onClick={() => { setAddingTo("root"); setNewName(""); setNewCode(""); }} style={{
             padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
             background: "none", border: `1px dashed ${C.border}`, borderRadius: 6,
             color: C.accent, width: "100%",
-          }}>+ Nueva categor\u00eda principal</button>
+          }}>+ Nueva categoría principal</button>
         )}
       </div>
 
@@ -206,7 +206,7 @@ export function CategoryTree({
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
         {roots.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: C.mute, fontSize: 13 }}>
-            No hay categor\u00edas creadas. Crea tu primera categor\u00eda arriba.
+            No hay categorías creadas. Crea tu primera categoría arriba.
           </div>
         ) : (
           roots.map(c => renderNode(c, 0))
@@ -214,7 +214,7 @@ export function CategoryTree({
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: C.mute }}>
-        {"Tip: Puedes crear tantos niveles como necesites (Categor\u00eda \u2192 Subcategor\u00eda \u2192 Familia \u2192 etc.)"}
+        {"Tip: Puedes crear tantos niveles como necesites (Categoría → Subcategoría → Familia → etc.)"}
       </div>
     </div>
   );

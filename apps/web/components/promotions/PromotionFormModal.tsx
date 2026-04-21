@@ -250,7 +250,7 @@ export function PromotionFormModal({
                           {p.name}
                         </div>
                         <div style={{ fontSize: 11, color: C.mute }}>
-                          SKU: {p.sku || "\u2014"}
+                          SKU: {p.sku || "—"}
                         </div>
                       </div>
                       {/* Override input -- only visible for selected products */}

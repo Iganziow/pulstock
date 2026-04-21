@@ -66,7 +66,7 @@ export function RecipeEditor({
       {/* LOADING */}
       {selectedId !== null && recipeLoading && (
         <div style={{ padding: "80px 32px", display: "flex", justifyContent: "center", alignItems: "center", gap: 10, color: C.mute }}>
-          <Spinner size={20}/><span style={{ fontSize: 14 }}>Cargando receta\u2026</span>
+          <Spinner size={20}/><span style={{ fontSize: 14 }}>Cargando receta…</span>
         </div>
       )}
 
@@ -82,7 +82,7 @@ export function RecipeEditor({
               <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{selectedProduct?.name}</div>
               <div style={{ fontSize: 12, color: C.mute, marginTop: 2 }}>
                 {hasRecipe
-                  ? `${recipeLines.length} ingrediente${recipeLines.length !== 1 ? "s" : ""} \u00B7 ${recipeActive ? "Receta activa" : "Receta inactiva"}`
+                  ? `${recipeLines.length} ingrediente${recipeLines.length !== 1 ? "s" : ""} · ${recipeActive ? "Receta activa" : "Receta inactiva"}`
                   : "Sin receta configurada"}
               </div>
             </div>
@@ -131,7 +131,7 @@ export function RecipeEditor({
                   <input
                     value={ingSearch}
                     onChange={e => searchIngredients(e.target.value)}
-                    placeholder="Buscar producto o ingrediente\u2026"
+                    placeholder="Buscar producto o ingrediente…"
                     disabled={recipeSaving}
                     style={{
                       width: "100%", padding: "9px 12px",
@@ -157,7 +157,7 @@ export function RecipeEditor({
                           fontSize: 13, textAlign: "left", gap: 12, borderBottom: `1px solid ${C.border}`,
                         }}>
                         <span style={{ fontWeight: 600 }}>{ing.name}</span>
-                        <span style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{ing.sku ?? ""} \u00B7 {ing.unit ?? "UN"}</span>
+                        <span style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{ing.sku ?? ""} · {ing.unit ?? "UN"}</span>
                       </button>
                     ))}
                   </div>
@@ -196,7 +196,7 @@ export function RecipeEditor({
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{l.ingredient_name}</div>
                           <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>
-                            {l.ingredient_sku && `${l.ingredient_sku} \u00B7 `}{l.ingredient_unit ?? "UN"}
+                            {l.ingredient_sku && `${l.ingredient_sku} · `}{l.ingredient_unit ?? "UN"}
                           </div>
                         </div>
                         <input
@@ -257,7 +257,7 @@ export function RecipeEditor({
                 <input
                   value={recipeNotes}
                   onChange={e => setRecipeNotes(e.target.value)}
-                  placeholder="Ej: Usar leche entera, cafe de tueste oscuro\u2026"
+                  placeholder="Ej: Usar leche entera, cafe de tueste oscuro…"
                   disabled={recipeSaving}
                   style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 13 }}
                 />
@@ -271,8 +271,8 @@ export function RecipeEditor({
                 </span>
                 <span style={{ fontSize: 12, color: C.mute }}>
                   {recipeActive
-                    ? "\u2014 Los ingredientes se descontaran al vender este producto"
-                    : "\u2014 No se descontaran ingredientes al vender"}
+                    ? "— Los ingredientes se descontaran al vender este producto"
+                    : "— No se descontaran ingredientes al vender"}
                 </span>
               </div>
 
@@ -288,7 +288,7 @@ export function RecipeEditor({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: C.r }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: C.red }}>¿Eliminar esta receta?</span>
                       <Btn variant="danger" onClick={deleteRecipe} disabled={recipeSaving} size="sm">
-                        {recipeSaving ? <><Spinner/>Eliminando\u2026</> : "Si, eliminar"}
+                        {recipeSaving ? <><Spinner/>Eliminando…</> : "Si, eliminar"}
                       </Btn>
                       <Btn variant="ghost" onClick={() => setConfirmDeleteRecipe(false)} disabled={recipeSaving} size="sm">
                         Cancelar
@@ -306,7 +306,7 @@ export function RecipeEditor({
                   onClick={saveRecipe}
                   disabled={recipeSaving || recipeLines.filter(l => Number(l.qty) > 0).length === 0}
                 >
-                  {recipeSaving ? <><Spinner/>Guardando\u2026</> : (hasRecipe ? "Guardar cambios" : "Crear receta")}
+                  {recipeSaving ? <><Spinner/>Guardando…</> : (hasRecipe ? "Guardar cambios" : "Crear receta")}
                 </Btn>
               </div>
             </div>

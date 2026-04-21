@@ -90,7 +90,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
             <button type="button" aria-label="Cerrar" onClick={onClose} className="xb" style={{
               width:mob?36:30, height:mob?36:30, borderRadius:C.r, border:`1px solid ${C.border}`,
               background:C.bg, color:C.mute, fontSize:mob?20:16, display:"flex", alignItems:"center", justifyContent:"center",
-            }}>{mob?"\u2190 Volver":"\u2715"}</button>
+            }}>{mob?"← Volver":"✕"}</button>
           </div>
         </div>
 
@@ -98,7 +98,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
         <div style={{ flex:1, overflowY:"auto", padding:"16px 18px", display:"flex", flexDirection:"column", gap:14 }}>
           {loading && (
             <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:40, color:C.mute }}>
-              <Spinner size={16}/><span style={{ fontSize:13 }}>Cargando\u2026</span>
+              <Spinner size={16}/><span style={{ fontSize:13 }}>Cargando…</span>
             </div>
           )}
 

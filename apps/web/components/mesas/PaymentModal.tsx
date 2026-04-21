@@ -260,7 +260,7 @@ export function PaymentModal({
             isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
           )}>
           {loading ? <Spinner size={14} /> : null}
-          {loading ? "Procesando\u2026" : isConsumoInterno ? "Registrar consumo" : `Cobrar $${fmt(grandTotal)}`}
+          {loading ? "Procesando…" : isConsumoInterno ? "Registrar consumo" : `Cobrar $${fmt(grandTotal)}`}
         </Btn>
       </div>
     </MesaModal>

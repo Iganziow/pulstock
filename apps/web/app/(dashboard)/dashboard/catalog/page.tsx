@@ -339,7 +339,7 @@ export default function CatalogPage() {
         <StatCard label="Total"      value={totalCount}               icon="📦" color={C.accent} />
         <StatCard label="Activos"    value={activeCount}              icon="✅" color={C.green}  />
         <StatCard label="Inactivos"  value={totalCount-activeCount}   icon="⏸️" color={C.amber}  />
-        <StatCard label="Categorías" value={categories.length}        icon="\ud83d\uddc2️" color={C.violet} />
+        <StatCard label="Categorías" value={categories.length}        icon="🗂️" color={C.violet} />
       </div>
 
       {/* SEARCH */}
@@ -399,7 +399,7 @@ export default function CatalogPage() {
 
           {items.length === 0 ? (
             <div style={{ padding:"60px 24px", textAlign:"center" }}>
-              <div style={{ fontSize:38, marginBottom:10 }}>{"\ud83d\udced"}</div>
+              <div style={{ fontSize:38, marginBottom:10 }}>{"📭"}</div>
               <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>
                 No hay productos para mostrar.
               </div>
@@ -419,7 +419,7 @@ export default function CatalogPage() {
               }}>
                 {/* SKU */}
                 {!mob && <div style={{ fontFamily:C.mono, fontSize:12, color:C.mid, fontWeight:500 }}>
-                  {p.sku || <span style={{ color:C.mute }}>{"\u2014"}</span>}
+                  {p.sku || <span style={{ color:C.mute }}>{"—"}</span>}
                 </div>}
 
                 {/* Name */}
@@ -435,7 +435,7 @@ export default function CatalogPage() {
                 {!mob && <div>
                   {p.category
                     ? <span style={{ fontSize:12, fontWeight:500, color:C.mid, background:C.bg, border:`1px solid ${C.border}`, borderRadius:4, padding:"2px 8px" }}>{p.category.name}</span>
-                    : <span style={{ color:C.mute, fontSize:12 }}>{"\u2014"}</span>
+                    : <span style={{ color:C.mute, fontSize:12 }}>{"—"}</span>
                   }
                 </div>}
 
@@ -446,7 +446,7 @@ export default function CatalogPage() {
 
                 {/* Barcodes */}
                 {!mob && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
-                  {p.barcodes?.length ? p.barcodes.map((b)=>b.code).join(", ") : <span style={{ color:C.mute }}>{"\u2014"}</span>}
+                  {p.barcodes?.length ? p.barcodes.map((b)=>b.code).join(", ") : <span style={{ color:C.mute }}>{"—"}</span>}
                 </div>}
 
                 {/* Status */}

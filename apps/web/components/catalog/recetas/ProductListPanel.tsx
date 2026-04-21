@@ -28,7 +28,7 @@ export function ProductListPanel({
         <input
           value={searchQ}
           onChange={e => setSearchQ(e.target.value)}
-          placeholder="Filtrar productos\u2026"
+          placeholder="Filtrar productos…"
           style={{ flex: 1, border: "none", background: "transparent", fontSize: 13, outline: "none" }}
         />
         {searchQ && (
@@ -41,7 +41,7 @@ export function ProductListPanel({
       <div style={{ maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
         {loading ? (
           <div style={{ padding: "40px 0", display: "flex", justifyContent: "center", alignItems: "center", gap: 8, color: C.mute }}>
-            <Spinner size={16}/><span style={{ fontSize: 13 }}>Cargando\u2026</span>
+            <Spinner size={16}/><span style={{ fontSize: 13 }}>Cargando…</span>
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: "40px 16px", textAlign: "center", color: C.mute, fontSize: 13 }}>
@@ -89,7 +89,7 @@ export function ProductListPanel({
       {!loading && (
         <div style={{ padding: "8px 16px", borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.mute, background: C.bg }}>
           {filtered.length} producto{filtered.length !== 1 ? "s" : ""}
-          {" \u00B7 "}
+          {" · "}
           {products.filter(p => p.has_recipe).length} con receta
         </div>
       )}

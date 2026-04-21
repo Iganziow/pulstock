@@ -121,7 +121,7 @@ export default function ForecastPage() {
               {kpis.imminent_3d} producto{kpis.imminent_3d > 1 ? "s se van a agotar" : " se va a agotar"} en menos de 3 dias
             </div>
             <div style={{ fontSize: 12, color: C.mid, marginTop: 2 }}>
-              Valor en riesgo: <b>{fmtMoney(kpis.value_at_risk)}</b> \u00B7 Revisa la lista abajo y haz tu pedido
+              Valor en riesgo: <b>{fmtMoney(kpis.value_at_risk)}</b> · Revisa la lista abajo y haz tu pedido
             </div>
           </div>
         </div>
@@ -132,7 +132,7 @@ export default function ForecastPage() {
           <div style={{ background: C.surface, border: `1px solid ${hasUrgent ? C.redBd : C.border}`, borderRadius: C.r, padding: "14px 16px", boxShadow: C.sh }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Necesitan reposicion</div>
             <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.03em", color: hasUrgent ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>{kpis.at_risk_7d + kpis.imminent_3d}</div>
-            <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>{hasUrgent ? `${kpis.imminent_3d} critico${kpis.imminent_3d !== 1 ? "s" : ""} \u00B7 ${kpis.at_risk_7d} en riesgo` : "Todo bajo control"}</div>
+            <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>{hasUrgent ? `${kpis.imminent_3d} critico${kpis.imminent_3d !== 1 ? "s" : ""} · ${kpis.at_risk_7d} en riesgo` : "Todo bajo control"}</div>
           </div>
           <div style={{ background: C.surface, border: `1px solid ${kpis.pending_suggestions > 0 ? C.amberBd : C.border}`, borderRadius: C.r, padding: "14px 16px", boxShadow: C.sh }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Pedidos sugeridos</div>
@@ -146,7 +146,7 @@ export default function ForecastPage() {
               <span style={{ fontSize: 13, color: C.mute }}>de {kpis.products_with_forecast + kpis.products_without_forecast}</span>
             </div>
             <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
-              {kpis.avg_mape > 0 ? `Precision: ${kpis.avg_mape < 25 ? "alta" : kpis.avg_mape < 40 ? "buena" : "mejorando"} (${Math.round(100 - kpis.avg_mape)}%)` : "Acumulando datos\u2026"}
+              {kpis.avg_mape > 0 ? `Precision: ${kpis.avg_mape < 25 ? "alta" : kpis.avg_mape < 40 ? "buena" : "mejorando"} (${Math.round(100 - kpis.avg_mape)}%)` : "Acumulando datos…"}
             </div>
           </div>
         </div>
@@ -164,7 +164,7 @@ export default function ForecastPage() {
             <div style={{ fontWeight: 700, fontSize: 14 }}>Tienes {kpis.pending_suggestions} pedido{kpis.pending_suggestions > 1 ? "s" : ""} listo{kpis.pending_suggestions > 1 ? "s" : ""} para aprobar</div>
             <div style={{ fontSize: 12, color: C.mid, marginTop: 1 }}>Armados automaticamente segun lo que necesitas reponer</div>
           </div>
-          <div style={{ fontWeight: 700, color: C.amber, fontSize: 20, flexShrink: 0 }}>\u2192</div>
+          <div style={{ fontWeight: 700, color: C.amber, fontSize: 20, flexShrink: 0 }}>→</div>
         </Link>
       )}
 
@@ -185,10 +185,10 @@ export default function ForecastPage() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.mute} strokeWidth="2" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}>
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Buscar producto\u2026" style={{ ...iS, width: "100%", paddingLeft: 32 }} />
+            <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Buscar producto…" style={{ ...iS, width: "100%", paddingLeft: 32 }} />
             {search && (
               <button onClick={() => { setSearch(""); setPage(1); loadProducts(1, "", category, risk, sort); }}
-                style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 16 }}>\u00D7</button>
+                style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 16 }}>×</button>
             )}
           </div>
           {meta.categories.length > 0 && (
@@ -244,7 +244,7 @@ export default function ForecastPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.product_name}</div>
                       <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
-                        Quedan <b style={{ color: C.text }}>{fmt(stock)}</b> \u00B7 Se venden <b style={{ color: C.text }}>{fmtDec(p.avg_daily_demand)}</b> al dia
+                        Quedan <b style={{ color: C.text }}>{fmt(stock)}</b> · Se venden <b style={{ color: C.text }}>{fmtDec(p.avg_daily_demand)}</b> al dia
                       </div>
                     </div>
                     <ForecastStatusBadge days={dto} />
@@ -298,7 +298,7 @@ export default function ForecastPage() {
       {meta.total_pages > 1 && (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
           <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-            style={{ ...iS, width: 36, padding: "6px", textAlign: "center", cursor: page <= 1 ? "default" : "pointer", opacity: page <= 1 ? .4 : 1 }}>\u2039</button>
+            style={{ ...iS, width: 36, padding: "6px", textAlign: "center", cursor: page <= 1 ? "default" : "pointer", opacity: page <= 1 ? .4 : 1 }}>‹</button>
           {Array.from({ length: Math.min(meta.total_pages, 7) }, (_, i) => {
             let pg: number;
             if (meta.total_pages <= 7) pg = i + 1;
@@ -314,7 +314,7 @@ export default function ForecastPage() {
             );
           })}
           <button disabled={page >= meta.total_pages} onClick={() => setPage(p => p + 1)}
-            style={{ ...iS, width: 36, padding: "6px", textAlign: "center", cursor: page >= meta.total_pages ? "default" : "pointer", opacity: page >= meta.total_pages ? .4 : 1 }}>\u203A</button>
+            style={{ ...iS, width: 36, padding: "6px", textAlign: "center", cursor: page >= meta.total_pages ? "default" : "pointer", opacity: page >= meta.total_pages ? .4 : 1 }}>›</button>
         </div>
       )}
 

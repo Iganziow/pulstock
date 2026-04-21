@@ -2,7 +2,7 @@ import { C } from "@/lib/theme";
 import { formatCLP } from "@/lib/format";
 
 export function formatDate(iso: string) {
-  if (!iso) return "\u2014";
+  if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -22,7 +22,7 @@ export function discountLabel(type: "percentage" | "fixed", value: string) {
 export function promoPrice(price: string, type: "percentage" | "fixed", value: string, override?: string | null) {
   const p = Number(price);
   const v = Number(override || value);
-  if (Number.isNaN(p) || Number.isNaN(v) || v <= 0) return "\u2014";
+  if (Number.isNaN(p) || Number.isNaN(v) || v <= 0) return "—";
   if (type === "percentage") return formatCLP(Math.round(p * (1 - v / 100)));
   return formatCLP(v);
 }

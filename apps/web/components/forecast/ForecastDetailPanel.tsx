@@ -9,7 +9,7 @@ import type { Detail } from "./types";
 export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail | null; loading: boolean; mob: boolean }) {
   if (loading) return (
     <div style={{ padding: 24, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: C.mute, borderBottom: `1px solid ${C.border}` }}>
-      <Spinner /> <span style={{ fontSize: 12 }}>Cargando detalle\u2026</span>
+      <Spinner /> <span style={{ fontSize: 12 }}>Cargando detalle…</span>
     </div>
   );
   if (!detail) return null;
@@ -86,19 +86,19 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
         fontSize: 13, lineHeight: 1.7,
       }}>
         {daysOut === null && (
-          <><b style={{ color: C.green }}>\u2713 Sin riesgo.</b> Tienes <b>{fmt(stockLevel)}</b> unidades en bodega. Se venden en promedio <b>{fmtDec(avgDemand)}</b> al dia. Con eso te alcanza para mas de {coverageLabel}, asi que no necesitas hacer nada por ahora.</>
+          <><b style={{ color: C.green }}>✓ Sin riesgo.</b> Tienes <b>{fmt(stockLevel)}</b> unidades en bodega. Se venden en promedio <b>{fmtDec(avgDemand)}</b> al dia. Con eso te alcanza para mas de {coverageLabel}, asi que no necesitas hacer nada por ahora.</>
         )}
         {daysOut !== null && daysOut === 0 && (
-          <><b style={{ color: C.red }}>\u26A0 ¡Se agoto!</b> Este producto ya no tiene stock. Se vendian <b>{fmtDec(avgDemand)}</b> unidades por dia. <b>Necesitas pedir al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo estimado: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
+          <><b style={{ color: C.red }}>⚠ ¡Se agoto!</b> Este producto ya no tiene stock. Se vendian <b>{fmtDec(avgDemand)}</b> unidades por dia. <b>Necesitas pedir al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo estimado: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
         )}
         {daysOut !== null && daysOut > 0 && daysOut <= 3 && (
-          <><b style={{ color: C.red }}>\u26A0 ¡Urgente!</b> Quedan solo <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. <b>En {daysOut} dia{daysOut > 1 ? "s" : ""} se acaba</b> si no repones. Te recomendamos pedir <b>{reorderQty}</b> unidades para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan solo <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. <b>En {daysOut} dia{daysOut > 1 ? "s" : ""} se acaba</b> si no repones. Te recomendamos pedir <b>{reorderQty}</b> unidades para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
         )}
         {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
-          <><b style={{ color: C.amber }}>\u23F0 Ojo:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Se venden <b>{fmtDec(avgDemand)}</b> al dia, asi que te alcanzan para unos <b>{daysOut} dias</b>. Conviene hacer un pedido esta semana. Sugerimos pedir <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          <><b style={{ color: C.amber }}>⏰ Ojo:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Se venden <b>{fmtDec(avgDemand)}</b> al dia, asi que te alcanzan para unos <b>{daysOut} dias</b>. Conviene hacer un pedido esta semana. Sugerimos pedir <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
         )}
         {daysOut !== null && daysOut > 7 && (
-          <><b style={{ color: C.accent }}>\uD83D\uDC41 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. Te alcanza para unos <b>{daysOut} dias</b>. No es urgente, pero tenlo en cuenta para tu proximo pedido.</>
+          <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. Te alcanza para unos <b>{daysOut} dias</b>. No es urgente, pero tenlo en cuenta para tu proximo pedido.</>
         )}
       </div>
 
@@ -119,7 +119,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }}>
             {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "No necesitas"}
           </div>
-          {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} \u00B7 Para 2 semanas</div>}
+          {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · Para 2 semanas</div>}
           {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
         </div>
       </div>
@@ -127,7 +127,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
       {/* GRAFICO */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "10px 6px" : "14px 12px", marginBottom: 8 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.mid, marginBottom: 8, paddingLeft: mob ? 4 : 8 }}>
-          \uD83D\uDCC8 Tus ventas y lo que el sistema predice
+          📈 Tus ventas y lo que el sistema predice
         </div>
         <div style={{ overflowX: "auto" }}>
           <svg width={W} height={H} style={{ display: "block" }}>
