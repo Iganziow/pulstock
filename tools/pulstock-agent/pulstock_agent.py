@@ -441,6 +441,19 @@ def main() -> int:
 
     if args.pair:
         return cmd_pair(args.api_url)
+
+    # Auto-pair si no hay config todavía (primera ejecución del .exe).
+    # Así el user solo hace doble click y el agente le pide el código
+    # en vez de morir con "config no encontrada".
+    cfg = load_config()
+    if not cfg.get("api_key"):
+        log.info("No hay configuración previa — iniciando emparejado...")
+        rc = cmd_pair(args.api_url)
+        if rc != 0:
+            return rc
+        # Si emparejo OK, seguimos al modo run normal
+        log.info("Emparejado OK — iniciando agente...")
+
     return cmd_run()
 
 

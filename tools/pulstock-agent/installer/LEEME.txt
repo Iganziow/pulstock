@@ -1,0 +1,37 @@
+╔══════════════════════════════════════════╗
+║   Pulstock Printer Agent - Instalador    ║
+╚══════════════════════════════════════════╝
+
+INSTRUCCIONES SÚPER RÁPIDAS
+═══════════════════════════
+
+Si estás en WINDOWS:
+──────────────────
+  1. Doble click en:  Instalar Pulstock.bat
+  2. Seguí las instrucciones en pantalla
+  3. Listo
+
+Si estás en MAC o LINUX:
+───────────────────────
+  1. Abrí una terminal en esta carpeta
+  2. Ejecutá:  bash instalar-pulstock.sh
+  3. Listo
+
+
+QUÉ VA A PASAR
+══════════════
+  El instalador:
+  • Verifica que tengas Python instalado
+  • Instala las librerías necesarias automáticamente
+  • Te pide un código de 8 caracteres
+    (lo sacas en Pulstock → Configuración → Impresoras
+    → Agregar agente PC)
+  • Configura el agente para que arranque solo al prender
+    el PC
+  • Empieza a funcionar en segundo plano
+
+
+¿PROBLEMAS?
+═══════════
+  Email: soporte@pulstock.cl
+  Web:   https://pulstock.cl/agent
