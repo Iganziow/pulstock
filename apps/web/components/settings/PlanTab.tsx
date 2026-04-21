@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Card } from "./SettingsUI";
+import { humanizeError } from "@/lib/errors";
 
 interface PlanTabProps {
   mob: boolean;
@@ -151,7 +152,7 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
       }
     } catch (e: any) {
       if (e?.data?.payment_url) window.location.href = e.data.payment_url;
-      else flash("err", e?.message || "Error al reactivar.");
+      else flash("err", humanizeError(e, "Error al reactivar."));
     } finally { setBusy(false); }
   };
 

@@ -5,7 +5,9 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
-
+import { humanizeError } from "@/lib/errors";
+
+
 
 const fmt = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "0" : Math.round(n).toLocaleString("es-CL"); };
 const fmtMoney = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "$0" : "$" + Math.round(n).toLocaleString("es-CL"); };
@@ -59,7 +61,7 @@ export default function AuditTrailPage() {
       setByUser(data?.by_user || []);
       setRefTypes(data?.ref_types || []);
       setMeta({ page: data?.meta?.page || p, total_pages: data?.meta?.total_pages || 0, total: data?.meta?.total || 0 });
-    } catch (e: any) { setErr(e?.message || "Error al cargar el reporte"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al cargar el reporte")); }
     finally { setLoading(false); }
   };
 

@@ -6,7 +6,9 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
-
+import { humanizeError } from "@/lib/errors";
+
+
 
 
 
@@ -39,7 +41,7 @@ export default function SalesSummaryPage() {
       setKpis(data?.kpis || null);
       setDaily(data?.daily || []);
       setByCat(data?.by_category || []);
-    } catch (e: any) { setErr(e?.message || "Error al cargar el reporte"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al cargar el reporte")); }
     finally { setLoading(false); }
   };
 

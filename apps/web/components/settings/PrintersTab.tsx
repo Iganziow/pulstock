@@ -8,6 +8,7 @@ import {
   testNetworkPrinter, printSystemReceipt, printBytes,
 } from "@/lib/printer";
 import { apiFetch } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 import { EscPos } from "@/lib/escpos";
 import { Card, SectionHeader, Divider, Btn, Spinner, Label, Hint, iS, FL } from "./SettingsUI";
 
@@ -119,7 +120,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
         flash("ok", "Prueba enviada correctamente");
       }
     } catch (e: any) {
-      flash("err", e?.message || "Error al imprimir prueba");
+      flash("err", humanizeError(e, "Error al imprimir prueba"));
     }
   };
 
@@ -137,7 +138,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
       resetAddForm();
       flash("ok", "Impresora USB agregada");
     } catch (e: any) {
-      flash("err", e?.message || "No se pudo conectar la impresora USB");
+      flash("err", humanizeError(e, "No se pudo conectar la impresora USB"));
     } finally { setPairing(false); }
   };
 
@@ -151,7 +152,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
       resetAddForm();
       flash("ok", "Impresora Bluetooth agregada");
     } catch (e: any) {
-      flash("err", e?.message || "No se pudo conectar la impresora Bluetooth");
+      flash("err", humanizeError(e, "No se pudo conectar la impresora Bluetooth"));
     } finally { setPairing(false); }
   };
 
@@ -175,7 +176,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
         flash("err", result.error || "No se pudo conectar a la impresora");
       }
     } catch (e: any) {
-      flash("err", e?.message || "Error al probar la conexión");
+      flash("err", humanizeError(e, "Error al probar la conexión"));
     } finally { setPairing(false); }
   };
 
@@ -245,7 +246,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
       await reloadAgents();
       flash("ok", "Agente creado — entrega el código al PC");
     } catch (e: any) {
-      flash("err", e?.message || "No se pudo crear el agente");
+      flash("err", humanizeError(e, "No se pudo crear el agente"));
     } finally {
       setCreatingAgent(false);
     }
@@ -263,7 +264,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
       reload();
       flash("ok", "Agente eliminado");
     } catch (e: any) {
-      flash("err", e?.message || "No se pudo eliminar");
+      flash("err", humanizeError(e, "No se pudo eliminar"));
     }
   };
 
@@ -277,7 +278,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
       });
       await reloadAgents();
     } catch (e: any) {
-      flash("err", e?.message || "No se pudo regenerar el código");
+      flash("err", humanizeError(e, "No se pudo regenerar el código"));
     }
   };
 

@@ -26,6 +26,7 @@ function useStyles() {
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { Table } from "@/components/mesas/types";
 import { FloorPlanEditor } from "@/components/mesas/FloorPlanEditor";
+import { humanizeError } from "@/lib/errors";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -107,7 +108,7 @@ function TableFormModal({
       onSaved();
       onClose();
     } catch (e: any) {
-      setErr(e?.message || "Error al guardar");
+      setErr(humanizeError(e, "Error al guardar"));
     } finally { setSaving(false); }
   }
 

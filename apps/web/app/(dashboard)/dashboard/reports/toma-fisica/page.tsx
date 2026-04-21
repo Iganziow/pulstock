@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
+import { humanizeError } from "@/lib/errors";
 const fmt = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "0" : Math.round(n).toLocaleString("es-CL"); };
 const fmtMoney = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "$0" : "$" + Math.round(n).toLocaleString("es-CL"); };
 const fmtDiff = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; if (isNaN(n) || n === 0) return "0"; return (n > 0 ? "+" : "") + Math.round(n).toLocaleString("es-CL"); };
@@ -51,7 +52,7 @@ export default function TomaFisicaPage() {
       setHeader(data?.header || null);
       setCategories(data?.categories || []);
       setCountTotals(data?.totals || null);
-    } catch (e: any) { setErr(e?.message || "Error al cargar productos"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al cargar productos")); }
     finally { setLoading(false); }
   };
 
@@ -93,7 +94,7 @@ export default function TomaFisicaPage() {
       setDiffTotals(data?.totals || null);
       setStep("result");
       setFilter("all");
-    } catch (e: any) { setErr(e?.message || "Error al comparar"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al comparar")); }
     finally { setComparing(false); }
   };
 

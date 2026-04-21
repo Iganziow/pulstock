@@ -6,6 +6,7 @@ import ExportButtons, { buildExportConfig } from "@/components/ExportButtons";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
+import { humanizeError } from "@/lib/errors";
 const fmt = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "0" : Math.round(n).toLocaleString("es-CL"); };
 const fmtMoney = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "$0" : "$" + Math.round(n).toLocaleString("es-CL"); };
 const fmtPct = (v: number) => isNaN(v) ? "0.0" : v.toFixed(1);
@@ -48,7 +49,7 @@ export default function ABCAnalysisPage() {
       setRows(data?.results || []);
       setClassSummary(data?.class_summary || {});
       setMeta(data?.meta || null);
-    } catch (e: any) { setErr(e?.message || "Error al cargar el reporte"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al cargar el reporte")); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);

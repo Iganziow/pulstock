@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
+import { humanizeError } from "@/lib/errors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ export default function ReceiptPage() {
       } else {
         printHTML(buildReceiptHTML(receiptData));
       }
-    } catch (e: any) { setErr(e?.message || "Error al imprimir"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al imprimir")); }
   }
 
   function handleBrowserPrint() { window.print(); }

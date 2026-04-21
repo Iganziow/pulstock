@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", border: "#334155",
@@ -153,7 +154,7 @@ export default function ForecastMetricsPage() {
       const res = await apiFetch("/superadmin/forecast/");
       setData(res);
     } catch (e: any) {
-      setError(e.message || "Error al cargar métricas");
+      setError(humanizeError(e, "Error al cargar métricas"));
     } finally {
       setLoading(false);
     }

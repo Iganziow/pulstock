@@ -8,6 +8,7 @@ import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner, SkeletonPage } from "@/components/ui";
 import { formatCLP as _formatCLP } from "@/lib/format";
+import { humanizeError } from "@/lib/errors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -336,7 +337,7 @@ export default function DashboardPage() {
       const res = await apiFetch("/dashboard/summary/");
       setData(res);
     } catch (e: any) {
-      setError(e?.message || "Error al cargar dashboard");
+      setError(humanizeError(e, "Error al cargar dashboard"));
     } finally {
       setLoading(false);
     }

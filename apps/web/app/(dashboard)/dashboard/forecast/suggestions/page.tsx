@@ -7,6 +7,7 @@ import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
 import { SuggestionCard, SuggestionConfirmModal, type Suggestion } from "@/components/forecast/SuggestionCard";
+import { humanizeError } from "@/lib/errors";
 
 const fmtMoney = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "$0" : "$" + Math.round(n).toLocaleString("es-CL"); };
 
@@ -29,7 +30,7 @@ export default function SuggestionsPage() {
       setSuggestions(results);
       const firstPending = results.find(s => s.status === "PENDING");
       if (firstPending && expandedId === null) setExpandedId(firstPending.id);
-    } catch (e: any) { setError(e?.message || "Error cargando sugerencias"); }
+    } catch (e: any) { setError(humanizeError(e, "Error cargando sugerencias")); }
     finally { setLoading(false); }
   }, []);
 

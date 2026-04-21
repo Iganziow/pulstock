@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { iS } from "@/components/ui";
 import type { Category } from "./types";
+import { humanizeError } from "@/lib/errors";
 
 export { type Category } from "./types";
 
@@ -46,7 +47,7 @@ export function CategoryTree({
       setNewName(""); setNewCode(""); setAddingTo(null);
       if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     } catch (e: any) {
-      setError(e?.message || "Error creando categor\u00eda");
+      setError(humanizeError(e, "Error creando categor\u00eda"));
     } finally { setBusy(false); }
   };
 
@@ -58,7 +59,7 @@ export function CategoryTree({
       await onRefresh();
       setEditingId(null); setEditName("");
     } catch (e: any) {
-      setError(e?.message || "Error renombrando");
+      setError(humanizeError(e, "Error renombrando"));
     } finally { setBusy(false); }
   };
 
@@ -68,7 +69,7 @@ export function CategoryTree({
       await apiFetch(`/catalog/categories/${cat.id}/`, { method: "PATCH", body: JSON.stringify({ is_active: !cat.is_active }) });
       await onRefresh();
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(humanizeError(e, "Error"));
     } finally { setBusy(false); }
   };
 

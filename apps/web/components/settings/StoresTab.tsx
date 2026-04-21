@@ -3,6 +3,7 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Card, SectionHeader, Btn, Spinner, Label, Hint, iS, FL, type Store, type Warehouse } from "./SettingsUI";
+import { humanizeError } from "@/lib/errors";
 
 interface StoresTabProps {
   stores: Store[];
@@ -45,7 +46,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       setNewStoreName(""); setNewStoreCode(""); setNewWHName("Bodega Principal");
       setShowAddStore(false);
       flash("ok", "Tienda creada");
-    } catch (e: any) { flash("err", e?.message || "Error creando tienda"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error creando tienda")); }
     finally { setSaving(false); }
   };
 
@@ -60,7 +61,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       onRefresh();
       setEditingStoreId(null);
       flash("ok", "Tienda actualizada");
-    } catch (e: any) { flash("err", e?.message || "Error actualizando tienda"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error actualizando tienda")); }
     finally { setSaving(false); }
   };
 
@@ -72,7 +73,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       });
       onRefresh();
       flash("ok", store.is_active ? "Tienda desactivada" : "Tienda reactivada");
-    } catch (e: any) { flash("err", e?.message || "Error"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error")); }
   };
 
   const addWarehouse = async (storeId: number) => {
@@ -86,7 +87,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       onRefresh();
       setAddWHForStore(null); setNewWHNameForStore("");
       flash("ok", "Bodega agregada");
-    } catch (e: any) { flash("err", e?.message || "Error creando bodega"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error creando bodega")); }
     finally { setSaving(false); }
   };
 
@@ -101,7 +102,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       onRefresh();
       setEditingWHId(null);
       flash("ok", "Bodega actualizada");
-    } catch (e: any) { flash("err", e?.message || "Error"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error")); }
     finally { setSaving(false); }
   };
 
@@ -113,7 +114,7 @@ export default function StoresTab({ stores, onRefresh, flash }: StoresTabProps) 
       });
       onRefresh();
       flash("ok", wh.is_active ? "Bodega desactivada" : "Bodega reactivada");
-    } catch (e: any) { flash("err", e?.message || "Error"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error")); }
   };
 
   return (

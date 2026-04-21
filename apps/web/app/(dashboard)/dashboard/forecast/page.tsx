@@ -10,6 +10,7 @@ import { ForecastStatusBadge, UrgencyBar } from "@/components/forecast/ForecastB
 import { ForecastDetailPanel } from "@/components/forecast/ForecastDetailPanel";
 import { fmt, fmtDec, fmtMoney } from "@/components/forecast/helpers";
 import type { KPIs, FP, Detail, PageMeta } from "@/components/forecast/types";
+import { humanizeError } from "@/lib/errors";
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ export default function ForecastPage() {
         page_size: data?.page_size || 50, total_pages: data?.total_pages || 0,
         categories: data?.categories || meta.categories,
       });
-    } catch (e: any) { setErr(e?.message || "Error al cargar predicciones"); }
+    } catch (e: any) { setErr(humanizeError(e, "Error al cargar predicciones")); }
     finally { setTableLoading(false); setLoading(false); }
   }, []);
 

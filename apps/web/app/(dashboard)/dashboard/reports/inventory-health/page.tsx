@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
+import { humanizeError } from "@/lib/errors";
 
 const fmtMoney = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "$0" : "$" + Math.round(n).toLocaleString("es-CL"); };
 const fmt = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "0" : Math.round(n).toLocaleString("es-CL"); };
@@ -93,7 +94,7 @@ export default function InventoryHealthPage() {
       for (const s of SECTIONS) exp[s.key] = (res[s.key]?.length ?? 0) > 0;
       setExpanded(exp as Record<SectionKey, boolean>);
     } catch (e: any) {
-      setError(e?.message || "Error al cargar el reporte");
+      setError(humanizeError(e, "Error al cargar el reporte"));
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { humanizeError } from "@/lib/errors";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { Me } from "@/lib/me";
@@ -69,7 +70,7 @@ export default function SettingsPage() {
           const u = await apiFetch("/core/users/").catch(() => []);
           setUsers(u || []);
         }
-      } catch (e: any) { flash("err", e?.message || "Error cargando configuración"); }
+      } catch (e: any) { flash("err", humanizeError(e, "Error cargando configuración")); }
       finally { setLoading(false); }
     })();
   }, []);
@@ -90,7 +91,7 @@ export default function SettingsPage() {
         setTenant({ ...tenant!, ...changed });
       }
       flash("ok", "Cambios guardados");
-    } catch (e: any) { flash("err", e?.message || "Error guardando"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error guardando")); }
     finally { setSaving(false); }
   };
 
@@ -99,7 +100,7 @@ export default function SettingsPage() {
     try {
       await apiFetch(`/core/users/${me?.id}/`, { method: "PATCH", body: JSON.stringify(body) });
       flash("ok", body.password ? "Datos y contraseña actualizados" : "Datos actualizados");
-    } catch (e: any) { flash("err", e?.message || "Error guardando"); }
+    } catch (e: any) { flash("err", humanizeError(e, "Error guardando")); }
     finally { setSaving(false); }
   };
 
@@ -170,19 +171,80 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {/* Flash */}
+      {/* Flash — toast animado con slide-in */}
       {msg && (
-        <div style={{
-          padding: "10px 14px",
-          background: msg.type === "ok" ? C.greenBg : C.redBg,
-          border: `1px solid ${msg.type === "ok" ? C.greenBd : C.redBd}`,
-          borderRadius: 8, fontSize: 13,
-          color: msg.type === "ok" ? C.green : C.red,
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-        }}>
-          <span>{msg.type === "ok" ? "✓" : "⚠"} {msg.text}</span>
-          <button onClick={() => setMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 18, lineHeight: 1 }}>×</button>
-        </div>
+        <>
+          <style>{`
+            @keyframes pulstockFlashIn {
+              from { opacity: 0; transform: translateY(-8px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+          <div
+            role="alert"
+            style={{
+              padding: "12px 16px",
+              background: msg.type === "ok" ? C.greenBg : C.redBg,
+              border: `1.5px solid ${msg.type === "ok" ? C.greenBd : C.redBd}`,
+              borderRadius: 12,
+              fontSize: 13,
+              fontWeight: 500,
+              color: msg.type === "ok" ? C.green : C.red,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              lineHeight: 1.45,
+              boxShadow: msg.type === "ok"
+                ? "0 2px 8px rgba(22, 163, 74, 0.08)"
+                : "0 2px 8px rgba(220, 38, 38, 0.12)",
+              animation: "pulstockFlashIn 0.25s ease-out",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                flexShrink: 0,
+                width: 20,
+                height: 20,
+                borderRadius: 99,
+                background: msg.type === "ok" ? C.green : C.red,
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                fontWeight: 700,
+                marginTop: 1,
+              }}
+            >
+              {msg.type === "ok" ? "✓" : "!"}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+              {msg.text}
+            </span>
+            <button
+              onClick={() => setMsg(null)}
+              aria-label="Cerrar"
+              style={{
+                flexShrink: 0,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "inherit",
+                fontSize: 20,
+                lineHeight: 1,
+                opacity: 0.6,
+                padding: 0,
+                width: 24,
+                height: 24,
+              }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.opacity = "1")}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.opacity = "0.6")}
+            >
+              ×
+            </button>
+          </div>
+        </>
       )}
 
       {/* Tab content */}
