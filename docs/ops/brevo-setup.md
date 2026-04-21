@@ -80,9 +80,30 @@ En Brevo → **SMTP & API** → pestaña **SMTP**:
 ```
 SMTP server : smtp-relay.brevo.com
 Port        : 587 (TLS) o 465 (SSL)
-Login       : <tu_email_brevo>
+Iniciar sesión: <login_smtp>@smtp-brevo.com  ← OJO: NO es tu email de cuenta
 SMTP key    : xsmtpsib-xxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+> **IMPORTANTE**: el "Login SMTP" es un email tipo `a8be4f001@smtp-brevo.com`, NO es el email con el que te registraste en Brevo. Fíjate bien en la pantalla.
+
+### Paso 5.5 — Activación manual de SMTP (cuentas nuevas)
+
+Brevo **desactiva SMTP por defecto** en cuentas Free nuevas para prevenir spam.
+Si al enviar recibís:
+```
+502 5.7.0 Your SMTP account is not yet activated.
+```
+
+Contactalos:
+- **Chat del dashboard** (más rápido, respuesta en minutos)
+- O email a `contact@brevo.com`
+
+Mensaje sugerido:
+> Somos un SaaS transaccional (pulstock.cl). Dominio verificado, DKIM/DMARC OK.
+> Enviaremos solo emails transaccionales a clientes registrados (billing,
+> notificaciones de pago, alertas). Volumen ~50-200/día. Por favor activar SMTP.
+
+Respuesta típica: 1-24h. Te llega un email "Your SMTP account has been activated".
 
 ### Paso 6 — Configurar Senders
 
