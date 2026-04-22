@@ -3,6 +3,13 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = ['win32print', 'win32api']
 hiddenimports += collect_submodules('win32')
+# GUI deps — pystray necesita ser explícito porque carga backend según OS.
+hiddenimports += [
+    'pystray._win32',
+    'PIL._tkinter_finder',
+    'PIL.ImageFont',
+    'PIL.ImageDraw',
+]
 
 
 a = Analysis(
@@ -33,7 +40,10 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    # IMPORTANT: console=False = modo "windowed" — al doble click NO sale la
+    # ventana negra de cmd. Toda la interacción es por GUI Tkinter / system
+    # tray. Si necesitas debug en consola, usa: PulstockAgent.exe --cli
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

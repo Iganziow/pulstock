@@ -3,3 +3,7 @@
 # En Mac/Linux usa `lp` / `lpstat` que ya vienen con el sistema.
 
 pywin32>=306; sys_platform == "win32"
+
+# GUI amigable para clientes no técnicos
+pystray>=0.19   # icono en system tray (bandeja del reloj)
+Pillow>=10      # imagen del icono del tray

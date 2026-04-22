@@ -883,81 +883,31 @@ class NotificationsView(APIView):
 class NetworkPrintProxyView(APIView):
     """
     POST /api/core/print/network/
-    Body: { "host": "192.168.1.50", "port": 9100, "data_b64": "<base64 ESC/POS>" }
+    DEPRECADO. Devuelve 410 Gone.
 
-    Proxy para impresoras de red (ESC/POS sobre TCP raw — puerto 9100 estándar).
-    Permite que el navegador (que no puede abrir sockets TCP) imprima a
-    impresoras de red como Epson TM-T20III, Xprinter WiFi, Bixolon, etc.
+    Razón: en producción cloud, el servidor no puede llegar a la IP privada
+    (192.168.x.x) de la impresora del cliente — siempre falla con 502.
 
-    Solo redirige TCP en la red LOCAL del servidor — NO accede a internet público
-    por seguridad (validación de rango IP privado).
+    El reemplazo es la impresión vía Pulstock Printer Agent: el agente corre
+    en un PC del local, así sí está en la misma LAN que la impresora.
+
+    Frontend debe usar /api/printing/print/ (auto) o /api/printing/jobs/queue/
+    (apuntando explícitamente a un agente).
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def post(self, request):
-        import base64
-        import ipaddress
-        import socket
-
-        host = (request.data.get("host") or "").strip()
-        port = int(request.data.get("port") or 9100)
-        data_b64 = request.data.get("data_b64") or ""
-
-        if not host or not data_b64:
-            return Response({"detail": "host y data_b64 son requeridos."}, status=400)
-
-        # Security: only allow private/local addresses (anti-SSRF)
-        # IMPORTANT: Resolvemos DNS UNA SOLA VEZ y conectamos a la IP literal
-        # (no al hostname) para prevenir DNS rebinding — un atacante podría
-        # tener un DNS que devuelve IP privada la primera vez y IP pública
-        # (ej. metadata AWS 169.254.169.254 o interno) la segunda vez.
-        try:
-            resolved_ip_str = socket.gethostbyname(host)
-            ip = ipaddress.ip_address(resolved_ip_str)
-            if not (ip.is_private or ip.is_loopback or ip.is_link_local):
-                return Response(
-                    {"detail": "Solo se permiten impresoras en red privada/local."},
-                    status=400,
-                )
-            # Rechazar explícitamente metadata services (doble defensa)
-            if resolved_ip_str.startswith("169.254.169.254"):
-                return Response(
-                    {"detail": "IP no permitida."}, status=400,
-                )
-        except (ValueError, socket.gaierror) as e:
-            return Response({"detail": f"Host inválido: {e}"}, status=400)
-
-        if not (1 <= port <= 65535):
-            return Response({"detail": "Puerto inválido (1-65535)."}, status=400)
-
-        try:
-            data = base64.b64decode(data_b64)
-        except Exception as e:
-            return Response({"detail": f"data_b64 inválido: {e}"}, status=400)
-
-        if len(data) > 200_000:  # 200KB max per print (safety)
-            return Response({"detail": "Payload demasiado grande."}, status=400)
-
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5)
-            # Conectar a la IP literal resuelta (no al hostname) para que el
-            # socket.connect no dispare una segunda resolución DNS que pueda
-            # devolver una IP distinta (DNS rebinding).
-            sock.connect((resolved_ip_str, port))
-            sock.sendall(data)
-            sock.close()
-            return Response({"ok": True, "bytes_sent": len(data)})
-        except (socket.timeout, ConnectionRefusedError) as e:
-            return Response(
-                {"detail": f"No se pudo conectar a {host}:{port}. {e}"},
-                status=502,
-            )
-        except OSError as e:
-            return Response(
-                {"detail": f"Error de red: {e}"},
-                status=502,
-            )
+        return Response({
+            "detail": (
+                "La impresión LAN directa desde el servidor fue removida "
+                "(no funciona en cloud porque el servidor no está en tu "
+                "red local). Instala el Pulstock Printer Agent y configura "
+                "tus impresoras de red como impresoras del agente — el "
+                "agente sí está en tu LAN y puede imprimir directamente."
+            ),
+            "code": "lan_direct_removed",
+            "use_instead": "/api/printing/print/",
+        }, status=410)
 
 
 urlpatterns = [

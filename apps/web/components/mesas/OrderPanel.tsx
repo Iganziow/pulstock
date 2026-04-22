@@ -52,9 +52,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
   async function handlePrintPreCuenta() {
     try {
-      const { getDefaultPrinter, printBytes, printHTML } = await import("@/lib/printer");
+      const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildPreCuenta, buildPreCuentaHTML } = await import("@/lib/receipt-builder");
-      const printer = getDefaultPrinter();
       const tenantData = await apiFetch("/core/settings/").catch(() => null);
       const data = {
         tableName: order.customer_name || tableName,
@@ -64,16 +63,15 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         attendedBy: order.opened_by,
         tenant: tenantData ? { name: tenantData.name, rut: tenantData.rut, address: tenantData.address, receipt_header: tenantData.receipt_header } : undefined,
       };
-      if (printer && printer.type === "system") {
-        const { printSystemReceipt } = await import("@/lib/printer");
-        printSystemReceipt(buildPreCuentaHTML(data), printer);
-      } else if (printer) {
-        const paperWidth = printer.paperWidth || 80;
-        const bytes = buildPreCuenta(data, paperWidth);
-        await printBytes(bytes, printer);
-      } else {
-        printHTML(buildPreCuentaHTML(data));
-      }
+      const local = getDefaultPrinter();
+      const paperWidth: 58 | 80 = (local?.paperWidth as 58 | 80) || 80;
+      const r = await printUniversal({
+        bytes: buildPreCuenta(data, paperWidth),
+        html: buildPreCuentaHTML(data),
+        paperWidth,
+        source: "precuenta",
+      });
+      if (!r.ok) setPayErr(r.error || "No se pudo imprimir la pre-cuenta");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al imprimir pre-cuenta";
       setPayErr(msg);
@@ -116,16 +114,14 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       setLastSaleId(saleId);
       setSuccessMsg("¡Cobro registrado!");
       setTimeout(() => setSuccessMsg(""), 6000);
-      // Auto-print receipt if printer configured
+      // Auto-print boleta tras el cobro. Modelo Fudo: SIEMPRE intentamos
+      // imprimir (al PC del local), no condicionado a config en este
+      // dispositivo. Si no hay agente conectado, mostramos el mensaje del
+      // backend pero NO bloqueamos el cobro.
       if (saleId) {
         try {
-          const { getDefaultPrinter } = await import("@/lib/printer");
-          if (getDefaultPrinter()) {
-            await handlePrintReceipt(saleId);
-          }
+          await handlePrintReceipt(saleId);
         } catch (e) {
-          // Auto-print falló (impresora desconectada, agente offline, 402 suscripción…).
-          // No bloqueamos el cobro — pero lo logueamos para no quedar ciegos.
           // eslint-disable-next-line no-console
           console.warn("[auto-print] falló:", e);
         }
@@ -139,13 +135,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
   async function handlePrintReceipt(saleId: number) {
     try {
-      const { getDefaultPrinter, printBytes, printHTML } = await import("@/lib/printer");
+      const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildReceipt, buildReceiptHTML } = await import("@/lib/receipt-builder");
       const [sale, tenant] = await Promise.all([
         apiFetch(`/sales/sales/${saleId}/`),
         apiFetch("/core/settings/").catch(() => null),
       ]);
-      const printer = getDefaultPrinter();
       const receiptData = {
         saleNumber: sale.sale_number || sale.id,
         date: sale.created_at,
@@ -164,15 +159,15 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           receipt_header: tenant.receipt_header, receipt_footer: tenant.receipt_footer,
         } : undefined,
       };
-      if (printer && printer.type === "system") {
-        const { printSystemReceipt } = await import("@/lib/printer");
-        printSystemReceipt(buildReceiptHTML(receiptData), printer);
-      } else if (printer) {
-        const bytes = buildReceipt(receiptData, printer.paperWidth || 80);
-        await printBytes(bytes, printer);
-      } else {
-        printHTML(buildReceiptHTML(receiptData));
-      }
+      const local = getDefaultPrinter();
+      const paperWidth: 58 | 80 = (local?.paperWidth as 58 | 80) || 80;
+      const r = await printUniversal({
+        bytes: buildReceipt(receiptData, paperWidth),
+        html: buildReceiptHTML(receiptData),
+        paperWidth,
+        source: "pos",
+      });
+      if (!r.ok) setPayErr(r.error || "No se pudo imprimir la boleta");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al imprimir boleta";
       setPayErr(msg);

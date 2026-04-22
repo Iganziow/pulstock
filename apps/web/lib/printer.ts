@@ -217,59 +217,47 @@ async function sendBTChunks(ch: any, data: Uint8Array): Promise<void> {
   }
 }
 
-// ── Network ──────────────────────────────────────────────────────────────────
+// ── Network (via agent) ──────────────────────────────────────────────────────
+//
+// Histórico: existió un endpoint /api/core/print/network/ que abría el socket
+// TCP desde el SERVIDOR. Eso solo funciona si el server está en la misma LAN
+// que la impresora — imposible en producción cloud (server fuera de tu red).
+//
+// Hoy: la impresión por red se hace SIEMPRE a través del Pulstock Printer
+// Agent corriendo en un PC del local. El agente sí está en la LAN y abre el
+// socket directamente a la impresora. La "PrinterConfig" tipo "network"
+// referencia un agentId + una impresora del agente (configurada como
+// connection_type='network' con su IP en el panel).
+//
+// Si quieres probar conectividad a una IP arbitraria desde el navegador,
+// usa el endpoint nuevo POST /api/printing/agents/<id>/test-network/
+// (TODO próximo) que pide al agente probar el socket localmente.
 
-/**
- * Parse "192.168.1.50:9100" → { host, port }
- * Defaults to port 9100 (standard ESC/POS).
- */
-function parseNetworkAddress(address: string): { host: string; port: number } {
-  const clean = address.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  const [host, portStr] = clean.split(":");
-  const port = portStr ? parseInt(portStr, 10) : 9100;
-  return { host: host.trim(), port: Number.isFinite(port) ? port : 9100 };
+async function sendNetwork(_data: Uint8Array, _address: string): Promise<void> {
+  throw new Error(
+    "La impresión por red ahora se hace a través del Pulstock Printer Agent. " +
+    "Configura tu impresora de red como una impresora del agente en " +
+    "Configuración → Impresoras → Agente."
+  );
 }
 
 /**
- * Send ESC/POS bytes to a network printer (LAN).
+ * Test conectividad a una impresora de red (sin imprimir realmente).
  *
- * Browsers cannot open raw TCP sockets, so this POSTs to our backend proxy
- * (/api/core/print/network/) which opens the TCP connection on port 9100
- * (or whatever is specified) and forwards the ESC/POS data.
- *
- * The backend validates the target IP is in a private LAN range (anti-SSRF).
+ * Solo funciona si el navegador está en la MISMA LAN que la impresora — no
+ * vamos al servidor. Probamos conexión directa por TCP-over-WebSocket... que
+ * el navegador no soporta. Por eso este test ya no es realmente "test de
+ * red" — devolvemos un mensaje informativo orientando al usuario.
  */
-async function sendNetwork(data: Uint8Array, address: string): Promise<void> {
-  const { host, port } = parseNetworkAddress(address);
-
-  // Convert bytes to base64 for JSON transport
-  let binary = "";
-  for (let i = 0; i < data.byteLength; i++) {
-    binary += String.fromCharCode(data[i]);
-  }
-  const data_b64 = btoa(binary);
-
-  // Import dynamically to avoid circular deps
-  const { apiFetch } = await import("@/lib/api");
-  await apiFetch("/core/print/network/", {
-    method: "POST",
-    body: JSON.stringify({ host, port, data_b64 }),
-  });
-}
-
-/**
- * Test connectivity to a network printer (without actually printing).
- * Sends a minimal ESC/POS beep/feed command.
- */
-export async function testNetworkPrinter(address: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    // ESC @ (initialize) + LF (feed) — totally harmless
-    const testBytes = new Uint8Array([0x1b, 0x40, 0x0a]);
-    await sendNetwork(testBytes, address);
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e) };
-  }
+export async function testNetworkPrinter(_address: string): Promise<{ ok: boolean; error?: string }> {
+  return {
+    ok: false,
+    error: (
+      "Para probar una impresora de red, configúrala primero como impresora " +
+      "del Pulstock Printer Agent. Una vez asociada al agente, usa el botón " +
+      "'Imprimir prueba' en la sección de impresoras del agente."
+    ),
+  };
 }
 
 // ── Agent PC (cloud-pull) ────────────────────────────────────────────────────
@@ -338,9 +326,15 @@ export async function printBytes(data: Uint8Array, printer?: PrinterConfig | nul
       await sendBluetooth(data);
       break;
     case "network":
-      if (!p.address) throw new Error("Dirección de red no configurada");
-      await sendNetwork(data, p.address);
-      break;
+      // Las impresoras de red ahora se manejan exclusivamente vía el agente
+      // PC. Si llegamos acá es porque alguien tiene una config vieja tipo
+      // "network" en localStorage — la guiamos a re-configurarla como
+      // impresora del agente.
+      throw new Error(
+        "Las impresoras de red ahora se configuran en el PC del local con " +
+        "el Pulstock Printer Agent. Elimina esta impresora y vuelve a " +
+        "agregarla como 'Impresora del agente'."
+      );
     case "agent":
       await sendAgent(data, p);
       break;
@@ -358,32 +352,90 @@ export function printSystemReceipt(html: string, printer?: PrinterConfig | null)
   printHTML(html, p?.paperWidth ?? 80);
 }
 
+// ── Auto-print via PC del local (modelo Fudo) ────────────────────────────────
+
+/**
+ * Imprimir vía el agente del local sin necesidad de configurar nada en el
+ * dispositivo del usuario. Es el endpoint que el celular/tablet del staff
+ * debe usar — no se pregunta nada, simplemente la comanda sale en el PC.
+ *
+ * El backend elige el agente online (priorizando el de la tienda activa) y
+ * encola un job en su impresora por defecto.
+ *
+ * Devuelve la respuesta del backend si OK; throw con mensaje en español si
+ * no hay agente disponible (404) u otro error.
+ */
+async function printViaLocalAgent(
+  data_b64: string | null,
+  html: string | null,
+  source: string,
+): Promise<{ job_id: number; agent_name: string; printer_name: string }> {
+  const { apiFetch, ApiError } = await import("@/lib/api");
+  try {
+    const body: Record<string, unknown> = { source };
+    if (data_b64) body.data_b64 = data_b64;
+    if (html) body.html = html;
+    return await apiFetch("/printing/print/", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (e: any) {
+    if (e instanceof ApiError) {
+      if (e.status === 404) {
+        // El backend nos da el mensaje en e.data.detail con la solución.
+        throw new Error(
+          (e.data as any)?.detail ||
+          "No hay PC del local conectado. Asegúrate de que el computador con el Pulstock Printer Agent esté prendido y con internet."
+        );
+      }
+      if (e.status === 402) {
+        throw new Error("Suscripción no activa — renueva tu plan para imprimir.");
+      }
+    }
+    throw e;
+  }
+}
+
 // ── Universal print orchestrator ─────────────────────────────────────────────
 
 export interface UniversalPrintInput {
   /** Raw ESC/POS bytes (for thermal printers). Optional if only html provided. */
   bytes?: Uint8Array;
-  /** HTML receipt (for system dialog fallback). Always required. */
+  /** HTML receipt — usado por impresión de sistema "kioskoo" o como copia. */
   html: string;
-  /** Preferred paper width for HTML fallback. */
+  /** Preferred paper width. */
   paperWidth?: 58 | 80;
+  /** Etiqueta del origen del job para auditoría: "pos", "mesa", "manual", "test". */
+  source?: string;
+  /**
+   * Forzar diálogo nativo del navegador (Guardar como PDF / impresora del
+   * sistema). Solo úsalo si el usuario explícitamente eligió "Imprimir en
+   * este dispositivo" — NO es el flujo por defecto. Para comandas siempre
+   * dejar esto false (o no pasarlo).
+   */
+  forceLocalDialog?: boolean;
 }
 
 /**
- * Imprime usando el método más universal disponible.
+ * Imprime una comanda. Estrategia (modelo Fudo):
  *
- * Intenta en orden:
- *   1. La impresora por defecto (BLE/USB/Network), si está configurada
- *   2. Cae a window.print() (AirPrint/Google Cloud Print/cualquier impresora del sistema)
+ *   1. Si el usuario configuró una impresora local en este dispositivo
+ *      (USB/BLE/agente seleccionado) → usar esa.
+ *   2. Si no, mandar al PC del local vía /api/printing/print/ — el agente
+ *      del local imprime en su impresora por defecto.
+ *   3. Si no hay agente conectado → ERROR claro.  NO caemos al diálogo
+ *      "Guardar como PDF" del navegador (eso confundía al staff).
  *
- * SIEMPRE termina imprimiendo (mediante el diálogo del navegador) si todo lo demás falla.
+ * El único caso en que abrimos el diálogo nativo es cuando se pasa
+ * `forceLocalDialog: true` (ej. botón "Imprimir en este dispositivo").
  */
-export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string }> {
+export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string; printer?: string }> {
   const p = getDefaultPrinter();
   const width: 58 | 80 = input.paperWidth || p?.paperWidth || 80;
+  const source = input.source || "web";
 
-  // If no default printer → straight to system dialog
-  if (!p || p.type === "system") {
+  // (a) Override explícito del usuario: usa el diálogo nativo.
+  if (input.forceLocalDialog) {
     try {
       printHTML(input.html, width);
       return { method: "system", ok: true };
@@ -392,30 +444,52 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
     }
   }
 
-  // If we have bytes, try the configured printer
-  if (input.bytes) {
+  // (b) Impresora local configurada en este dispositivo (BLE/USB/agente
+  //     específico). Es el flujo "tengo mi propia impresora conectada acá".
+  if (p && p.type !== "system" && input.bytes) {
     try {
       await printBytes(input.bytes, p);
-      return { method: p.type, ok: true };
-    } catch (e: any) {
-      // Fall through to system dialog
-      const err = e?.message || String(e);
+      return { method: p.type, ok: true, printer: p.name };
+    } catch (localErr: any) {
+      // Si la local falla, intentamos el agente del local antes de rendirnos.
+      const localErrMsg = localErr?.message || String(localErr);
       try {
-        printHTML(input.html, width);
-        return { method: "system", ok: true, error: `Fallback desde ${p.type}: ${err}` };
-      } catch (e2: any) {
-        return { method: "failed", ok: false, error: `${p.type} falló: ${err}. Diálogo tampoco funcionó: ${e2?.message}` };
+        const data_b64 = input.bytes ? bytesToB64(input.bytes) : null;
+        const r = await printViaLocalAgent(data_b64, input.html || null, source);
+        return {
+          method: "agent-auto", ok: true, printer: r.printer_name,
+          error: `Fallback al PC del local (impresora '${p.name}' falló: ${localErrMsg})`,
+        };
+      } catch (agentErr: any) {
+        return {
+          method: "failed", ok: false,
+          error: `Impresora local '${p.name}' falló: ${localErrMsg}. PC del local tampoco respondió: ${agentErr?.message || agentErr}`,
+        };
       }
     }
   }
 
-  // No bytes available → go straight to system dialog
+  // (c) Flujo por defecto del modelo Fudo: ir directo al PC del local.
   try {
-    printHTML(input.html, width);
-    return { method: "system", ok: true };
+    const data_b64 = input.bytes ? bytesToB64(input.bytes) : null;
+    const r = await printViaLocalAgent(data_b64, input.html || null, source);
+    return { method: "agent-auto", ok: true, printer: r.printer_name };
   } catch (e: any) {
-    return { method: "system", ok: false, error: e?.message || "Error al imprimir" };
+    // NO caemos al diálogo nativo. El usuario ve un error claro y sabe
+    // qué hacer (prender el PC, llamar al admin, etc.).
+    return {
+      method: "failed", ok: false,
+      error: e?.message || "No se pudo imprimir.",
+    };
   }
+}
+
+function bytesToB64(data: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < data.byteLength; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary);
 }
 
 // ── HTML fallback (window.print) ─────────────────────────────────────────────

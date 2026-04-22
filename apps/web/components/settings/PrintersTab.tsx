@@ -305,16 +305,55 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
     }
   };
 
+  // Detecta impresoras tipo "network" guardadas en localStorage que ya no
+  // funcionan (el endpoint del servidor fue removido — ahora la red se hace
+  // vía agente). Mostramos un aviso para que el usuario las migre.
+  const legacyNetworkPrinters = printers.filter(p => p.type === "network");
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* Banner de bienvenida al modelo "PC del local" */}
+      <div style={{
+        background: C.accentBg, border: `1px solid ${C.accentBd}`, borderRadius: 10,
+        padding: "12px 14px", fontSize: 12.5, color: C.accent, lineHeight: 1.55,
+      }}>
+        <div style={{ fontWeight: 800, marginBottom: 4 }}>🖨️ Cómo funciona la impresión en Pulstock</div>
+        <div style={{ color: C.mid }}>
+          Configura <strong>UN PC en el local</strong> con el Pulstock Printer Agent y conecta ahí
+          tus impresoras (térmica de caja, comanda de cocina, etc.). Cuando cualquiera del staff
+          aprieta &ldquo;Imprimir&rdquo; desde su celular o tablet, la comanda sale
+          <strong> automáticamente en ese PC</strong>, sin tener que configurar nada en cada dispositivo.
+        </div>
+      </div>
+
+      {legacyNetworkPrinters.length > 0 && (
+        <div style={{
+          background: C.amberBg, border: `1px solid ${C.amberBd}`, borderRadius: 10,
+          padding: "12px 14px", fontSize: 12.5, color: "#92400E", lineHeight: 1.55,
+        }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+            ⚠ Tienes {legacyNetworkPrinters.length} impresora(s) de red configurada(s) al modo viejo
+          </div>
+          <div>
+            La impresión LAN directa desde el servidor fue removida porque no funcionaba en producción
+            (el servidor cloud no llega a tu red local). Configura tu impresora de red dentro del{" "}
+            <strong>agente PC del local</strong> (sección de abajo): el agente sí está en tu LAN y puede
+            imprimirle directamente. Después elimina la impresora vieja de la lista.
+          </div>
+        </div>
+      )}
+
       <Card>
-        <SectionHeader icon="🖨️" title="Impresoras térmicas" desc="Configura tus impresoras para imprimir boletas y pre-cuentas directamente" />
+        <SectionHeader icon="🖨️" title="Impresoras de este dispositivo" desc="Opcional. Solo si quieres imprimir directamente desde este celular/PC (USB o Bluetooth). Para el flujo normal, usa el agente PC de abajo." />
 
         {printers.length === 0 && !showAdd && (
           <div style={{ textAlign: "center", padding: "24px 0" }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>🖨️</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.mid, marginBottom: 4 }}>No hay impresoras configuradas</div>
-            <div style={{ fontSize: 12, color: C.mute, marginBottom: 16 }}>Agrega una impresora térmica para imprimir boletas y pre-cuentas</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.mid, marginBottom: 4 }}>No hay impresoras locales</div>
+            <div style={{ fontSize: 12, color: C.mute, marginBottom: 16 }}>
+              Lo normal es no configurar impresoras acá — el flujo recomendado usa el agente del PC del local (más abajo).
+            </div>
           </div>
         )}
 
@@ -378,11 +417,13 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
 
             {!addType ? (
               <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "1fr 1fr", gap: 8 }}>
+                {/* OJO: ya NO ofrecemos "Red / WiFi" acá. Las impresoras de red
+                    se configuran en el PC del local con el agente — buscar la
+                    sección de Agentes PC más abajo. */}
                 {([
                   { type: "system" as PrinterType, icon: "🖥️", label: "Sistema (Windows)", desc: "Usa impresoras instaladas en tu PC" },
                   { type: "usb" as PrinterType, icon: "🔌", label: "USB directa", desc: "Conexión directa ESC/POS por cable" },
                   { type: "bluetooth" as PrinterType, icon: "📶", label: "Bluetooth", desc: "Impresora inalámbrica BT" },
-                  { type: "network" as PrinterType, icon: "🌐", label: "Red / WiFi", desc: "Conexión por IP de red" },
                 ]).map(opt => (
                   <button key={opt.type} onClick={() => setAddType(opt.type)} className="cfg-btn" style={{
                     padding: 16, border: `1.5px solid ${C.border}`, borderRadius: 10,
@@ -458,12 +499,12 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
         )}
       </Card>
 
-      {/* ═══════════ Agentes PC (Path B — multi-device) ═══════════ */}
+      {/* ═══════════ Agentes PC — FLUJO PRINCIPAL (modelo Fudo) ═══════════ */}
       <Card>
         <SectionHeader
           icon="💻"
-          title="Agentes PC"
-          desc="Conecta un PC del local para que múltiples celulares y tablets impriman allí sin emparejar cada uno"
+          title="PC del local (recomendado)"
+          desc="El flujo principal. Configura un PC del local con el agente y todos los celulares/tablets imprimirán allí automáticamente."
         />
 
         {loadingAgents && agents.length === 0 && (

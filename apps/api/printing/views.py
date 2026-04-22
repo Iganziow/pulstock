@@ -217,6 +217,109 @@ class AgentRegenerateCodeView(APIView):
         })
 
 
+class AutoPrintView(APIView):
+    """
+    POST /api/printing/print/
+    Body: { "data_b64": "...", "html": "...", "source": "pos" }
+
+    Endpoint "fácil" para el frontend. Encola el job en el primer agente
+    online del tenant (priorizando el de la tienda activa del usuario, si
+    aplica), eligiendo su impresora por defecto.
+
+    Pensado para que celulares/tablets puedan imprimir sin tener que
+    seleccionar manualmente un agente y una impresora — el flujo típico
+    en un local con un único PC con impresora térmica conectada.
+
+    Devuelve:
+      201 + {job_id, agent_name, printer_name}  → encolado OK
+      404 + {detail}                            → no hay agente disponible
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def post(self, request):
+        data_b64 = (request.data.get("data_b64") or "").strip()
+        html = (request.data.get("html") or "").strip()
+        if not data_b64 and not html:
+            return Response(
+                {"detail": "data_b64 o html requerido."}, status=400,
+            )
+
+        # Validar tamaño del payload
+        if data_b64:
+            try:
+                raw = base64.b64decode(data_b64, validate=True)
+                if len(raw) > 200_000:
+                    return Response({"detail": "Payload demasiado grande."}, status=400)
+            except Exception:
+                return Response({"detail": "data_b64 inválido."}, status=400)
+        if html and len(html) > 100_000:
+            return Response({"detail": "HTML demasiado grande."}, status=400)
+
+        source = (request.data.get("source") or "")[:30].lower()
+        if source not in _VALID_JOB_SOURCES:
+            source = "api"
+
+        # Buscar agente online: prioridad por store activa del user, después
+        # cualquier agente del tenant. "Online" = polleó en los últimos 2 min.
+        from datetime import timedelta
+        online_cutoff = timezone.now() - timedelta(seconds=120)
+        agents_qs = PrintAgent.objects.filter(
+            tenant_id=request.user.tenant_id,
+            is_active=True,
+            paired_at__isnull=False,
+            last_seen_at__gt=online_cutoff,
+        )
+
+        active_store_id = getattr(request.user, "active_store_id", None)
+        agent = None
+        if active_store_id:
+            agent = agents_qs.filter(store_id=active_store_id).first()
+        if agent is None:
+            agent = agents_qs.first()
+
+        if agent is None:
+            return Response({
+                "detail": (
+                    "No hay agentes de impresión conectados. Instala el "
+                    "Pulstock Printer Agent en el PC del local o "
+                    "configura una impresora local en este dispositivo."
+                ),
+            }, status=404)
+
+        # Elegir impresora del agente: la default (o la primera activa).
+        ap_qs = AgentPrinter.objects.filter(agent=agent, is_active=True)
+        ap = ap_qs.filter(is_default=True).first() or ap_qs.first()
+        if ap is None:
+            return Response({
+                "detail": (
+                    f"El agente '{agent.name}' no tiene impresoras "
+                    "configuradas. Verifica que el PC tenga al menos "
+                    "una impresora instalada."
+                ),
+            }, status=404)
+
+        job = PrintJob.objects.create(
+            tenant_id=request.user.tenant_id,
+            agent=agent,
+            printer_name=ap.name,
+            data_b64=data_b64,
+            html=html,
+            source=source,
+            created_by=request.user,
+        )
+        logger.info(
+            "AutoPrint: job=#%d agent=%s printer=%s user=%d",
+            job.pk, agent.name, ap.name, request.user.pk,
+        )
+        return Response({
+            "job_id": job.pk,
+            "agent_name": agent.name,
+            "agent_id": agent.pk,
+            "printer_name": ap.display_name or ap.name,
+            "connection_type": ap.connection_type,
+        }, status=201)
+
+
 class JobQueueView(APIView):
     """
     POST /api/printing/jobs/queue/
@@ -411,6 +514,21 @@ class AgentPollView(APIView):
         if not job:
             return Response({"job": None})
         job.refresh_from_db()
+
+        # Buscar la AgentPrinter asociada al printer_name del job para que el
+        # agente sepa cómo imprimir (system / network / usb). Si printer_name
+        # está vacío, usar la default del agente.
+        connection_type = "system"
+        network_address = ""
+        ap_qs = AgentPrinter.objects.filter(agent=agent, is_active=True)
+        if job.printer_name:
+            ap = ap_qs.filter(name=job.printer_name).first()
+        else:
+            ap = ap_qs.filter(is_default=True).first() or ap_qs.first()
+        if ap:
+            connection_type = ap.connection_type or "system"
+            network_address = ap.network_address or ""
+
         return Response({
             "job": {
                 "id": job.pk,
@@ -418,6 +536,10 @@ class AgentPollView(APIView):
                 "data_b64": job.data_b64,
                 "html": job.html,
                 "source": job.source,
+                # NUEVO: el agente usa estos campos para decidir si imprimir
+                # vía API del sistema o vía socket TCP a la IP de la impresora.
+                "connection_type": connection_type,
+                "network_address": network_address,
             }
         })
 

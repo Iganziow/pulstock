@@ -106,9 +106,8 @@ export default function ReceiptPage() {
   async function handleThermalPrint() {
     if (!sale) return;
     try {
-      const { getDefaultPrinter, printBytes, printHTML } = await import("@/lib/printer");
+      const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildReceipt, buildReceiptHTML } = await import("@/lib/receipt-builder");
-      const printer = getDefaultPrinter();
       const receiptData = {
         saleNumber: sale.sale_number ?? sale.id,
         date: sale.created_at,
@@ -119,17 +118,21 @@ export default function ReceiptPage() {
         payments: (sale.payments || []).map((p: any) => ({ method: p.method, amount: p.amount })),
         tenant: tenant ? { name: tenant.name, rut: tenant.rut, address: tenant.address, receipt_header: tenant.receipt_header, receipt_footer: tenant.receipt_footer } : undefined,
       };
-      if (printer && printer.type === "system") {
-        const { printSystemReceipt } = await import("@/lib/printer");
-        printSystemReceipt(buildReceiptHTML(receiptData), printer);
-      } else if (printer) {
-        await printBytes(buildReceipt(receiptData, printer.paperWidth || 80), printer);
-      } else {
-        printHTML(buildReceiptHTML(receiptData));
-      }
+      const local = getDefaultPrinter();
+      const paperWidth: 58 | 80 = (local?.paperWidth as 58 | 80) || 80;
+      const r = await printUniversal({
+        bytes: buildReceipt(receiptData, paperWidth),
+        html: buildReceiptHTML(receiptData),
+        paperWidth,
+        source: "pos",
+      });
+      if (!r.ok) setErr(r.error || "No se pudo imprimir");
     } catch (e: any) { setErr(humanizeError(e, "Error al imprimir")); }
   }
 
+  // Botón secundario "Imprimir en este dispositivo" — abre el diálogo nativo
+  // del navegador. Útil cuando estás en el PC del dueño (no en el local) y
+  // quieres una copia PDF/local.
   function handleBrowserPrint() { window.print(); }
 
   // ── Loading / Error ────────────────────────────────────────────────────────
