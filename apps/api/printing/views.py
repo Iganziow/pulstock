@@ -52,6 +52,25 @@ def _is_safe_printer_name(name: str) -> bool:
         return False
     return bool(_PRINTER_NAME_RE.match(name))
 
+
+# network_address: solo IPv4/hostname con puerto opcional. Bloquea inyección
+# de shell, paths, IPv6 raros, etc. Formato: "host[:port]" donde:
+#   - host = letras/dígitos/guiones/puntos (1-100 chars)
+#   - port = 1-65535 (opcional, default 9100)
+_NETWORK_ADDR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-\.]{0,99}(?::([1-9]\d{0,4}))?$")
+
+def _is_safe_network_address(addr: str) -> bool:
+    if not addr:
+        return True  # vacío = OK (no es impresora de red)
+    m = _NETWORK_ADDR_RE.match(addr)
+    if not m:
+        return False
+    if m.group(1):  # tiene puerto explícito
+        port = int(m.group(1))
+        if not (1 <= port <= 65535):
+            return False
+    return True
+
 # Whitelist de orígenes válidos para PrintJob.source (evita basura en DB)
 _VALID_JOB_SOURCES = {"pos", "mesa", "manual", "test", "web", "api", "receipt", "precuenta", ""}
 
@@ -379,6 +398,25 @@ class JobQueueView(APIView):
         if source not in _VALID_JOB_SOURCES:
             source = "api"
 
+        # Rechazar si el agente está offline (no polleó en >2min). Antes
+        # encolábamos y el job se quedaba pendiente para siempre — el user
+        # apretaba "imprimir" y nunca salía nada. Mejor avisar al toque.
+        # Permitimos `force=true` para casos en que el caller QUIERE que se
+        # quede encolado igual (raro, pero útil para schedule).
+        # IMPORTANTE: este check va DESPUÉS de las validaciones de input
+        # (data_b64, printer_name, etc.) para que un payload mal-formado
+        # siempre se rechace con 400 independiente del estado del agente.
+        force = bool(request.data.get("force"))
+        if not agent.is_online and not force:
+            return Response({
+                "detail": (
+                    f"El PC '{agent.name}' está desconectado. "
+                    "Asegurate de que esté prendido y con internet, después "
+                    "volvé a apretar Imprimir."
+                ),
+                "code": "agent_offline",
+            }, status=503)
+
         job = PrintJob.objects.create(
             tenant_id=request.user.tenant_id,
             agent=agent,
@@ -595,13 +633,26 @@ class AgentPrintersView(APIView):
             except (ValueError, TypeError):
                 paper_width = 80
 
+            # Sanitizar network_address (anti-injection, defensa en profundidad).
+            # Si la impresora dice ser network pero la IP es inválida, la
+            # marcamos como system (caería al spooler local del agente).
+            net_addr = (p.get("network_address") or "").strip()[:100]
+            if not _is_safe_network_address(net_addr):
+                logger.warning(
+                    "Agent %d intentó registrar network_address inválido: %r — ignorado",
+                    agent.pk, net_addr,
+                )
+                net_addr = ""
+                if ct == "network":
+                    ct = "system"  # downgrade: sin IP válida no puede usar TCP
+
             obj, _ = AgentPrinter.objects.update_or_create(
                 agent=agent, name=name,
                 defaults={
                     "display_name": (p.get("display_name") or "")[:150],
                     "paper_width": paper_width,
                     "connection_type": ct,
-                    "network_address": (p.get("network_address") or "")[:100],
+                    "network_address": net_addr,
                     "is_default": bool(p.get("is_default")),
                     "is_active": True,
                 },

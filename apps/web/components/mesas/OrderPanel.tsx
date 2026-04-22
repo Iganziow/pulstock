@@ -51,6 +51,10 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [quickPayLine, setQuickPayLine] = useState<OrderLine | null>(null);
 
   async function handlePrintPreCuenta() {
+    if (!unpaidLines.length) {
+      setPayErr("No hay items pendientes para imprimir en la pre-cuenta.");
+      return;
+    }
     try {
       const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildPreCuenta, buildPreCuentaHTML } = await import("@/lib/receipt-builder");
