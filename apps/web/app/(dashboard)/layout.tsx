@@ -285,16 +285,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Receipt page renders standalone (no sidebar/topbar)
   const isReceiptPage = pathname.startsWith("/dashboard/pos/receipt/");
-  if (isReceiptPage) return <>{children}</>;
 
-  const visibleNav = NAV_ITEMS.filter(i => canSee(i.perm));
-  const visibleBottom = BOTTOM_NAV.filter(i => canSee(i.perm));
+  const visibleNav = useMemo(() => NAV_ITEMS.filter(i => canSee(i.perm)), [canSee]);
+  const visibleBottom = useMemo(() => BOTTOM_NAV.filter(i => canSee(i.perm)), [canSee]);
   const rs = ROLE_STYLE[userRole] || ROLE_STYLE.cashier;
   const activeStore = stores.find(s => s.id === activeStoreId);
   const breadcrumbs = getBreadcrumbs(pathname);
   const sidebarW = collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_W;
 
   // ── Sidebar items renderer ──────────────────────────────────────────────
+  // IMPORTANTE: useMemo debe ir ANTES del early-return de receipt para
+  // mantener el mismo orden de hooks entre renders (React #310).
   const navItems = useMemo(() => {
     let lastSection = "";
     return visibleNav.map((item) => {
@@ -345,6 +346,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       );
     });
   }, [visibleNav, collapsed, lowStock, isActive]);
+
+  // Early return DESPUÉS de todos los hooks (no antes).
+  if (isReceiptPage) return <>{children}</>;
 
   // ── Sidebar content ──────────────────────────────────────────────────
   const sidebarContent = (

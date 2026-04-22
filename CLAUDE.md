@@ -55,6 +55,7 @@ Django 5.1 + DRF with these local apps:
 - **`onboarding/`** — Tenant creation and user signup workflows
 - **`dashboard/`** — KPI aggregation views
 - **`promotions/`** — Promotional pricing and discount rules
+- **`printing/`** — Cloud printing: pairs PC-side `pulstock-agent` to local receipt printers; routes print jobs from any device to the agent (see `tools/pulstock-agent/`)
 - **`superadmin/`** — Platform-level admin views (separate from Django admin)
 
 **Auth:** Cookie-based JWT flow. Access token returned in JSON body + httpOnly cookie; refresh token in httpOnly cookie only (path `/api/auth/`). `JWTCookieMiddleware` injects cookie into Authorization header if not present. Token lifetime: 1h access, 7d refresh with rotation and blacklisting.
@@ -76,6 +77,8 @@ Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS:
 - **`app/(dashboard)/`** — All protected pages; layout wraps with Sidebar + Topbar
 - **`app/(superadmin)/`** — Platform admin pages (separate login/layout)
 - **`app/checkout/`** — Billing/payment flow (outside dashboard layout)
+- **`app/agent/`** — Public landing page to download the Pulstock Printer Agent installer
+- **`app/trial/`** — Public trial signup landing
 - **`components/`** — Shared UI components (Sidebar, Topbar, ExportButtons, etc.)
 - **`lib/`** — `apiFetch` utility with automatic JWT refresh + deduplication; token storage helpers
 
@@ -134,3 +137,11 @@ PAYMENT_GATEWAY=mock
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000/api
 ```
+
+## Other Repository Components
+
+- **`tools/pulstock-agent/`** — Standalone Python agent that runs on the customer's local PC to bridge cloud print jobs to USB/system/LAN printers. PyInstaller builds a Windows `.exe`. Pairs with the `printing/` backend app via a one-time code from Configuración → Impresoras.
+- **`docs/ops/`** — Production operations playbook (server access, deploys, logs, backups, common errors, emergencies, monitoring/Brevo setup). Consult before touching production infra.
+- **`FORMULAS.md`** — Authoritative source for all costing/margin/IVA/stock-value formulas. Reference this rather than re-deriving.
+- **`FORECAST_ENGINE.md`** — Demand forecasting design (statsmodels + WMA fallback) used by `forecast/`.
+- **`DEPLOY.md`** — Deploy procedure (root-level companion to `docs/ops/04-deploy.md`).

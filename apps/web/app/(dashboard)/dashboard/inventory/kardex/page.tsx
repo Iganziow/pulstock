@@ -160,7 +160,7 @@ export default function KardexPage(){
           </p>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Link href="/dashboard/inventory/kardex/report" style={{display:"inline-flex",alignItems:"center",gap:6,height:36,padding:"0 14px",borderRadius:C.r,fontSize:13,fontWeight:600,border:`1px solid ${C.accentBd}`,background:C.accentBg,color:C.accent,textDecoration:"none"}}>
+          <Link href="/dashboard/inventory/kardex-report" style={{display:"inline-flex",alignItems:"center",gap:6,height:36,padding:"0 14px",borderRadius:C.r,fontSize:13,fontWeight:600,border:`1px solid ${C.accentBd}`,background:C.accentBg,color:C.accent,textDecoration:"none"}}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Reporte
           </Link>
