@@ -7,6 +7,7 @@ from .views import (
     AgentPollView,
     AgentPrintersView,
     AgentRegenerateCodeView,
+    AutoPrintView,
     JobCompleteView,
     JobQueueView,
 )
@@ -17,6 +18,7 @@ urlpatterns = [
     path("agents/<int:pk>/", AgentDetailView.as_view(), name="print-agent-detail"),
     path("agents/<int:pk>/regenerate-code/", AgentRegenerateCodeView.as_view(), name="print-agent-regen"),
     path("jobs/queue/", JobQueueView.as_view(), name="print-job-queue"),
+    path("print/", AutoPrintView.as_view(), name="print-auto"),
 
     # Agent-facing (api_key auth)
     path("agents/pair/", AgentPairView.as_view(), name="print-agent-pair"),
