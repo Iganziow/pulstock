@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsMobile, useIsTablet } from "@/hooks/useIsMobile";
 import { Spinner, SkeletonPage } from "@/components/ui";
 import { formatCLP as _formatCLP } from "@/lib/format";
 import { humanizeError } from "@/lib/errors";
@@ -325,6 +325,7 @@ const PAGE_CSS = `
 export default function DashboardPage() {
   useGlobalStyles(PAGE_CSS);
   const mob = useIsMobile();
+  const tablet = useIsTablet();
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -462,8 +463,10 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* 2-column layout: Chart + Low Stock */}
-        <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        {/* 2-column layout: Chart + Low Stock. En tablet horizontal (1024px)
+            con sidebar comprimido las 2 columnas se ven apretadas — caemos a
+            1 columna para que cada gráfico tenga buen ancho. */}
+        <div style={{ display: "grid", gridTemplateColumns: (mob || tablet) ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 24 }}>
 
           {/* Chart */}
           <div className="fade-in-d2" style={{
