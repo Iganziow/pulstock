@@ -293,13 +293,21 @@ async function sendAgent(data: Uint8Array, printer: PrinterConfig): Promise<void
       }),
     });
   } catch (e: any) {
-    // Mensajes específicos para ayudar al usuario a diagnosticar
+    // Mensajes específicos para ayudar al usuario a diagnosticar.
     if (e instanceof ApiError) {
       if (e.status === 404) {
         throw new Error("Agente no encontrado. Puede que lo hayan eliminado — quita esta impresora y vuelve a agregarla.");
       }
       if (e.status === 402) {
         throw new Error("Suscripción no activa — renueva tu plan para imprimir.");
+      }
+      if (e.status === 503) {
+        // Backend nos avisa que el agente está offline. Antes (sin esta validación)
+        // el job se encolaba en silencio y el usuario nunca se enteraba.
+        throw new Error(
+          (e.data as any)?.detail ||
+          `El PC '${printer.name}' está desconectado. Asegúrate de que el computador del local esté prendido.`
+        );
       }
       if (e.status === 400) {
         throw new Error("Datos del trabajo de impresión inválidos.");
@@ -461,9 +469,16 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
           error: `Fallback al PC del local (impresora '${p.name}' falló: ${localErrMsg})`,
         };
       } catch (agentErr: any) {
+        const agentErrMsg = agentErr?.message || String(agentErr);
         return {
           method: "failed", ok: false,
-          error: `Impresora local '${p.name}' falló: ${localErrMsg}. PC del local tampoco respondió: ${agentErr?.message || agentErr}`,
+          error: (
+            `No se pudo imprimir. Probé:\n` +
+            `  • Tu impresora local '${p.name}': ${localErrMsg}\n` +
+            `  • PC del local: ${agentErrMsg}\n\n` +
+            `Soluciones: revisá que la impresora esté prendida y conectada, ` +
+            `o asegurate de que el PC del local con el agente esté prendido.`
+          ),
         };
       }
     }

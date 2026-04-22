@@ -23,11 +23,14 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
+import ipaddress
 import json
 import logging
+import logging.handlers
 import os
 import platform
 import queue
+import re
 import signal
 import socket
 import subprocess
@@ -38,7 +41,12 @@ from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
-__version__ = "2.0.0"
+
+# Regex defensivo: solo IPv4/hostname con puerto opcional. Bloquea inyección
+# de shell, paths, IPv6 raros, etc. Misma regex que valida el backend.
+_NETWORK_ADDR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-\.]{0,99}(?::([1-9]\d{0,4}))?$")
+
+__version__ = "2.1.0"
 
 
 class AgentUnauthorized(Exception):
@@ -74,7 +82,13 @@ def _setup_logging(verbose: bool = False) -> logging.Logger:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s %(levelname)s: %(message)s"
-    handlers = [logging.FileHandler(LOG_FILE, encoding="utf-8")]
+    # Rotating handler: 5 MB por archivo, mantiene 3 backups (20 MB total).
+    # Antes era FileHandler simple → crecía sin límite hasta llenar el disco
+    # de PCs con poco espacio (típico de cajas de local).
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8",
+    )
+    handlers: list[logging.Handler] = [file_handler]
     # Solo agregar StreamHandler si la consola es escribible. En el .exe sin
     # consola (PyInstaller --windowed), sys.stdout puede ser None y crashea.
     if sys.stdout is not None:
@@ -240,15 +254,47 @@ def print_bytes_system(printer_name: str, data: bytes) -> None:
 
 
 def print_bytes_network(address: str, data: bytes) -> None:
+    """Imprime ESC/POS raw por TCP a una impresora de red.
+
+    Defensa en profundidad: aunque el backend valida network_address al
+    registrar la impresora, volvemos a validar acá porque este agente
+    podría correr con un backend comprometido/viejo/alterado.
+    """
+    address = (address or "").strip()
+    if not address:
+        raise ValueError("network_address vacío")
+    if not _NETWORK_ADDR_RE.match(address):
+        raise ValueError(f"network_address inválido: {address!r}")
+
     if ":" in address:
         host, port_s = address.split(":", 1)
         port = int(port_s)
     else:
         host, port = address, 9100
+
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Puerto fuera de rango: {port}")
+
+    # Resolver el host UNA sola vez a IP literal, y validar que sea privada.
+    # Evita DNS rebinding y SSRF hacia metadata services o internet público.
+    try:
+        resolved = socket.gethostbyname(host)
+        ip = ipaddress.ip_address(resolved)
+    except (socket.gaierror, ValueError) as e:
+        raise ValueError(f"No se pudo resolver host {host!r}: {e}")
+
+    if not (ip.is_private or ip.is_loopback or ip.is_link_local):
+        # Defensa en profundidad: solo impresoras en LAN. En un local real
+        # la impresora SIEMPRE está en 192.168.x.x / 10.x.x.x / 172.16-31.
+        raise ValueError(
+            f"La impresora debe estar en red local (privada). "
+            f"IP recibida: {resolved} — rechazada."
+        )
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(5)
     try:
-        sock.connect((host, port))
+        sock.connect((resolved, port))  # IP literal, no hostname (anti-DNS-rebind)
         sock.sendall(data)
     finally:
         sock.close()
@@ -565,13 +611,28 @@ def pair_with_code(code: str, api_url: str = DEFAULT_API_URL) -> tuple[bool, str
     })
 
     if status == 0:
-        return False, f"No hay conexión a internet. Detalle: {resp.get('detail', '?')}", {}
+        return False, (
+            "No hay conexión a internet. Verificá tu WiFi/cable de red y "
+            "que puedas abrir pulstock.cl en el navegador."
+        ), {}
     if status == 429:
-        return False, "Demasiados intentos. Espera unos minutos antes de volver a probar.", {}
+        return False, (
+            "Demasiados intentos. Esperá 5 minutos y volvé a probar. "
+            "Si seguís teniendo problemas, contactá a soporte."
+        ), {}
     if status == 404:
-        return False, "Código inválido o expirado. Pídele a tu admin uno nuevo en el panel.", {}
+        return False, (
+            "Código inválido o ya expiró (los códigos duran 30 minutos). "
+            "Pedile a tu administrador que genere uno nuevo en el panel: "
+            "Configuración → Impresoras → Regenerar código."
+        ), {}
+    if status >= 500:
+        return False, (
+            f"El servidor de Pulstock no está respondiendo bien (error {status}). "
+            "Volvé a probar en unos minutos."
+        ), {}
     if status != 200:
-        return False, f"Error {status}: {resp.get('detail', 'desconocido')}", {}
+        return False, f"Error {status}: {resp.get('detail', 'sin detalle')}", {}
 
     cfg = {
         "api_url": api_url,

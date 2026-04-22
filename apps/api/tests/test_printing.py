@@ -44,7 +44,21 @@ def jwt_client(user, active_subscription):
 
 @pytest.fixture
 def agent(tenant):
+    """Agente pareado y online (last_seen_at = now). Refleja el estado
+    típico cuando el user aprieta "Imprimir" en el frontend: el agente
+    estaba polleando y por eso recibe el job."""
     a = PrintAgent.objects.create(tenant=tenant, name="Test PC")
+    a.generate_pairing_code()
+    a.mark_paired()
+    a.last_seen_at = timezone.now()  # online por default
+    a.save(update_fields=["last_seen_at"])
+    return a
+
+
+@pytest.fixture
+def offline_agent(tenant):
+    """Agente pareado pero sin haber polleado nunca (is_online == False)."""
+    a = PrintAgent.objects.create(tenant=tenant, name="Test PC Offline")
     a.generate_pairing_code()
     a.mark_paired()
     return a
@@ -113,6 +127,34 @@ def test_queue_accepts_normal_printer_name(jwt_client, agent):
 
 
 @pytest.mark.django_db
+def test_queue_rejects_offline_agent_with_503(jwt_client, offline_agent):
+    """Si el PC del local está apagado/desconectado, encolar un job era
+    silencioso — el user nunca se enteraba. Ahora rechazamos con 503 y
+    código 'agent_offline' para que el frontend muestre mensaje claro."""
+    r = jwt_client.post(
+        "/api/printing/jobs/queue/",
+        {"agent_id": offline_agent.pk, "data_b64": "dGVzdA=="},
+        format="json",
+    )
+    assert r.status_code == 503
+    body = r.json()
+    assert body.get("code") == "agent_offline"
+    assert "desconectado" in body["detail"].lower()
+
+
+@pytest.mark.django_db
+def test_queue_force_bypasses_offline_check(jwt_client, offline_agent):
+    """Con force=true, encolamos aunque el agente esté offline (caso de
+    schedule futuro o test desde el panel admin)."""
+    r = jwt_client.post(
+        "/api/printing/jobs/queue/",
+        {"agent_id": offline_agent.pk, "data_b64": "dGVzdA==", "force": True},
+        format="json",
+    )
+    assert r.status_code == 201
+
+
+@pytest.mark.django_db
 def test_queue_rejects_huge_html(jwt_client, agent):
     r = jwt_client.post(
         "/api/printing/jobs/queue/",
@@ -130,6 +172,48 @@ def test_queue_accepts_normal_html(jwt_client, agent):
         format="json",
     )
     assert r.status_code == 201
+
+
+# ─── 2.5 AgentPrintersView sanitiza network_address (anti-injection) ───
+
+@pytest.mark.django_db
+def test_printers_endpoint_rejects_malicious_network_address(agent):
+    """El agente reporta sus impresoras al servidor. Si un agente
+    comprometido envía un network_address mal-formado (intentando
+    inyectar shell, IPv6 raro, paths), debemos sanitizarlo."""
+    from printing.models import AgentPrinter
+    c = APIClient()
+    r = c.post(
+        f"/api/printing/agents/printers/?key={agent.api_key}",
+        {"printers": [
+            {"name": "Cocina", "connection_type": "network",
+             "network_address": "192.168.1.50:9100;rm -rf /", "is_default": True},
+        ]},
+        format="json",
+    )
+    assert r.status_code == 200
+    p = AgentPrinter.objects.get(agent=agent, name="Cocina")
+    # network_address mal-formado → vacío + downgrade a system.
+    assert p.network_address == ""
+    assert p.connection_type == "system"
+
+
+@pytest.mark.django_db
+def test_printers_endpoint_accepts_valid_network_address(agent):
+    from printing.models import AgentPrinter
+    c = APIClient()
+    r = c.post(
+        f"/api/printing/agents/printers/?key={agent.api_key}",
+        {"printers": [
+            {"name": "Cocina LAN", "connection_type": "network",
+             "network_address": "192.168.1.50:9100", "is_default": True},
+        ]},
+        format="json",
+    )
+    assert r.status_code == 200
+    p = AgentPrinter.objects.get(agent=agent, name="Cocina LAN")
+    assert p.network_address == "192.168.1.50:9100"
+    assert p.connection_type == "network"
 
 
 # ─── 3. Poll watchdog — stuck printing jobs are reclaimed ────────────
