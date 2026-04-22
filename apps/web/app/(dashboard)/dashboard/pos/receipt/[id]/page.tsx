@@ -76,19 +76,27 @@ export default function ReceiptPage() {
 
   useEffect(() => {
     if (!saleId) { setErr("ID inválido."); return; }
+    // Cleanup flag — antes había un bug donde el user volvía atrás antes de
+    // que terminara el fetch y el setState corría sobre componente desmontado,
+    // tirando warning "can't perform setState on unmounted component" + a
+    // veces error visible al usuario.
+    let mounted = true;
     (async () => {
       try {
         const [data, t] = await Promise.all([
           apiFetch(`/sales/sales/${saleId}/`) as Promise<Sale>,
           apiFetch("/core/settings/").catch(() => null),
         ]);
+        if (!mounted) return;
         setSale(data); setTenant(t); setErr(null);
       } catch (e: any) {
+        if (!mounted) return;
         const msg = e?.message ?? "";
         const friendly = msg.includes("matches the given query") ? "No se encontró la venta solicitada." : (msg || "No se pudo cargar el recibo.");
         setErr(friendly);
       }
     })();
+    return () => { mounted = false; };
   }, [saleId]);
 
   useEffect(() => {

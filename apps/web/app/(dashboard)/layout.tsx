@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { apiFetch, clearTokens } from "@/lib/api";
 import { C } from "@/lib/theme";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsMobile, useIsTablet } from "@/hooks/useIsMobile";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -176,7 +176,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useLayoutStyles();
   const pathname = usePathname();
   const isMobile = useIsMobile();
+  const isTablet = useIsTablet();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // En tablet horizontal (iPad acostado, 1024px) auto-colapsamos la sidebar
+  // por defecto — sino el contenido queda muy comprimido (240px sidebar +
+  // tabla larga = scroll horizontal molesto).
   const [collapsed, setCollapsed] = useState(false);
   const [lowStock, setLowStock] = useState(0);
   const [perms, setPerms] = useState<Perms | null>(null);
@@ -244,10 +248,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => { m = false; clearInterval(id); };
   }, []);
 
-  // Read collapsed preference
+  // Read collapsed preference. En tablet horizontal: si el user no expresó
+  // preferencia explícita ("0" o "1"), forzamos colapsado por default.
   useEffect(() => {
-    try { const v = localStorage.getItem("sb_collapsed"); if (v === "1") setCollapsed(true); } catch (e) { console.error("Layout: error leyendo preferencia sidebar colapsado:", e); }
-  }, []);
+    try {
+      const v = localStorage.getItem("sb_collapsed");
+      if (v === "1") setCollapsed(true);
+      else if (v === null && isTablet) setCollapsed(true);  // tablet default
+    } catch (e) { console.error("Layout: error leyendo preferencia sidebar colapsado:", e); }
+  }, [isTablet]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed(v => {
@@ -440,10 +449,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: "0 20px", fontFamily: C.font, flexShrink: 0,
     }}>
-      {/* Left: Breadcrumbs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      {/* Left: Breadcrumbs — minWidth:0 + ellipsis para que en tablet
+          horizontal no choque contra los dropdowns de la derecha. */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6,
+        minWidth: 0, flex: 1, overflow: "hidden",
+        whiteSpace: "nowrap", textOverflow: "ellipsis",
+      }}>
         {breadcrumbs.map((crumb, i) => (
-          <span key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span key={i} style={{
+            display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+          }}>
             {i > 0 && <span style={{ color: C.border, fontSize: 12 }}>/</span>}
             {crumb.href ? (
               <Link href={crumb.href} style={{ fontSize: 13, color: C.mute, textDecoration: "none", fontWeight: 500 }}>
@@ -480,7 +496,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 position: "absolute", top: "calc(100% + 6px)", right: 0,
                 background: C.surface, border: `1px solid ${C.border}`,
                 borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                padding: 6, minWidth: 200, zIndex: 300,
+                padding: 6, minWidth: 200, maxWidth: "calc(100vw - 32px)",
+                maxHeight: "60vh", overflowY: "auto", zIndex: 300,
               }}>
                 {stores.map(store => (
                   <button key={store.id} onClick={() => switchStore(store.id)}
@@ -525,7 +542,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               position: "absolute", top: "calc(100% + 6px)", right: 0,
               background: C.surface, border: `1px solid ${C.border}`,
               borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-              padding: 6, minWidth: 220, zIndex: 300,
+              padding: 6, minWidth: 220, maxWidth: "calc(100vw - 32px)",
+              maxHeight: "70vh", overflowY: "auto", zIndex: 300,
             }}>
               <div style={{ padding: "10px 12px 8px", borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{userName}</div>
@@ -587,7 +605,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     position: "absolute", top: "calc(100% + 6px)", right: 0,
                     background: C.surface, border: `1px solid ${C.border}`,
                     borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                    padding: 6, minWidth: 180, zIndex: 300,
+                    padding: 6, minWidth: 180, maxWidth: "calc(100vw - 16px)",
+                    maxHeight: "60vh", overflowY: "auto", zIndex: 300,
                   }}>
                     {stores.map(store => (
                       <button key={store.id} onClick={() => switchStore(store.id)} style={{
@@ -615,7 +634,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {sidebarContent}
           </aside>
         </>)}
-        <main style={{ flex: 1, overflow: "auto", paddingBottom: 72 }}><ErrorBoundary>{children}</ErrorBoundary></main>
+        <main style={{
+          flex: 1, overflow: "auto",
+          // bottom nav = 64px + safe-area-inset-bottom (iOS notch / Android gestures).
+          // Antes era fijo 72px → en algunos phones el contenido se solapaba con el nav.
+          paddingBottom: "calc(64px + max(12px, env(safe-area-inset-bottom)))",
+        }}><ErrorBoundary>{children}</ErrorBoundary></main>
         <nav className="safe-bottom" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 50, paddingBottom: "max(4px, env(safe-area-inset-bottom))" }}>
           {visibleBottom.map(item => {
             const active = isActive(item.href);
