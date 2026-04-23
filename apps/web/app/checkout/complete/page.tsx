@@ -36,6 +36,48 @@ export default function CheckoutCompletePage() {
   );
 }
 
+// Mapea los códigos de error técnicos del backend a un copy amigable.
+// Si el user no es técnico, "Token no proporcionado" no le dice nada; le
+// decimos qué hacer en concreto.
+function friendlyError(rawError: string, hasToken: boolean): { title: string; message: string; primaryAction: "back" | "retry" | "support" } {
+  const e = (rawError || "").toLowerCase();
+
+  if (!hasToken) {
+    return {
+      title: "Esta página no es accesible directamente",
+      message: "Llegaste aquí por error. Esta pantalla solo se abre desde el enlace que envía Flow después de pagar. Vuelve a planes para iniciar el proceso.",
+      primaryAction: "back",
+    };
+  }
+  if (e.includes("token") && (e.includes("no proporcionado") || e.includes("requerido"))) {
+    return {
+      title: "Falta el código de la sesión",
+      message: "El enlace de pago está incompleto. Inicia una nueva sesión de pago desde la página de planes.",
+      primaryAction: "back",
+    };
+  }
+  if (e.includes("sesión no encontrada") || e.includes("session not found") || e.includes("404")) {
+    return {
+      title: "No encontramos esta sesión de pago",
+      message: "El enlace puede haber expirado, o la sesión fue eliminada. Inicia una nueva desde planes.",
+      primaryAction: "back",
+    };
+  }
+  if (e.includes("conexión") || e.includes("network") || e.includes("failed to fetch")) {
+    return {
+      title: "Sin conexión a internet",
+      message: "Verifica tu WiFi o datos móviles y presiona Reintentar.",
+      primaryAction: "retry",
+    };
+  }
+  // Fallback genérico
+  return {
+    title: "Algo no salió como esperábamos",
+    message: rawError || "No pudimos cargar la información del pago. Prueba Reintentar; si el problema continúa, escríbenos a soporte@pulstock.cl.",
+    primaryAction: "support",
+  };
+}
+
 function CheckoutCompleteInner() {
   const params = useSearchParams();
   const token = params.get("token") || "";
@@ -60,7 +102,8 @@ function CheckoutCompleteInner() {
 
   const checkStatus = useCallback(async () => {
     if (!token) {
-      setError("Token no proporcionado");
+      // Marker para friendlyError(). El helper detecta hasToken=false.
+      setError("__no_token__");
       setChecking(false);
       return;
     }
@@ -70,7 +113,7 @@ function CheckoutCompleteInner() {
       if (!mountedRef.current) return;
 
       if (!res.ok) {
-        setError(data?.detail || "Sesión no encontrada");
+        setError(data?.detail || "sesión no encontrada");
         setChecking(false);
         return;
       }
@@ -120,7 +163,7 @@ function CheckoutCompleteInner() {
       }
     } catch {
       if (!mountedRef.current) return;
-      setError("Error de conexión. Verificá tu internet y refrescá la página.");
+      setError("error de conexión");
       setChecking(false);
     }
   }, [token, stopPolling]);
@@ -267,8 +310,8 @@ function CheckoutCompleteInner() {
                 No recibimos confirmación del pago
               </div>
               <div style={{ fontSize: 13, color: C.mute, marginBottom: 6, lineHeight: 1.55 }}>
-                Si completaste el pago en Flow, puede tardar unos minutos en confirmarse.
-                Si lo cancelaste o cerraste la ventana, podés volver a intentarlo.
+                Si completaste el pago en Flow, puede demorar unos minutos en confirmarse.
+                Si lo cancelaste o cerraste la ventana, puedes volver a intentarlo.
               </div>
               <div style={{
                 margin: "14px 0", padding: "10px 14px", borderRadius: C.r,
@@ -276,8 +319,8 @@ function CheckoutCompleteInner() {
                 fontSize: 11, color: "#92400E", textAlign: "left",
               }}>
                 <strong>Importante:</strong> si efectivamente pagaste, NO vuelvas a pagar.
-                Esperá unos minutos y apretá &ldquo;Verificar de nuevo&rdquo;.
-                Si el problema persiste, contactanos a soporte@pulstock.cl con tu RUT.
+                Espera unos minutos y presiona &ldquo;Verificar de nuevo&rdquo;.
+                Si el problema persiste, contáctanos a soporte@pulstock.cl con tu RUT.
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 16 }}>
                 <button onClick={handleRetry} style={{
@@ -303,8 +346,8 @@ function CheckoutCompleteInner() {
               </div>
               <div style={{ fontSize: 13, color: C.mute, marginBottom: 16, lineHeight: 1.55 }}>
                 {session.status === "cancelled"
-                  ? "Cancelaste el pago en Flow. Podés volver a intentarlo cuando quieras — no se cobró nada."
-                  : "Hubo un problema con tu medio de pago. Probá con otro método o contactanos."}
+                  ? "Cancelaste el pago en Flow. Puedes volver a intentarlo cuando quieras — no se cobró nada."
+                  : "Hubo un problema con tu medio de pago. Prueba con otro método o contáctanos."}
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                 <a href="/#precios" style={{
@@ -329,7 +372,7 @@ function CheckoutCompleteInner() {
                 Sesión expirada
               </div>
               <div style={{ fontSize: 13, color: C.mute, marginBottom: 16 }}>
-                Esta sesión de pago expiró. Empezá una nueva desde la página de planes.
+                Esta sesión de pago expiró. Inicia una nueva desde la página de planes.
               </div>
               <a href="/#precios" style={{
                 display: "inline-block", padding: "10px 24px", borderRadius: C.r,
@@ -339,30 +382,47 @@ function CheckoutCompleteInner() {
             </div>
           )}
 
-          {/* ERROR — fallo de conexión / token inválido */}
-          {!checking && !session && error && (
-            <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{"⚠️"}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
-                No pudimos cargar la sesión
+          {/* ERROR — sin token / sesión inexistente / sin internet.
+              Usamos friendlyError() para traducir errores técnicos a copy
+              entendible por usuarios no técnicos. */}
+          {!checking && !session && error && (() => {
+            const friendly = friendlyError(error, !!token && error !== "__no_token__");
+            return (
+              <div style={{ textAlign: "center", padding: 20 }}>
+                <div style={{ fontSize: 28, marginBottom: 12 }}>{"⚠️"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                  {friendly.title}
+                </div>
+                <div style={{ fontSize: 13, color: C.mute, marginBottom: 16, lineHeight: 1.55 }}>
+                  {friendly.message}
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                  {friendly.primaryAction === "retry" && (
+                    <button onClick={handleRetry} style={{
+                      padding: "10px 18px", borderRadius: C.r, border: "none",
+                      background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
+                      cursor: "pointer", fontFamily: C.font,
+                    }}>Reintentar</button>
+                  )}
+                  <a href="/#precios" style={{
+                    display: "inline-block", padding: "10px 18px", borderRadius: C.r,
+                    background: friendly.primaryAction === "back" ? C.accent : "transparent",
+                    color: friendly.primaryAction === "back" ? "#fff" : C.mid,
+                    fontSize: 13, fontWeight: friendly.primaryAction === "back" ? 700 : 600,
+                    textDecoration: "none",
+                    border: friendly.primaryAction === "back" ? "none" : `1px solid ${C.border}`,
+                  }}>{friendly.primaryAction === "back" ? "Ir a planes" : "← Volver a planes"}</a>
+                  {friendly.primaryAction === "support" && (
+                    <a href="mailto:soporte@pulstock.cl" style={{
+                      display: "inline-block", padding: "10px 18px", borderRadius: C.r,
+                      background: "transparent", color: C.mid, fontSize: 13, fontWeight: 600,
+                      textDecoration: "none", border: `1px solid ${C.border}`,
+                    }}>Contactar soporte</a>
+                  )}
+                </div>
               </div>
-              <div style={{ fontSize: 13, color: C.mute, marginBottom: 16 }}>
-                {error}
-              </div>
-              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                <button onClick={handleRetry} style={{
-                  padding: "10px 18px", borderRadius: C.r, border: "none",
-                  background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
-                  cursor: "pointer", fontFamily: C.font,
-                }}>Reintentar</button>
-                <a href="/#precios" style={{
-                  display: "inline-block", padding: "10px 18px", borderRadius: C.r,
-                  background: "transparent", color: C.mid, fontSize: 13, fontWeight: 600,
-                  textDecoration: "none", border: `1px solid ${C.border}`,
-                }}>← Volver a planes</a>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>

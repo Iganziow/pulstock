@@ -476,8 +476,8 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
             `No se pudo imprimir. Probé:\n` +
             `  • Tu impresora local '${p.name}': ${localErrMsg}\n` +
             `  • PC del local: ${agentErrMsg}\n\n` +
-            `Soluciones: revisá que la impresora esté prendida y conectada, ` +
-            `o asegurate de que el PC del local con el agente esté prendido.`
+            `Soluciones: revisa que la impresora esté encendida y conectada, ` +
+            `o asegúrate de que el PC del local con el agente esté encendido.`
           ),
         };
       }
