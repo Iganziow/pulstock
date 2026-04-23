@@ -50,4 +50,13 @@ if (DSN) {
     // process.env.NODE_ENV no se sustituía a "production" en el bundle del
     // cliente, lo que descartaba el 100% de los eventos silenciosamente.
   });
+
+  // Exponer el SDK en window.Sentry para debug en producción.
+  // Permite hacer desde la consola del browser:
+  //   window.Sentry.captureException(new Error("test"));
+  // Sin esto, en v8 hay que importar el módulo (no funciona desde devtools).
+  if (typeof window !== "undefined") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).Sentry = Sentry;
+  }
 }
