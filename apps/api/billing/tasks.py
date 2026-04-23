@@ -379,6 +379,18 @@ def _email_data_row(label: str, value: str) -> str:
     </tr>"""
 
 
+def _email_callout(bg: str, border: str, content_html: str) -> str:
+    """Helper: tarjeta destacada (callout) en tabla Outlook-safe.
+
+    Reemplaza al viejo patrón <div style="background:...;border:...;border-radius:...">
+    que Outlook no renderea bien (sin border-radius + sin padding consistente).
+    """
+    return f"""
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:{bg};border:1px solid {border};border-radius:10px;margin:0 0 16px;">
+        <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;">{content_html}</td></tr>
+    </table>"""
+
+
 def _billing_html(title: str, color: str, body_html: str, cta_text: str | None = None, cta_url: str | None = None) -> str:
     """Wrap email content in branded HTML template.
 
@@ -602,13 +614,14 @@ def _send_trial_reminder(sub, days_left: int):
     d = "día" if days_left == 1 else "días"
     subject = f"Tu prueba vence en {days_left} {d} — {BRAND}"
     plain = f"Tu período de prueba de {BRAND} vence en {days_left} {d}. Plan: {sub.plan.name}. Gestiona tu suscripción en {SETTINGS_URL}"
+    callout = _email_callout("#F9FAFB", "#E4E4E7", f"""
+        <div style="font-size:12px;color:#71717A;font-family:Helvetica,Arial,sans-serif;">Plan actual</div>
+        <div style="font-size:20px;font-weight:800;color:#18181B;margin:4px 0;font-family:Helvetica,Arial,sans-serif;">{sub.plan.name}</div>
+        <div style="font-size:13px;color:#52525B;font-family:Helvetica,Arial,sans-serif;">${sub.plan.price_clp:,} CLP/mes</div>
+    """)
     html = _billing_html(f"⏰ Tu prueba vence en {days_left} {d}", "#D97706", f"""
         <p style="font-size:14px;margin:0 0 16px;">Tu período de prueba vence pronto.</p>
-        <div style="background:#F9FAFB;border:1px solid #E4E4E7;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="font-size:12px;color:#71717A;">Plan actual</div>
-            <div style="font-size:20px;font-weight:800;margin:4px 0;">{sub.plan.name}</div>
-            <div style="font-size:13px;color:#52525B;">${sub.plan.price_clp:,} CLP/mes</div>
-        </div>
+        {callout}
         <p style="font-size:13px;color:#52525B;margin:0;">Si no agregas un método de pago, tu cuenta pasará al plan Gratuito.</p>
     """, "Gestionar suscripción", SETTINGS_URL)
     _send_email_safe(email, subject, plain, html)
@@ -641,12 +654,13 @@ def _send_payment_failed_notice(sub):
     email = _get_owner_email(sub)
     subject = f"⚠️ Problema con tu pago — {BRAND}"
     plain = f"No pudimos cobrar tu suscripción {BRAND}. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP. Intento {sub.payment_retry_count}/3. Actualiza tu pago en {SETTINGS_URL}"
+    callout = _email_callout("#FEF2F2", "#FECACA", f"""
+        <div style="font-size:13px;font-weight:700;color:#DC2626;margin-bottom:4px;font-family:Helvetica,Arial,sans-serif;">Plan: {sub.plan.name} — ${sub.plan.price_clp:,} CLP</div>
+        <div style="font-size:12px;color:#52525B;font-family:Helvetica,Arial,sans-serif;">Intento {sub.payment_retry_count} de 3 · Tu acceso se mantiene por 3 días más.</div>
+    """)
     html = _billing_html("⚠️ No pudimos procesar tu pago", "#DC2626", f"""
         <p style="font-size:14px;margin:0 0 16px;">Hubo un problema con el cobro de tu suscripción.</p>
-        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="font-size:13px;font-weight:700;color:#DC2626;margin-bottom:4px;">Plan: {sub.plan.name} — ${sub.plan.price_clp:,} CLP</div>
-            <div style="font-size:12px;color:#52525B;">Intento {sub.payment_retry_count} de 3 · Tu acceso se mantiene por 3 días más.</div>
-        </div>
+        {callout}
         <p style="font-size:13px;color:#52525B;margin:0;">Actualiza tu método de pago para evitar la suspensión.</p>
     """, "Actualizar método de pago", SETTINGS_URL)
     _send_email_safe(email, subject, plain, html)
@@ -656,12 +670,13 @@ def _send_suspension_notice(sub):
     email = _get_owner_email(sub)
     subject = f"🔒 Cuenta suspendida — {BRAND}"
     plain = f"Tu cuenta {BRAND} ha sido suspendida por falta de pago. Tus datos se conservan 30 días. Reactiva en {SETTINGS_URL}. Ayuda: {SUPPORT_EMAIL}"
+    callout = _email_callout("#F9FAFB", "#E4E4E7", f"""
+        <p style="font-size:13px;color:#52525B;margin:0 0 8px;font-family:Helvetica,Arial,sans-serif;">Tus datos están seguros y se conservarán por <strong style="color:#18181B;">30 días</strong>.</p>
+        <p style="font-size:13px;color:#52525B;margin:0;font-family:Helvetica,Arial,sans-serif;">Reactiva tu cuenta actualizando tu método de pago.</p>
+    """)
     html = _billing_html("🔒 Tu cuenta ha sido suspendida", "#18181B", f"""
         <p style="font-size:14px;margin:0 0 16px;">No pudimos procesar tu pago después de 3 intentos.</p>
-        <div style="background:#F9FAFB;border:1px solid #E4E4E7;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <p style="font-size:13px;color:#52525B;margin:0 0 8px;">Tus datos están seguros y se conservarán por <strong>30 días</strong>.</p>
-            <p style="font-size:13px;color:#52525B;margin:0;">Reactiva tu cuenta actualizando tu método de pago.</p>
-        </div>
+        {callout}
         <p style="font-size:12px;color:#71717A;margin:0;">¿Necesitas ayuda? <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;">{SUPPORT_EMAIL}</a></p>
     """, "Reactivar cuenta", SETTINGS_URL)
     _send_email_safe(email, subject, plain, html)
@@ -672,14 +687,15 @@ def _send_payment_recovered_notice(sub):
     fecha = sub.current_period_end.strftime('%d/%m/%Y') if sub.current_period_end else '—'
     subject = f"✅ Pago procesado — {BRAND}"
     plain = f"Tu pago de {BRAND} fue procesado. Plan: {sub.plan.name}. Próximo cobro: {fecha}."
+    callout = _email_callout("#ECFDF5", "#A7F3D0", f"""
+        <div style="font-size:13px;font-weight:700;color:#16A34A;font-family:Helvetica,Arial,sans-serif;">Plan: {sub.plan.name}</div>
+        <div style="font-size:12px;color:#52525B;margin-top:4px;font-family:Helvetica,Arial,sans-serif;">Próximo cobro: {fecha}</div>
+    """)
     html = _billing_html("✅ Pago procesado exitosamente", "#16A34A", f"""
         <p style="font-size:14px;margin:0 0 16px;">Tu suscripción está activa.</p>
-        <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="font-size:13px;font-weight:700;color:#16A34A;">Plan: {sub.plan.name}</div>
-            <div style="font-size:12px;color:#52525B;margin-top:4px;">Próximo cobro: {fecha}</div>
-        </div>
+        {callout}
         <p style="font-size:13px;color:#52525B;margin:0;">Gracias por confiar en {BRAND}.</p>
-    """)
+    """, "Ir al dashboard", f"{APP_URL}/dashboard")
     _send_email_safe(email, subject, plain, html)
 
 
@@ -688,13 +704,15 @@ def _send_trial_converted_notice(sub):
     fecha = sub.current_period_end.strftime('%d/%m/%Y') if sub.current_period_end else '—'
     subject = f"✅ Suscripción activada — {BRAND}"
     plain = f"Tu prueba terminó y tu suscripción {BRAND} está activa. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP/mes. Próximo cobro: {fecha}."
+    callout = _email_callout("#ECFDF5", "#A7F3D0", f"""
+        <div style="font-size:13px;font-weight:700;color:#16A34A;font-family:Helvetica,Arial,sans-serif;">{sub.plan.name} — ${sub.plan.price_clp:,} CLP/mes</div>
+        <div style="font-size:12px;color:#52525B;margin-top:4px;font-family:Helvetica,Arial,sans-serif;">Próximo cobro: {fecha}</div>
+    """)
     html = _billing_html("✅ Suscripción activada", "#16A34A", f"""
         <p style="font-size:14px;margin:0 0 16px;">Tu período de prueba terminó y tu plan está activo.</p>
-        <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="font-size:13px;font-weight:700;color:#16A34A;">{sub.plan.name} — ${sub.plan.price_clp:,} CLP/mes</div>
-            <div style="font-size:12px;color:#52525B;margin-top:4px;">Próximo cobro: {fecha}</div>
-        </div>
-    """)
+        {callout}
+        <p style="font-size:13px;color:#52525B;margin:0;">Ya podés usar todas las funcionalidades de tu plan.</p>
+    """, "Ir al dashboard", f"{APP_URL}/dashboard")
     _send_email_safe(email, subject, plain, html)
 
 
@@ -702,16 +720,24 @@ def _send_trial_expired_notice(sub):
     email = _get_owner_email(sub)
     subject = f"Tu prueba terminó — {BRAND}"
     plain = f"Tu prueba de {BRAND} terminó. Tu cuenta está en plan Gratuito. Para volver a {sub.plan.name}: {SETTINGS_URL}"
+    def _bullet(txt: str) -> str:
+        return f"""
+        <tr>
+            <td valign="top" width="16" style="padding:3px 8px 3px 0;font-size:12px;color:#D97706;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">•</td>
+            <td style="padding:3px 0;font-size:12px;color:#52525B;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">{txt}</td>
+        </tr>"""
+
+    callout = _email_callout("#FFFBEB", "#FDE68A", f"""
+        <div style="font-size:13px;font-weight:700;color:#D97706;margin-bottom:8px;font-family:Helvetica,Arial,sans-serif;">Plan Gratuito incluye:</div>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            {_bullet("Hasta 100 productos")}
+            {_bullet("1 local, 1 bodega")}
+            {_bullet("1 usuario")}
+        </table>
+    """)
     html = _billing_html("Tu período de prueba terminó", "#D97706", f"""
         <p style="font-size:14px;margin:0 0 16px;">No pudimos procesar el pago. Tu cuenta está ahora en el plan Gratuito.</p>
-        <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="font-size:13px;font-weight:700;color:#D97706;margin-bottom:8px;">Plan Gratuito:</div>
-            <ul style="margin:0;padding:0 0 0 16px;font-size:12px;color:#52525B;">
-                <li>Hasta 100 productos</li>
-                <li>1 local, 1 bodega</li>
-                <li>1 usuario</li>
-            </ul>
-        </div>
+        {callout}
         <p style="font-size:13px;color:#52525B;margin:0;">Para volver al plan <strong>{sub.plan.name}</strong> (${sub.plan.price_clp:,} CLP/mes):</p>
     """, f"Volver a {sub.plan.name}", SETTINGS_URL)
     _send_email_safe(email, subject, plain, html)
