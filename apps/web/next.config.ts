@@ -23,7 +23,10 @@ const securityHeaders = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // unsafe-eval needed by Next.js dev / webpack
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      `connect-src 'self' ${apiOrigin}`,
+      // connect-src incluye Sentry para que el SDK pueda mandar eventos.
+      // Si no hay DSN configurado, el SDK no hace requests — el dominio en
+      // CSP no abre vulnerabilidad por sí solo.
+      `connect-src 'self' ${apiOrigin} https://*.ingest.sentry.io https://*.sentry.io`,
       "img-src 'self' data: blob:",
       "font-src 'self' https://fonts.gstatic.com",
       "object-src 'none'",
@@ -52,4 +55,36 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Wrappear con Sentry SOLO si está habilitado por flag en build.
+// Sin SENTRY_DSN o SENTRY_AUTH_TOKEN, exportamos el config plano.
+// Esto evita que el build local/CI falle si las deps de @sentry/nextjs no
+// están instaladas, o que se intente subir source maps sin auth token.
+const SENTRY_ENABLED =
+  !!process.env.SENTRY_DSN && !!process.env.SENTRY_AUTH_TOKEN;
+
+let exportedConfig: NextConfig | unknown = nextConfig;
+
+if (SENTRY_ENABLED) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { withSentryConfig } = require("@sentry/nextjs");
+    exportedConfig = withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: !process.env.CI,
+      // Subir source maps al build → stack traces legibles en Sentry.
+      widenClientFileUpload: true,
+      // Tunelizar requests para evitar adblockers (opcional).
+      tunnelRoute: "/monitoring/sentry",
+      // No tirar errores de build si Sentry falla.
+      hideSourceMaps: true,
+      disableLogger: true,
+    });
+  } catch {
+    // @sentry/nextjs no instalado — uso config plano.
+    exportedConfig = nextConfig;
+  }
+}
+
+export default exportedConfig as NextConfig;
