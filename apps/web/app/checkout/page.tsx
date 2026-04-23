@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { C } from "@/lib/theme";
 import { LogoIcon } from "@/components/ui/Logo";
@@ -50,6 +50,11 @@ function CheckoutInner() {
   const [error, setError] = useState("");
   const [step, setStep] = useState(1); // 1=negocio, 2=usuario+plan+pago
 
+  // Guard sincrónico para doble-click. setLoading(true) es asíncrono — entre
+  // dos clicks rápidos (<50ms) el estado puede no haberse propagado todavía
+  // y los dos llegan al fetch. Con un useRef chequeamos antes del setState.
+  const submittingRef = useRef(false);
+
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   useEffect(() => {
@@ -60,7 +65,7 @@ function CheckoutInner() {
         setPlans(list);
         if (!selectedKey && list.length > 0) setSelectedKey(list[0].key);
       })
-      .catch(() => setError("No se pudo cargar los planes"))
+      .catch(() => setError("No pudimos cargar los planes. Verifica tu conexión a internet y recarga la página."))
       .finally(() => setLoadingPlans(false));
   }, [API, selectedKey]);
 
@@ -106,9 +111,15 @@ function CheckoutInner() {
   }
 
   async function handleCheckout() {
+    // Guard sincrónico contra doble-click. Si ya hay un fetch en vuelo,
+    // el segundo click se ignora silenciosamente (sin error visible al user).
+    if (submittingRef.current) return;
     if (!validateStep2()) return;
 
-    setLoading(true); setError("");
+    submittingRef.current = true;
+    setLoading(true);
+    setError("");
+
     try {
       const res = await fetch(`${API}/billing/checkout/create/`, {
         method: "POST",
@@ -123,16 +134,36 @@ function CheckoutInner() {
           owner_password: password,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) { setError(data?.detail || "Error al iniciar el pago"); return; }
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // Mensajes amigables según el código HTTP del backend.
+        if (res.status === 409) {
+          // Conflicto: email o usuario ya tomado.
+          setError(data?.detail || "Ya existe una cuenta con este email o nombre de usuario. Si es tuya, inicia sesión.");
+        } else if (res.status === 502) {
+          // Flow caído o error en el gateway.
+          setError("El sistema de pagos no responde en este momento. Intenta de nuevo en 1 minuto.");
+        } else if (res.status === 400) {
+          setError(data?.detail || "Algunos datos son inválidos. Revisa el formulario y vuelve a intentar.");
+        } else if (res.status === 429) {
+          setError("Demasiados intentos. Espera unos minutos antes de volver a intentar.");
+        } else {
+          setError(data?.detail || "No pudimos iniciar el pago. Intenta de nuevo o contacta a soporte@pulstock.cl.");
+        }
+        return;
+      }
+
       if (data.payment_url) {
+        // Redirige a Flow. El user vuelve después a /checkout/complete.
         window.location.href = data.payment_url;
       } else {
-        setError("No se obtuvo URL de pago");
+        setError("Recibimos respuesta del servidor pero sin URL de pago. Intenta de nuevo o contacta a soporte@pulstock.cl.");
       }
     } catch {
-      setError("Error de conexión");
+      setError("Sin conexión a internet. Verifica tu WiFi o datos móviles y vuelve a intentar.");
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   }

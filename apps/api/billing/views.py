@@ -900,24 +900,24 @@ class CheckoutCreateView(APIView):
         try:
             validate_email(email)
         except DjangoValError:
-            return Response({"detail": "Email inválido"}, status=400)
+            return Response({"detail": "El email no parece válido. Revisa que esté bien escrito (ej: nombre@dominio.cl)."}, status=400)
 
         try:
             plan = Plan.objects.get(key=plan_key, is_active=True)
         except Plan.DoesNotExist:
-            return Response({"detail": "Plan no encontrado"}, status=404)
+            return Response({"detail": "El plan que elegiste no existe o ya no está disponible. Vuelve a planes y elige otro."}, status=404)
 
         if plan.price_clp <= 0:
-            return Response({"detail": "Este plan no requiere pago"}, status=400)
+            return Response({"detail": "Este plan es gratuito y no requiere pago. Ve a la página de planes para activarlo."}, status=400)
 
         # Validate new required fields (backward-compatible: optional if missing)
         if business_name and owner_username and owner_password:
             if len(owner_password) < 8:
-                return Response({"detail": "La contraseña debe tener al menos 8 caracteres"}, status=400)
+                return Response({"detail": "La contraseña es muy corta. Debe tener al menos 8 caracteres."}, status=400)
             if User.objects.filter(email=email).exists():
-                return Response({"detail": "Ya existe una cuenta con este email. Inicia sesión."}, status=409)
+                return Response({"detail": "Ya existe una cuenta con este email. Si es tuya, inicia sesión. Si no, prueba con otro email."}, status=409)
             if User.objects.filter(username=owner_username).exists():
-                return Response({"detail": "Ese nombre de usuario ya está tomado."}, status=409)
+                return Response({"detail": "Ese nombre de usuario ya está tomado. Prueba con otro (ej: agregando un número)."}, status=409)
 
         # Idempotencia: reusar sesión pending del mismo email+plan del mismo día
         from datetime import timedelta as td
@@ -966,8 +966,10 @@ class CheckoutCreateView(APIView):
 
         if not result.get("success"):
             session.delete()
+            # No exponer mensajes técnicos del gateway al usuario final.
+            logger.error("Flow checkout creation failed: %s", result.get("error"))
             return Response(
-                {"detail": result.get("error", "Error al crear el pago")},
+                {"detail": "El sistema de pagos no responde en este momento. Intenta de nuevo en 1 minuto. Si el problema continúa, escríbenos a soporte@pulstock.cl."},
                 status=502,
             )
 
@@ -994,12 +996,12 @@ class CheckoutStatusView(APIView):
     def get(self, request):
         token = request.query_params.get("token", "")
         if not token:
-            return Response({"detail": "Token requerido"}, status=400)
+            return Response({"detail": "Falta el código de la sesión. Empieza una nueva desde la página de planes."}, status=400)
 
         try:
             session = CheckoutSession.objects.select_related("plan").get(token=token)
         except (CheckoutSession.DoesNotExist, ValueError):
-            return Response({"detail": "Sesión no encontrada"}, status=404)
+            return Response({"detail": "Esta sesión de pago no existe o fue eliminada. Inicia una nueva desde la página de planes."}, status=404)
 
         # Auto-expire
         if session.is_expired:
@@ -1066,12 +1068,12 @@ class CheckoutCompleteView(APIView):
         try:
             session = CheckoutSession.objects.select_related("plan").get(token=token)
         except (CheckoutSession.DoesNotExist, ValueError):
-            return Response({"detail": "Sesión no encontrada"}, status=404)
+            return Response({"detail": "Esta sesión de pago no existe o fue eliminada. Inicia una nueva desde la página de planes."}, status=404)
 
         if session.status == CheckoutSession.STATUS_COMPLETED:
-            return Response({"detail": "Esta cuenta ya fue creada. Inicia sesión."}, status=409)
+            return Response({"detail": "Tu cuenta ya está creada. Inicia sesión con tu email y contraseña."}, status=409)
         if session.status != CheckoutSession.STATUS_PAID:
-            return Response({"detail": "El pago no ha sido confirmado aún."}, status=402)
+            return Response({"detail": "Aún no recibimos la confirmación del pago. Espera unos segundos y vuelve a intentar."}, status=402)
 
         # Validate fields
         errors = {}

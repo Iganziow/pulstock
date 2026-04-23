@@ -617,19 +617,19 @@ def pair_with_code(code: str, api_url: str = DEFAULT_API_URL) -> tuple[bool, str
         ), {}
     if status == 429:
         return False, (
-            "Demasiados intentos. Esperá 5 minutos y volvé a probar. "
-            "Si seguís teniendo problemas, contactá a soporte."
+            "Demasiados intentos. Espera 5 minutos y vuelve a probar. "
+            "Si continúan los problemas, contacta a soporte."
         ), {}
     if status == 404:
         return False, (
             "Código inválido o ya expiró (los códigos duran 30 minutos). "
-            "Pedile a tu administrador que genere uno nuevo en el panel: "
+            "Pídele a tu administrador que genere uno nuevo en el panel: "
             "Configuración → Impresoras → Regenerar código."
         ), {}
     if status >= 500:
         return False, (
             f"El servidor de Pulstock no está respondiendo bien (error {status}). "
-            "Volvé a probar en unos minutos."
+            "Vuelve a probar en unos minutos."
         ), {}
     if status != 200:
         return False, f"Error {status}: {resp.get('detail', 'sin detalle')}", {}

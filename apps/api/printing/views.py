@@ -411,8 +411,8 @@ class JobQueueView(APIView):
             return Response({
                 "detail": (
                     f"El PC '{agent.name}' está desconectado. "
-                    "Asegurate de que esté prendido y con internet, después "
-                    "volvé a apretar Imprimir."
+                    "Asegúrate de que esté encendido y con internet, después "
+                    "vuelve a presionar Imprimir."
                 ),
                 "code": "agent_offline",
             }, status=503)
