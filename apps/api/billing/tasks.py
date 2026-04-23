@@ -366,7 +366,7 @@ def _send_email_safe(to: str, subject: str, body: str, html_message: str | None 
 # email-logo.png. Outlook/Hotmail cachean imágenes de emails muy agresivamente
 # y muestran la versión vieja aunque el archivo del server haya cambiado.
 # Cambiar este número fuerza al cliente a re-descargar.
-EMAIL_LOGO_URL = "https://pulstock.cl/email-logo.png?v=20260423b"
+EMAIL_LOGO_URL = "https://pulstock.cl/email-logo.png?v=20260423c"
 LANDING_URL = "https://pulstock.cl"
 
 
