@@ -366,28 +366,41 @@ EMAIL_LOGO_URL = "https://pulstock.cl/email-logo.png"
 LANDING_URL = "https://pulstock.cl"
 
 
+def _email_data_row(label: str, value: str) -> str:
+    """Helper: tabla 2-columnas para filas de datos (Outlook-safe, no flex)."""
+    return f"""
+    <tr>
+        <td style="padding:6px 0;font-size:13px;color:#6B7280;font-family:Helvetica,Arial,sans-serif;">{label}</td>
+        <td align="right" style="padding:6px 0;font-size:14px;font-weight:600;color:#18181B;font-family:Helvetica,Arial,sans-serif;">{value}</td>
+    </tr>"""
+
+
 def _billing_html(title: str, color: str, body_html: str, cta_text: str | None = None, cta_url: str | None = None) -> str:
     """Wrap email content in branded HTML template.
 
-    Plantilla diseñada para verse OK en:
+    Diseñada para verse profesional en:
     - Gmail (web + iOS + Android)
     - Outlook (desktop + web + dark mode)
     - Apple Mail (con dark mode)
-    - Hotmail/Live (estricto con CSS, evitamos display:flex)
+    - Hotmail/Live
 
-    Por compatibilidad usamos:
+    Por compatibilidad cross-client:
     - Tablas para layout (flex/grid no andan en Outlook).
-    - Inline styles only (gmail strippea <style>).
+    - Inline styles only (Gmail strippea <style> en send).
     - Imagen del logo desde URL pública (no embebida).
+    - Fonts system-safe.
+    - Mobile-friendly (max-width 600 + ancho fluido).
     """
     cta = ""
     if cta_text and cta_url:
         cta = f"""
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:28px auto 8px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:36px auto 12px;">
             <tr>
-                <td align="center" style="background:#4F46E5;border-radius:10px;">
-                    <a href="{cta_url}" style="display:inline-block;padding:14px 32px;color:#ffffff !important;
-                       font-size:14px;font-weight:700;text-decoration:none;font-family:Helvetica,Arial,sans-serif;">{cta_text}</a>
+                <td align="center" style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);background-color:#4F46E5;border-radius:12px;box-shadow:0 4px 12px rgba(79,70,229,0.25);">
+                    <a href="{cta_url}" style="display:inline-block;padding:16px 40px;color:#ffffff !important;
+                       font-size:15px;font-weight:700;text-decoration:none;font-family:Helvetica,Arial,sans-serif;letter-spacing:0.2px;">
+                        {cta_text} →
+                    </a>
                 </td>
             </tr>
         </table>"""
@@ -398,69 +411,81 @@ def _billing_html(title: str, color: str, body_html: str, cta_text: str | None =
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>{title}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
 </head>
-<body style="margin:0;padding:0;background:#F4F4F5;font-family:Helvetica,Arial,sans-serif;color:#18181B;-webkit-text-size-adjust:100%;">
-<!-- Preheader (texto invisible que aparece como preview en el inbox) -->
-<div style="display:none;font-size:1px;color:#F4F4F5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
-{title}
+<body style="margin:0;padding:0;background:#EEF2FF;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#18181B;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+
+<!-- Preheader: texto invisible que aparece como preview en Gmail / iOS Mail -->
+<div style="display:none;font-size:1px;color:#EEF2FF;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+{title} — Pulstock
 </div>
 
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F4F4F5;">
+<!-- Wrapper full-width con fondo gradient sutil -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:linear-gradient(180deg,#EEF2FF 0%,#F4F4F5 200px);background-color:#EEF2FF;">
 <tr>
-<td align="center" style="padding:32px 16px;">
+<td align="center" style="padding:40px 16px 32px;">
 
-  <!-- Wrapper centrado -->
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-
-    <!-- LOGO HEADER (fondo blanco con logo Pulstock) -->
+  <!-- HEADER con logo (sin tarjeta, libre sobre el fondo) -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;">
     <tr>
-      <td align="center" style="padding:28px 24px 20px;background:#ffffff;border-bottom:1px solid #F4F4F5;">
+      <td align="center" style="padding:0 0 24px;">
         <a href="{LANDING_URL}" style="text-decoration:none;display:inline-block;">
-          <img src="{EMAIL_LOGO_URL}" alt="Pulstock" width="180"
-               style="display:block;width:180px;height:auto;border:0;outline:none;">
+          <img src="{EMAIL_LOGO_URL}" alt="Pulstock" width="200"
+               style="display:block;width:200px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;">
         </a>
       </td>
     </tr>
+  </table>
 
-    <!-- TÍTULO COLOREADO -->
+  <!-- TARJETA PRINCIPAL -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 4px 20px rgba(79,70,229,0.08),0 1px 3px rgba(0,0,0,0.04);">
+
+    <!-- BARRA DE ACENTO SUPERIOR (color del email) -->
     <tr>
-      <td style="padding:24px 32px 8px;background:#ffffff;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-          <tr>
-            <td style="background:{color};width:4px;border-radius:2px;"></td>
-            <td style="padding-left:14px;">
-              <h1 style="margin:0;color:#18181B;font-size:20px;font-weight:800;line-height:1.3;font-family:Helvetica,Arial,sans-serif;">{title}</h1>
-            </td>
-          </tr>
-        </table>
+      <td height="6" style="background:{color};line-height:6px;font-size:0;height:6px;">&nbsp;</td>
+    </tr>
+
+    <!-- TÍTULO -->
+    <tr>
+      <td style="padding:36px 40px 8px;background:#ffffff;">
+        <h1 style="margin:0;color:#18181B;font-size:24px;font-weight:800;line-height:1.25;letter-spacing:-0.4px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">{title}</h1>
       </td>
     </tr>
 
     <!-- BODY -->
     <tr>
-      <td style="padding:16px 32px 24px;background:#ffffff;color:#3F3F46;font-size:14px;line-height:1.6;font-family:Helvetica,Arial,sans-serif;">
+      <td style="padding:16px 40px 32px;background:#ffffff;color:#52525B;font-size:15px;line-height:1.65;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
         {body_html}
         {cta}
       </td>
     </tr>
 
-    <!-- FOOTER -->
+  </table>
+
+  <!-- FOOTER (fuera de la tarjeta, más sutil) -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;margin-top:24px;">
     <tr>
-      <td style="padding:24px 32px 28px;background:#FAFAFA;border-top:1px solid #F4F4F5;">
-        <p style="margin:0 0 8px;font-size:12px;color:#71717A;text-align:center;font-family:Helvetica,Arial,sans-serif;line-height:1.6;">
-          ¿Preguntas? Escríbenos a
-          <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;text-decoration:none;">{SUPPORT_EMAIL}</a>
+      <td align="center" style="padding:0 24px;">
+        <p style="margin:0 0 12px;font-size:13px;color:#6B7280;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1.6;">
+          ¿Tienes preguntas? Escríbenos a
+          <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;text-decoration:none;font-weight:600;">{SUPPORT_EMAIL}</a>
         </p>
-        <p style="margin:0;font-size:11px;color:#A1A1AA;text-align:center;font-family:Helvetica,Arial,sans-serif;">
-          © {BRAND} · <a href="{LANDING_URL}" style="color:#A1A1AA;text-decoration:none;">pulstock.cl</a>
+        <p style="margin:0 0 8px;font-size:12px;color:#9CA3AF;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+          <a href="{LANDING_URL}" style="color:#9CA3AF;text-decoration:none;">pulstock.cl</a>
+          &nbsp;·&nbsp;
+          <a href="{APP_URL}/login" style="color:#9CA3AF;text-decoration:none;">Iniciar sesión</a>
+          &nbsp;·&nbsp;
+          <a href="{APP_URL}/dashboard/settings?tab=alertas" style="color:#9CA3AF;text-decoration:none;">Preferencias de email</a>
         </p>
-        <p style="margin:12px 0 0;font-size:10px;color:#A1A1AA;text-align:center;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">
-          Recibes este email porque tienes una cuenta en {BRAND}.
+        <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1.5;">
+          © {BRAND} · Recibes este email porque tienes una cuenta en {BRAND}.
         </p>
       </td>
     </tr>
-
   </table>
 
 </td>
@@ -510,43 +535,58 @@ def _send_welcome_email(user, tenant, plan):
     )
 
     body_html = f"""
-        <p style="font-size:15px;margin:0 0 16px;">
+        <p style="margin:0 0 24px;">
             Tu cuenta está activa y lista para usar. Te dejamos los datos de acceso
             y los primeros pasos para empezar.
         </p>
 
-        <div style="background:#F9FAFB;border:1px solid #E4E4E7;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                <span style="font-size:12px;color:#71717A;">Negocio</span>
-                <span style="font-size:13px;font-weight:700;">{tenant_name}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                <span style="font-size:12px;color:#71717A;">Usuario</span>
-                <span style="font-size:13px;font-weight:700;font-family:monospace;">{user.username}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;">
-                <span style="font-size:12px;color:#71717A;">Plan</span>
-                <span style="font-size:13px;font-weight:700;">{plan_name}</span>
-            </div>
-        </div>
+        <!-- Tarjeta con datos de la cuenta -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;margin:0 0 28px;">
+            <tr><td style="padding:18px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    {_email_data_row("Negocio", tenant_name)}
+                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
+                    {_email_data_row("Usuario", f'<span style="font-family:Menlo,Consolas,monospace;color:#4F46E5;">{user.username}</span>')}
+                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
+                    {_email_data_row("Plan", plan_name)}
+                </table>
+            </td></tr>
+        </table>
 
-        <p style="font-size:14px;font-weight:700;margin:24px 0 12px;color:#18181B;">
+        <h2 style="margin:0 0 16px;color:#18181B;font-size:17px;font-weight:700;letter-spacing:-0.2px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
             Tus 3 primeros pasos
-        </p>
-        <ol style="font-size:13px;color:#52525B;margin:0 0 16px;padding-left:20px;line-height:1.7;">
-            <li><strong>Carga tus productos</strong> en la sección Catálogo
-                (puedes importar desde Excel si tienes muchos).</li>
-            <li><strong>Realiza tu primera venta</strong> en Punto de Venta
-                para familiarizarte con el flujo.</li>
-            <li><strong>Configura tu impresora térmica</strong> en
-                Configuración → Impresoras (vas a recibir las boletas en papel).</li>
-        </ol>
+        </h2>
 
-        <p style="font-size:13px;color:#52525B;margin:0 0 8px;">
-            ¿Necesitas ayuda en cualquier paso?
-            Escríbenos a <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;">{SUPPORT_EMAIL}</a>
-            o responde este mismo email.
-        </p>
+        <!-- Lista de pasos como tabla (Outlook-safe) -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
+            <tr>
+                <td valign="top" width="36" style="padding:4px 12px 16px 0;">
+                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">1</div>
+                </td>
+                <td valign="top" style="padding:0 0 16px;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+                    <strong style="color:#18181B;">Carga tus productos</strong> en la sección Catálogo.
+                    Si tienes muchos, puedes importarlos desde un Excel.
+                </td>
+            </tr>
+            <tr>
+                <td valign="top" width="36" style="padding:4px 12px 16px 0;">
+                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">2</div>
+                </td>
+                <td valign="top" style="padding:0 0 16px;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+                    <strong style="color:#18181B;">Realiza tu primera venta</strong> en Punto de Venta
+                    para familiarizarte con el flujo de cobro.
+                </td>
+            </tr>
+            <tr>
+                <td valign="top" width="36" style="padding:4px 12px 0 0;">
+                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">3</div>
+                </td>
+                <td valign="top" style="padding:0;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+                    <strong style="color:#18181B;">Configura tu impresora térmica</strong> en
+                    Configuración &rsaquo; Impresoras para empezar a imprimir boletas.
+                </td>
+            </tr>
+        </table>
     """
 
     html = _billing_html(saludo, "#4F46E5", body_html, "Ir al dashboard", f"{APP_URL}/dashboard")
@@ -577,21 +617,18 @@ def _send_renewal_reminder(sub, days_left: int):
     subject = f"Tu suscripción se renueva en {days_left} {d} — {BRAND}"
     plain = f"Tu suscripción {BRAND} se renueva en {days_left} {d}. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP. Fecha: {fecha}"
     html = _billing_html(f"📅 Renovación en {days_left} {d}", "#4F46E5", f"""
-        <p style="font-size:14px;margin:0 0 16px;">Tu suscripción se renovará automáticamente.</p>
-        <div style="background:#F9FAFB;border:1px solid #E4E4E7;border-radius:10px;padding:16px;margin-bottom:16px;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                <span style="font-size:12px;color:#71717A;">Plan</span>
-                <span style="font-size:13px;font-weight:700;">{sub.plan.name}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                <span style="font-size:12px;color:#71717A;">Monto</span>
-                <span style="font-size:13px;font-weight:700;">${sub.plan.price_clp:,} CLP</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;">
-                <span style="font-size:12px;color:#71717A;">Fecha de cobro</span>
-                <span style="font-size:13px;font-weight:700;">{fecha}</span>
-            </div>
-        </div>
+        <p style="margin:0 0 24px;">Tu suscripción se renovará automáticamente.</p>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;margin:0 0 8px;">
+            <tr><td style="padding:18px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    {_email_data_row("Plan", sub.plan.name)}
+                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
+                    {_email_data_row("Monto", f"${sub.plan.price_clp:,} CLP")}
+                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
+                    {_email_data_row("Fecha de cobro", fecha)}
+                </table>
+            </td></tr>
+        </table>
     """, "Ver suscripción", SETTINGS_URL)
     _send_email_safe(email, subject, plain, html)
 
