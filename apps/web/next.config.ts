@@ -29,6 +29,10 @@ const securityHeaders = [
       `connect-src 'self' ${apiOrigin} https://*.ingest.sentry.io https://*.sentry.io`,
       "img-src 'self' data: blob:",
       "font-src 'self' https://fonts.gstatic.com",
+      // worker-src 'self' blob: para que Sentry Replay pueda crear workers
+      // de session replay (recordings de UI antes del error). Sin esto, CSP
+      // cae al fallback de script-src y bloquea blob: workers.
+      "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
