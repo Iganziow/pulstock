@@ -28,17 +28,15 @@ if (DSN) {
       }),
     ],
 
-    // Filtros: errores que sabemos que NO queremos en el dashboard.
+    // Filtros mínimos: solo browser quirks no accionables y no eventos
+    // del usuario. Antes filtrábamos también "Failed to fetch" / 401 pero
+    // eso enmascaraba bugs reales. Mejor capturar todo y filtrar en el
+    // dashboard de Sentry con "Inbound Filters" si hace falta.
     ignoreErrors: [
-      // Browser quirks no accionables
       "ResizeObserver loop limit exceeded",
       "ResizeObserver loop completed with undelivered notifications",
-      // Network: ya tenemos UI que avisa al user, no hace falta alertar.
-      "Failed to fetch",
-      "NetworkError",
-      "Load failed",
-      // 401 esperado tras token refresh — el código ya lo maneja.
-      /401/,
+      // Errores que dispara el usuario al cancelar uploads/fetches manualmente.
+      "AbortError",
     ],
     denyUrls: [
       // Extensions del navegador
