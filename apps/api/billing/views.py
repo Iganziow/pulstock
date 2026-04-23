@@ -877,6 +877,17 @@ def _auto_create_checkout_account(session):
         session.save(update_fields=["status", "tenant", "completed_at"])
         logger.info("Auto-created account: session=#%d user=%s tenant=%s", session.pk, username, slug)
 
+        # Email de bienvenida — fuera del atomic (la cuenta ya está creada y
+        # confirmada; un fallo de SMTP no debe abortear nada). Captura el
+        # error para que no propague.
+        try:
+            from billing.tasks import _send_welcome_email
+            _send_welcome_email(user, tenant, session.plan)
+        except Exception as e:
+            logger.warning(
+                "Welcome email falló (cuenta YA creada OK, no afecta): %s", e,
+            )
+
 
 class CheckoutCreateView(APIView):
     """POST /api/billing/checkout/create/ — Inicia checkout pre-registro."""
@@ -1191,6 +1202,16 @@ class CheckoutCompleteView(APIView):
                 session.tenant = tenant
                 session.completed_at = now
                 session.save(update_fields=["status", "tenant", "completed_at"])
+
+            # Email de bienvenida — fuera del atomic. La cuenta YA está creada
+            # y commiteada; un fallo de SMTP no debe abortear nada.
+            try:
+                from billing.tasks import _send_welcome_email
+                _send_welcome_email(user, tenant, session.plan)
+            except Exception as e:
+                logger.warning(
+                    "Welcome email falló (cuenta YA creada OK, no afecta): %s", e,
+                )
 
             # JWT tokens
             refresh = RefreshToken.for_user(user)
