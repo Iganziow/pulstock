@@ -362,29 +362,112 @@ def _send_email_safe(to: str, subject: str, body: str, html_message: str | None 
         raise
 
 
+EMAIL_LOGO_URL = "https://pulstock.cl/email-logo.png"
+LANDING_URL = "https://pulstock.cl"
+
+
 def _billing_html(title: str, color: str, body_html: str, cta_text: str | None = None, cta_url: str | None = None) -> str:
-    """Wrap billing email content in branded HTML template."""
+    """Wrap email content in branded HTML template.
+
+    Plantilla diseñada para verse OK en:
+    - Gmail (web + iOS + Android)
+    - Outlook (desktop + web + dark mode)
+    - Apple Mail (con dark mode)
+    - Hotmail/Live (estricto con CSS, evitamos display:flex)
+
+    Por compatibilidad usamos:
+    - Tablas para layout (flex/grid no andan en Outlook).
+    - Inline styles only (gmail strippea <style>).
+    - Imagen del logo desde URL pública (no embebida).
+    """
     cta = ""
     if cta_text and cta_url:
         cta = f"""
-        <div style="text-align:center;margin:24px 0 8px;">
-            <a href="{cta_url}" style="display:inline-block;padding:12px 28px;background:#4F46E5;color:#fff;
-               font-size:13px;font-weight:700;text-decoration:none;border-radius:8px;">{cta_text}</a>
-        </div>"""
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:28px auto 8px;">
+            <tr>
+                <td align="center" style="background:#4F46E5;border-radius:10px;">
+                    <a href="{cta_url}" style="display:inline-block;padding:14px 32px;color:#ffffff !important;
+                       font-size:14px;font-weight:700;text-decoration:none;font-family:Helvetica,Arial,sans-serif;">{cta_text}</a>
+                </td>
+            </tr>
+        </table>"""
 
-    return f"""
-    <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#18181B;">
-        <div style="background:{color};padding:20px 24px;border-radius:12px 12px 0 0;">
-            <h1 style="margin:0;color:#fff;font-size:18px;font-weight:800;">{title}</h1>
-        </div>
-        <div style="background:#fff;border:1px solid #E4E4E7;border-top:none;padding:24px;border-radius:0 0 12px 12px;">
-            {body_html}
-            {cta}
-            <p style="margin:20px 0 0;font-size:11px;color:#A1A1AA;text-align:center;">
-                {BRAND} · <a href="{APP_URL}" style="color:#4F46E5;text-decoration:none;">{APP_URL}</a>
-            </p>
-        </div>
-    </div>"""
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{title}</title>
+</head>
+<body style="margin:0;padding:0;background:#F4F4F5;font-family:Helvetica,Arial,sans-serif;color:#18181B;-webkit-text-size-adjust:100%;">
+<!-- Preheader (texto invisible que aparece como preview en el inbox) -->
+<div style="display:none;font-size:1px;color:#F4F4F5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+{title}
+</div>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F4F4F5;">
+<tr>
+<td align="center" style="padding:32px 16px;">
+
+  <!-- Wrapper centrado -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+
+    <!-- LOGO HEADER (fondo blanco con logo Pulstock) -->
+    <tr>
+      <td align="center" style="padding:28px 24px 20px;background:#ffffff;border-bottom:1px solid #F4F4F5;">
+        <a href="{LANDING_URL}" style="text-decoration:none;display:inline-block;">
+          <img src="{EMAIL_LOGO_URL}" alt="Pulstock" width="180"
+               style="display:block;width:180px;height:auto;border:0;outline:none;">
+        </a>
+      </td>
+    </tr>
+
+    <!-- TÍTULO COLOREADO -->
+    <tr>
+      <td style="padding:24px 32px 8px;background:#ffffff;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+          <tr>
+            <td style="background:{color};width:4px;border-radius:2px;"></td>
+            <td style="padding-left:14px;">
+              <h1 style="margin:0;color:#18181B;font-size:20px;font-weight:800;line-height:1.3;font-family:Helvetica,Arial,sans-serif;">{title}</h1>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- BODY -->
+    <tr>
+      <td style="padding:16px 32px 24px;background:#ffffff;color:#3F3F46;font-size:14px;line-height:1.6;font-family:Helvetica,Arial,sans-serif;">
+        {body_html}
+        {cta}
+      </td>
+    </tr>
+
+    <!-- FOOTER -->
+    <tr>
+      <td style="padding:24px 32px 28px;background:#FAFAFA;border-top:1px solid #F4F4F5;">
+        <p style="margin:0 0 8px;font-size:12px;color:#71717A;text-align:center;font-family:Helvetica,Arial,sans-serif;line-height:1.6;">
+          ¿Preguntas? Escríbenos a
+          <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;text-decoration:none;">{SUPPORT_EMAIL}</a>
+        </p>
+        <p style="margin:0;font-size:11px;color:#A1A1AA;text-align:center;font-family:Helvetica,Arial,sans-serif;">
+          © {BRAND} · <a href="{LANDING_URL}" style="color:#A1A1AA;text-decoration:none;">pulstock.cl</a>
+        </p>
+        <p style="margin:12px 0 0;font-size:10px;color:#A1A1AA;text-align:center;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">
+          Recibes este email porque tienes una cuenta en {BRAND}.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+
+</td>
+</tr>
+</table>
+</body>
+</html>"""
 
 
 def _send_welcome_email(user, tenant, plan):
