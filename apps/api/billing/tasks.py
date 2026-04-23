@@ -387,6 +387,89 @@ def _billing_html(title: str, color: str, body_html: str, cta_text: str | None =
     </div>"""
 
 
+def _send_welcome_email(user, tenant, plan):
+    """Email de bienvenida después de que el cliente paga + se crea su cuenta.
+
+    Se llama desde billing.views._auto_create_checkout_account después de que
+    el webhook de Flow confirma el pago y se crea Tenant + User + Subscription.
+
+    Objetivos:
+    - Confirmar que la cuenta está lista (alivio post-pago).
+    - Mostrar credenciales de acceso (username + cómo entrar).
+    - Dar 3 primeros pasos concretos para que el user no se pierda.
+    - CTA principal: ir al dashboard.
+    """
+    if not user or not user.email:
+        logger.warning("welcome_email: user sin email, skipping (user_id=%s)", getattr(user, "pk", None))
+        return
+
+    name = (user.first_name or user.username or "").strip()
+    saludo = f"¡Bienvenido a {BRAND}, {name}!" if name else f"¡Bienvenido a {BRAND}!"
+    tenant_name = (tenant.name if tenant else "tu negocio") or "tu negocio"
+    plan_name = plan.name if plan else "tu plan"
+
+    subject = f"🎉 Tu cuenta de {BRAND} está lista — {tenant_name}"
+
+    plain = (
+        f"{saludo}\n\n"
+        f"Tu cuenta de {BRAND} está activa y lista para usar.\n\n"
+        f"Negocio: {tenant_name}\n"
+        f"Usuario: {user.username}\n"
+        f"Plan: {plan_name}\n\n"
+        f"Inicia sesión en {APP_URL}/login con tu email y la contraseña que creaste.\n\n"
+        f"Primeros pasos sugeridos:\n"
+        f"1. Carga tus productos (Catálogo).\n"
+        f"2. Realiza tu primera venta (Punto de Venta).\n"
+        f"3. Configura tu impresora térmica (Configuración → Impresoras).\n\n"
+        f"¿Necesitas ayuda? Escríbenos a {SUPPORT_EMAIL}.\n\n"
+        f"Gracias por elegirnos.\n"
+        f"El equipo de {BRAND}"
+    )
+
+    body_html = f"""
+        <p style="font-size:15px;margin:0 0 16px;">
+            Tu cuenta está activa y lista para usar. Te dejamos los datos de acceso
+            y los primeros pasos para empezar.
+        </p>
+
+        <div style="background:#F9FAFB;border:1px solid #E4E4E7;border-radius:10px;padding:16px;margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                <span style="font-size:12px;color:#71717A;">Negocio</span>
+                <span style="font-size:13px;font-weight:700;">{tenant_name}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                <span style="font-size:12px;color:#71717A;">Usuario</span>
+                <span style="font-size:13px;font-weight:700;font-family:monospace;">{user.username}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+                <span style="font-size:12px;color:#71717A;">Plan</span>
+                <span style="font-size:13px;font-weight:700;">{plan_name}</span>
+            </div>
+        </div>
+
+        <p style="font-size:14px;font-weight:700;margin:24px 0 12px;color:#18181B;">
+            Tus 3 primeros pasos
+        </p>
+        <ol style="font-size:13px;color:#52525B;margin:0 0 16px;padding-left:20px;line-height:1.7;">
+            <li><strong>Carga tus productos</strong> en la sección Catálogo
+                (puedes importar desde Excel si tienes muchos).</li>
+            <li><strong>Realiza tu primera venta</strong> en Punto de Venta
+                para familiarizarte con el flujo.</li>
+            <li><strong>Configura tu impresora térmica</strong> en
+                Configuración → Impresoras (vas a recibir las boletas en papel).</li>
+        </ol>
+
+        <p style="font-size:13px;color:#52525B;margin:0 0 8px;">
+            ¿Necesitas ayuda en cualquier paso?
+            Escríbenos a <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;">{SUPPORT_EMAIL}</a>
+            o responde este mismo email.
+        </p>
+    """
+
+    html = _billing_html(saludo, "#4F46E5", body_html, "Ir al dashboard", f"{APP_URL}/dashboard")
+    _send_email_safe(user.email, subject, plain, html)
+
+
 def _send_trial_reminder(sub, days_left: int):
     email = _get_owner_email(sub)
     d = "día" if days_left == 1 else "días"
