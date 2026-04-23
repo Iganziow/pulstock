@@ -55,34 +55,47 @@ const nextConfig: NextConfig = {
   },
 };
 
-// Wrappear con Sentry SOLO si está habilitado por flag en build.
-// Sin SENTRY_DSN o SENTRY_AUTH_TOKEN, exportamos el config plano.
-// Esto evita que el build local/CI falle si las deps de @sentry/nextjs no
-// están instaladas, o que se intente subir source maps sin auth token.
-const SENTRY_ENABLED =
-  !!process.env.SENTRY_DSN && !!process.env.SENTRY_AUTH_TOKEN;
+// Wrappear con Sentry SI tenemos DSN. El AUTH_TOKEN es opcional — si está,
+// se suben source maps al build (stack traces legibles); si no, solo se
+// activa el SDK runtime (errores se capturan pero traces son minificados).
+//
+// IMPORTANTE: el wrapper `withSentryConfig` es lo que hace que los archivos
+// sentry.client.config.ts / sentry.server.config.ts / sentry.edge.config.ts
+// se incluyan en el bundle. SIN el wrapper, esos configs son código muerto.
+const SENTRY_DSN_PRESENT = !!process.env.SENTRY_DSN || !!process.env.NEXT_PUBLIC_SENTRY_DSN;
 
 let exportedConfig: NextConfig | unknown = nextConfig;
 
-if (SENTRY_ENABLED) {
+if (SENTRY_DSN_PRESENT) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { withSentryConfig } = require("@sentry/nextjs");
-    exportedConfig = withSentryConfig(nextConfig, {
-      org: process.env.SENTRY_ORG,
-      project: process.env.SENTRY_PROJECT,
-      authToken: process.env.SENTRY_AUTH_TOKEN,
+
+    // Solo configurar source maps upload si tenemos auth token.
+    const sentryWebpackOptions: Record<string, unknown> = {
       silent: !process.env.CI,
-      // Subir source maps al build → stack traces legibles en Sentry.
-      widenClientFileUpload: true,
-      // Tunelizar requests para evitar adblockers (opcional).
-      tunnelRoute: "/monitoring/sentry",
       // No tirar errores de build si Sentry falla.
-      hideSourceMaps: true,
       disableLogger: true,
-    });
+    };
+
+    if (process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT) {
+      sentryWebpackOptions.org = process.env.SENTRY_ORG;
+      sentryWebpackOptions.project = process.env.SENTRY_PROJECT;
+      sentryWebpackOptions.authToken = process.env.SENTRY_AUTH_TOKEN;
+      sentryWebpackOptions.widenClientFileUpload = true;
+      sentryWebpackOptions.hideSourceMaps = true;
+      // Tunelizar requests para evitar adblockers.
+      sentryWebpackOptions.tunnelRoute = "/monitoring/sentry";
+    } else {
+      // Sin auth token — desactivar upload explícitamente para evitar warning.
+      sentryWebpackOptions.sourcemaps = { disable: true };
+    }
+
+    exportedConfig = withSentryConfig(nextConfig, sentryWebpackOptions);
   } catch {
-    // @sentry/nextjs no instalado — uso config plano.
+    // @sentry/nextjs no instalado — uso config plano. Esto NO debería pasar
+    // en prod (lo instalamos junto con package.json), pero protege de un
+    // build CI sin las deps de monitoring.
     exportedConfig = nextConfig;
   }
 }
