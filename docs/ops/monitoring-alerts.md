@@ -124,13 +124,133 @@ Registra heartbeat automáticamente al terminar (OK o failed).
 
 ---
 
-## 📈 Futuro — cuando crezcas
+## 🛠️ Setup paso a paso (1 día de trabajo total)
 
-Cuando tengas 10+ clientes:
+### A) Sentry — tracking de errores Python + JS (15 min)
 
-1. **Sentry** para tracking de errores Python + JS — integración con 5 min de trabajo
-2. **Logs estructurados** → agregador tipo Grafana Loki o Elastic
-3. **Prometheus + Grafana** para métricas custom (latencia API, errores 5xx, cobros/hora)
-4. **PagerDuty/Opsgenie** para on-call rotation
+El SDK ya está configurado en código. Falta solo el DSN.
 
-Por ahora con UptimeRobot + alertas email alcanza.
+**Backend (Django)**:
+
+1. Crear cuenta en [sentry.io](https://sentry.io) (free: 5000 errors/mes — sobra).
+2. Crear proyecto tipo **Django**. Te da un DSN así: `https://abc123@o456.ingest.sentry.io/789`.
+3. SSH al server:
+   ```bash
+   ssh ignacio@65.108.148.200
+   echo "SENTRY_DSN=https://abc123@o456.ingest.sentry.io/789" >> /var/www/pulstock/apps/api/.env
+   echo "SENTRY_ENV=production" >> /var/www/pulstock/apps/api/.env
+   pdeploy-api    # reload gunicorn con la nueva config
+   ```
+4. Para verificar que anda, en el shell de Django:
+   ```bash
+   pmanage shell
+   >>> 1 / 0      # error a propósito
+   ```
+   Debería aparecer en el dashboard de Sentry en <1 minuto.
+
+**Frontend (Next.js)**:
+
+1. En el mismo proyecto Sentry, crear una segunda **plataforma** tipo **Next.js**. Te da otro DSN.
+2. Crear un **Auth Token** para upload de source maps: Sentry → Settings → Account → Auth Tokens → Create New Token (scopes: `project:releases`, `project:write`).
+3. SSH:
+   ```bash
+   ssh ignacio@65.108.148.200
+   cd /var/www/pulstock/apps/web
+   echo "NEXT_PUBLIC_SENTRY_DSN=https://xyz789@o456.ingest.sentry.io/012" >> .env.local
+   echo "SENTRY_DSN=https://xyz789@o456.ingest.sentry.io/012" >> .env.local
+   echo "SENTRY_AUTH_TOKEN=sntrys_xxx..." >> .env.local
+   echo "SENTRY_ORG=tu-org-slug" >> .env.local
+   echo "SENTRY_PROJECT=pulstock-web" >> .env.local
+   pdeploy-web    # rebuild con sourcemaps
+   ```
+4. Para verificar: navegar a `https://pulstock.cl/?test_sentry=throw` — el frontend lanza un error de prueba (necesitarías agregar la trampa antes; o simplemente romper algo manualmente).
+
+### B) UptimeRobot — uptime monitoring (10 min)
+
+1. Crear cuenta en [uptimerobot.com](https://uptimerobot.com) (free: 50 monitors, 5 min interval).
+2. Crear estos **5 monitors** (tipo HTTPS, intervalo 5 min):
+
+   | Nombre | URL |
+   |---|---|
+   | Pulstock — Landing | `https://pulstock.cl` |
+   | Pulstock — App | `https://pulstock.cl/login` |
+   | Pulstock — API | `https://api.pulstock.cl/api/core/health/` |
+   | Pulstock — Deep health | `https://api.pulstock.cl/api/core/health/deep/` |
+   | Pulstock — Agente .exe (descarga) | `https://pulstock.cl/agent/PulstockAgent.exe` |
+
+3. Para cada monitor: en **Alert Contacts**, agregar tu email y/o el bot de Telegram (siguiente sección).
+4. **SSL Monitoring**: Account → Settings → activar "SSL Cert Expiry" — alerta 14 días antes de vencer.
+
+### C) Bot de Telegram para alertas (5 min)
+
+UptimeRobot tiene integración nativa con Telegram. Más simple que mantener tu propio bot.
+
+1. **Crear el bot**:
+   - Abrir Telegram, buscar `@BotFather`.
+   - Mandarle `/newbot`, seguir instrucciones.
+   - Te da un **token** del bot (algo así: `123456:ABC-DEF...`).
+
+2. **Crear el grupo de alertas** (recomendado vs DM directo):
+   - Crear grupo en Telegram (ej: "Pulstock Alerts").
+   - Agregar a tu bot al grupo (search por su username).
+   - Mandar un mensaje cualquiera al grupo (ej: "test").
+   - Visitar en el browser: `https://api.telegram.org/bot<TU-TOKEN>/getUpdates` →
+     copiar el `chat.id` (ej: `-1001234567890`, los grupos empiezan con `-`).
+
+3. **Conectar a UptimeRobot**:
+   - UptimeRobot → My Settings → Alert Contacts → Add Alert Contact.
+   - Type: **Telegram**.
+   - Pegar el bot token + chat_id.
+   - Asignar este contact a tus monitors.
+
+4. **Probar**: pausar un monitor 1 minuto y reactivarlo — debería llegar alerta DOWN/UP a Telegram en <2 min.
+
+### D) Setup adicional opcional
+
+**Notificaciones a tu propio script** (si querés alertas custom desde el server, no solo del monitor externo):
+
+```bash
+# Crear ~/notify-telegram.sh en el server
+cat > ~/notify-telegram.sh <<'EOF'
+#!/usr/bin/env bash
+# Uso: ~/notify-telegram.sh "mensaje"
+# Requiere ~/.telegram_creds con: BOT_TOKEN=... CHAT_ID=...
+source ~/.telegram_creds
+curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+  -d "chat_id=$CHAT_ID" \
+  -d "text=🚨 [Pulstock] $1" \
+  -d "parse_mode=HTML" > /dev/null
+EOF
+chmod +x ~/notify-telegram.sh
+
+# Guardar credenciales
+echo 'BOT_TOKEN=123456:ABC-DEF...' >> ~/.telegram_creds
+echo 'CHAT_ID=-1001234567890' >> ~/.telegram_creds
+chmod 600 ~/.telegram_creds
+
+# Probar
+~/notify-telegram.sh "Test desde el server"
+```
+
+Lo podés llamar desde cualquier cron, pre-deploy hook, etc.
+
+---
+
+## 📉 Cuotas free relevantes
+
+| Servicio | Free tier | Vuestro estimado |
+|---|---|---|
+| Sentry | 5000 errors/mes, 1 user, 30d retention | <100 errors/mes en piloto → sobra |
+| UptimeRobot | 50 monitors, 5 min interval | usamos 5 → sobra |
+| Telegram | ilimitado | — |
+
+Cuando crezcas a 10+ clientes activos, el free tier de Sentry se queda corto. Plan Team: $26/mes (50k errors).
+
+---
+
+## 📈 Futuro — cuando crezcas a 50+ clientes
+
+1. **Logs estructurados** → agregador tipo Grafana Loki o Elastic.
+2. **Prometheus + Grafana** para métricas custom (latencia API, errores 5xx, cobros/hora).
+3. **PagerDuty/Opsgenie** para on-call rotation con escalación.
+4. **Statuspage** público (statuspage.io) para mostrar uptime histórico a clientes.

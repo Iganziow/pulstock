@@ -30,3 +30,8 @@ whitenoise>=6.7,<7
 
 # %% Config %%
 python-dotenv>=1.0,<2
+
+# %% Monitoring %%
+# Sentry: captura errores no manejados y los manda al dashboard.
+# Si SENTRY_DSN no está en el env, se desactiva sola (no spamea).
+sentry-sdk[django]>=2.18,<3

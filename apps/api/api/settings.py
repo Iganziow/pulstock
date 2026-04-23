@@ -490,3 +490,60 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Pulstock <noreply@pulstock.cl>")
+
+
+# ─── Sentry (monitoreo de errores en producción) ───────────────────
+# Activación: agregar SENTRY_DSN al .env de producción.
+# Sin DSN, el SDK NO se inicializa — cero overhead, cero spam en dev.
+#
+# Setup paso a paso:
+#   1. Crear cuenta en sentry.io (free: 5k errors/mes, 1 user, ilimitado retention)
+#   2. Crear proyecto tipo "Django"
+#   3. Copiar el DSN (https://xxx@o123.ingest.sentry.io/456)
+#   4. En el server: echo "SENTRY_DSN=https://..." >> apps/api/.env
+#   5. pdeploy-api → reload gunicorn → Sentry empieza a reportar
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[
+                DjangoIntegration(
+                    transaction_style="url",  # /api/sales/123/ → /api/sales/{id}/
+                ),
+                CeleryIntegration(),
+                LoggingIntegration(level=None, event_level=None),  # Solo unhandled
+            ],
+            # Sample 10% de transacciones para performance monitoring.
+            # Subir a 1.0 en debugging si hace falta. Bajar si saturás cuota.
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
+            # Capturar 100% de errores (cuota free aguanta 5k/mes — sobra).
+            sample_rate=1.0,
+            # Tag útil para filtrar en el dashboard.
+            environment=os.getenv("SENTRY_ENV", "production" if not DEBUG else "development"),
+            # Release tracking — corremos `git rev-parse HEAD` en deploy y lo
+            # exportamos como SENTRY_RELEASE para que Sentry agrupe errores
+            # por commit (ayuda a saber "esto rompió en el último deploy").
+            release=os.getenv("SENTRY_RELEASE", None),
+            # Mandar PII (request body, headers, etc) — útil para debug.
+            # Si tenés clientes con datos sensibles, poner False.
+            send_default_pii=False,
+            # Ignora 404s y errores comunes que no queremos en el dashboard.
+            ignore_errors=[
+                "django.http.Http404",
+                "rest_framework.exceptions.NotFound",
+                "rest_framework.exceptions.NotAuthenticated",
+                "rest_framework.exceptions.AuthenticationFailed",
+                "rest_framework.exceptions.PermissionDenied",
+                "rest_framework.exceptions.Throttled",
+            ],
+        )
+    except ImportError:
+        # sentry_sdk no instalado — pasa silenciosamente. Útil en dev/CI sin
+        # las deps de monitoring. En prod debería estar siempre instalado.
+        pass
