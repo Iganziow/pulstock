@@ -46,11 +46,10 @@ if (DSN) {
       /^moz-extension:\/\//,
     ],
 
-    // Antes de mandar, sanitizá el evento.
-    beforeSend(event) {
-      // No mandar si no estamos en producción real (precaución extra).
-      if (process.env.NODE_ENV !== "production") return null;
-      return event;
-    },
+    // NOTA: removido el `beforeSend` que chequeaba NODE_ENV. Era redundante
+    // (el SDK ya está condicionado por la presencia del DSN, y el DSN solo
+    // está en .env.local de prod) Y peligroso: en algunos builds de Next.js
+    // process.env.NODE_ENV no se sustituía a "production" en el bundle del
+    // cliente, lo que descartaba el 100% de los eventos silenciosamente.
   });
 }
