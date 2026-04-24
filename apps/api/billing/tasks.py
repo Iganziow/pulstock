@@ -394,15 +394,26 @@ def _send_trial_reminder(sub, days_left: int):
 def _send_renewal_reminder(sub, days_left: int):
     email = _get_owner_email(sub)
     from billing.email_renderers import render_renewal_reminder
-    subject, plain, html = render_renewal_reminder(sub, days_left)
+    subject, plain, html = render_renewal_reminder(
+        sub, days_left,
+        payment_method=_sub_payment_method(sub),
+    )
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_payment_failed_notice(sub):
     email = _get_owner_email(sub)
     invoice_number = _latest_invoice_number(sub)
+    # El último Invoice (en estado FAILED o PENDING) debería tener el motivo
+    # real del rechazo guardado por el webhook. Si está vacío, pasamos None
+    # y el renderer usa un mensaje genérico ("el banco no autorizó...").
+    failure_reason = _latest_invoice_failure_message(sub)
     from billing.email_renderers import render_payment_failed
-    subject, plain, html = render_payment_failed(sub, invoice_number)
+    subject, plain, html = render_payment_failed(
+        sub, invoice_number,
+        failure_reason=failure_reason,
+        payment_method=_sub_payment_method(sub),
+    )
     _send_email_safe(email, subject, plain, html)
 
 
@@ -415,16 +426,35 @@ def _send_suspension_notice(sub):
 
 def _send_payment_recovered_notice(sub):
     email = _get_owner_email(sub)
-    invoice_number = _latest_invoice_number(sub)
+    # Buscamos el último Invoice pagado para usar los datos REALES de esa
+    # transacción (card_last4 + card_brand + paid_at). Si no existe, caemos
+    # a los valores del Subscription (mirror del último pago OK).
+    inv = _latest_paid_invoice(sub)
+    invoice_number = f"INV-{inv.pk:05d}" if inv else _latest_invoice_number(sub)
+    payment_method = _invoice_payment_method(inv) if inv else _sub_payment_method(sub)
+    charged_at = (inv.paid_at if inv else None)
+    amount = (inv.amount_clp if inv else None)
+
     from billing.email_renderers import render_payment_recovered
-    subject, plain, html = render_payment_recovered(sub, invoice_number)
+    subject, plain, html = render_payment_recovered(
+        sub, invoice_number,
+        amount=amount,
+        payment_method=payment_method,
+        charged_at=charged_at,
+    )
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_trial_converted_notice(sub):
     email = _get_owner_email(sub)
+    # Al convertir un trial, el primer cobro ya se hizo → leer la tarjeta
+    # real del último Invoice pagado o, fallback, del Subscription.
+    inv = _latest_paid_invoice(sub)
+    payment_method = _invoice_payment_method(inv) if inv else _sub_payment_method(sub)
     from billing.email_renderers import render_trial_converted
-    subject, plain, html = render_trial_converted(sub)
+    subject, plain, html = render_trial_converted(
+        sub, payment_method=payment_method,
+    )
     _send_email_safe(email, subject, plain, html)
 
 
@@ -463,3 +493,86 @@ def _latest_invoice_number(sub) -> str:
     except Exception:
         pass
     return f"INV-{getattr(sub, 'pk', 0):05d}"
+
+
+def _sub_payment_method(sub) -> str | None:
+    """Construye el string 'Visa ···· 4829' desde Subscription.card_brand + card_last4.
+
+    Si la suscripción no tiene tarjeta registrada aún (campos vacíos),
+    devuelve None para que el renderer use su fallback genérico.
+
+    Subscription guarda un mirror del último pago OK (se syncea en el
+    webhook), así que esto funciona tanto para renewal como para
+    payment_failed (el sub sigue teniendo la tarjeta aunque el último
+    cobro haya fallado).
+    """
+    brand = (getattr(sub, "card_brand", "") or "").strip()
+    last4 = (getattr(sub, "card_last4", "") or "").strip()
+    if not last4:
+        return None
+    if brand:
+        return f"{brand} ···· {last4}"
+    return f"Tarjeta ···· {last4}"
+
+
+def _invoice_payment_method(invoice) -> str | None:
+    """Construye el payment_method desde los campos del Invoice.
+
+    Preferido sobre _sub_payment_method cuando queremos mostrar el método
+    exacto con el que se cobró ESE invoice (ej. en payment_recovered y
+    trial_converted). El Subscription.card_* puede haber cambiado después.
+    """
+    if not invoice:
+        return None
+    brand = (getattr(invoice, "card_brand", "") or "").strip()
+    last4 = (getattr(invoice, "card_last4", "") or "").strip()
+    if not last4:
+        return None
+    if brand:
+        return f"{brand} ···· {last4}"
+    return f"Tarjeta ···· {last4}"
+
+
+def _latest_paid_invoice(sub):
+    """Último Invoice en estado PAID (o None si nunca se pagó).
+
+    Usado para mostrar datos reales en los emails payment_recovered y
+    trial_converted (amount, card, paid_at reales).
+    """
+    try:
+        from billing.models import Invoice
+        return (
+            Invoice.objects.filter(subscription=sub, status=Invoice.Status.PAID)
+            .order_by("-created_at")
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def _latest_invoice_failure_message(sub) -> str | None:
+    """Mensaje de error del último Invoice fallido o pendiente de retry.
+
+    Viene de `paymentData.lastError.message` de Flow (ej. 'Tarjeta vencida',
+    'Fondos insuficientes', 'CVV incorrecto') y fue guardado por el webhook
+    como Invoice.failure_message. Si no existe, None → el renderer usa un
+    mensaje genérico.
+    """
+    try:
+        from billing.models import Invoice
+        inv = (
+            Invoice.objects.filter(
+                subscription=sub,
+                status__in=[Invoice.Status.FAILED, Invoice.Status.PENDING],
+            )
+            .exclude(failure_message="")
+            .order_by("-created_at")
+            .first()
+        )
+        if inv and inv.failure_message:
+            return inv.failure_message
+    except Exception:
+        pass
+    return None
+
+

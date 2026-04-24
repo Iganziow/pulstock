@@ -50,6 +50,11 @@ class _MockSub:
         self.payment_retry_count = 2
         self.next_retry_at = timezone.now() + timedelta(days=2)
         self.suspended_at = timezone.now() - timedelta(hours=6)
+        # Datos de tarjeta realistas — los emails payment_method los usan via
+        # _sub_payment_method() del módulo tasks.py. Probamos con formato
+        # Visa normal para ver cómo se ve en el email.
+        self.card_brand = "Visa"
+        self.card_last4 = "4242"
 
 
 class _MockProduct:
@@ -138,6 +143,23 @@ class Command(BaseCommand):
         def patched(to_, subject, body, html_message=None):
             return orig_safe(to, f"[PREVIEW] {subject}", body, html_message)
         T._send_email_safe = patched
+
+        # Mock del último Invoice pagado (datos realistas de tarjeta):
+        # los emails payment_recovered + trial_converted usan esto para
+        # armar "Visa ···· 4242" y la fecha real del cobro.
+        class _MockPaidInvoice:
+            pk = 12345
+            card_brand = "Visa"
+            card_last4 = "4242"
+            payment_media = "Webpay"
+            amount_clp = _MockPlan.price_clp
+            paid_at = timezone.now() - timedelta(hours=2)
+
+        T._latest_paid_invoice = lambda sub: _MockPaidInvoice()
+
+        # Mock de fallo: el email payment_failed usa esto para mostrar
+        # el motivo real del rechazo en lugar del mensaje genérico.
+        T._latest_invoice_failure_message = lambda sub: "Tarjeta vencida"
 
         sub = _MockSub()
         user = _MockUser()
