@@ -254,30 +254,56 @@ def retry_failed_payments(self):
     now = timezone.now()
     retried = 0
 
-    to_retry = Subscription.objects.filter(
-        status=Subscription.Status.PAST_DUE,
-        next_retry_at__lte=now,
-        next_retry_at__isnull=False,
-    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
+    # Listar IDs primero (sin lock) para no tomar locks masivos. Después
+    # tomamos el lock por sub individual dentro del loop — mismo patrón que
+    # process_renewals — para evitar double-charge si Celery beat corre
+    # duplicado por cualquier razón.
+    from django.db import transaction as db_transaction
 
-    for sub in to_retry:
+    due_ids = list(
+        Subscription.objects.filter(
+            status=Subscription.Status.PAST_DUE,
+            next_retry_at__lte=now,
+            next_retry_at__isnull=False,
+        ).exclude(tenant__slug__in=lifetime_slugs).values_list("pk", flat=True)
+    )
+
+    for sub_id in due_ids:
         try:
-            invoice = create_invoice(sub)
-            result  = charge_subscription(sub, invoice)
+            with db_transaction.atomic():
+                try:
+                    sub = (
+                        Subscription.objects
+                        .select_for_update(skip_locked=True)
+                        .select_related("tenant", "plan")
+                        .get(pk=sub_id)
+                    )
+                except Subscription.DoesNotExist:
+                    continue
 
-            if result["success"]:
-                activate_period(sub, invoice)
-                _send_payment_recovered_notice(sub)
-                logger.info("Reintento exitoso: tenant=%s", sub.tenant_id)
-            else:
-                register_payment_failure(
-                    sub, invoice,
-                    error_msg=result.get("error", ""),
-                    raw=result.get("raw", {}),
-                )
-            retried += 1
+                # Re-check bajo el lock: el estado pudo cambiar entre la
+                # selección de IDs y ahora (ej. pago recibido, suspendida, etc.)
+                if sub.status != Subscription.Status.PAST_DUE:
+                    continue
+                if not sub.next_retry_at or sub.next_retry_at > now:
+                    continue
+
+                invoice = create_invoice(sub)
+                result  = charge_subscription(sub, invoice)
+
+                if result["success"]:
+                    activate_period(sub, invoice)
+                    _send_payment_recovered_notice(sub)
+                    logger.info("Reintento exitoso: tenant=%s", sub.tenant_id)
+                else:
+                    register_payment_failure(
+                        sub, invoice,
+                        error_msg=result.get("error", ""),
+                        raw=result.get("raw", {}),
+                    )
+                retried += 1
         except Exception as exc:
-            logger.error("Error en reintento tenant=%s: %s", sub.tenant_id, exc)
+            logger.error("Error en reintento sub=%s: %s", sub_id, exc)
 
     logger.info("retry_failed_payments: %d reintentos procesados", retried)
     return {"retried": retried}
@@ -302,28 +328,58 @@ def expire_trials(self):
 
     lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
     now = timezone.now()
-    expired = Subscription.objects.filter(
-        status=Subscription.Status.TRIALING,
-        trial_ends_at__lte=now,
-    ).exclude(tenant__slug__in=lifetime_slugs).select_related("tenant", "plan")
+
+    # Mismo patrón que process_renewals / retry_failed_payments: listar IDs,
+    # después lock por sub individual para evitar double-charge si Celery
+    # beat por accidente corre duplicado.
+    from django.db import transaction as db_transaction
+
+    due_ids = list(
+        Subscription.objects.filter(
+            status=Subscription.Status.TRIALING,
+            trial_ends_at__lte=now,
+        ).exclude(tenant__slug__in=lifetime_slugs).values_list("pk", flat=True)
+    )
 
     converted = 0
-    for sub in expired:
-        # Intentar cobrar el primer período
-        invoice = create_invoice(sub)
-        result  = charge_subscription(sub, invoice)
+    for sub_id in due_ids:
+        try:
+            with db_transaction.atomic():
+                try:
+                    sub = (
+                        Subscription.objects
+                        .select_for_update(skip_locked=True)
+                        .select_related("tenant", "plan")
+                        .get(pk=sub_id)
+                    )
+                except Subscription.DoesNotExist:
+                    continue
 
-        if result["success"]:
-            activate_period(sub, invoice)
-            _send_trial_converted_notice(sub)
-            logger.info("Trial convertido a activo: tenant=%s", sub.tenant_id)
-        else:
-            # Sin pago → bajar a Free y notificar
-            register_payment_failure(sub, invoice, error_msg=result.get("error", ""))
-            _send_trial_expired_notice(sub)
-            logger.info("Trial vencido sin pago: tenant=%s → downgrade a Free", sub.tenant_id)
+                # Re-check bajo lock: el trial pudo haber sido convertido
+                # manualmente o haber cambiado de estado entre la selección y
+                # el lock.
+                if sub.status != Subscription.Status.TRIALING:
+                    continue
+                if not sub.trial_ends_at or sub.trial_ends_at > now:
+                    continue
 
-        converted += 1
+                # Intentar cobrar el primer período
+                invoice = create_invoice(sub)
+                result  = charge_subscription(sub, invoice)
+
+                if result["success"]:
+                    activate_period(sub, invoice)
+                    _send_trial_converted_notice(sub)
+                    logger.info("Trial convertido a activo: tenant=%s", sub.tenant_id)
+                else:
+                    # Sin pago → bajar a Free y notificar
+                    register_payment_failure(sub, invoice, error_msg=result.get("error", ""))
+                    _send_trial_expired_notice(sub)
+                    logger.info("Trial vencido sin pago: tenant=%s → downgrade a Free", sub.tenant_id)
+
+                converted += 1
+        except Exception as exc:
+            logger.error("Error procesando trial sub=%s: %s", sub_id, exc)
 
     logger.info("expire_trials: %d trials procesados", converted)
     return {"converted": converted}
