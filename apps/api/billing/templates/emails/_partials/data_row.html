@@ -1,0 +1,16 @@
+{% comment %}Partial: fila key/value dentro de una DataCard.
+Context requerido:
+  label str
+  value str | safe html
+  is_last bool (opcional) — si True, sin border-bottom
+  mono bool — si True, value en JetBrains Mono
+  big bool — si True, value 18px bold
+  color str — color custom para value (default #18181B)
+{% endcomment %}<tr>
+  <td style="padding:14px 0;{% if not is_last %}border-bottom:1px solid #ECECF1;{% endif %}">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+      <td align="left" style="font-size:13px;color:#71717A;letter-spacing:-0.1px;font-family:'DM Sans',Helvetica,Arial,sans-serif;">{{ label }}</td>
+      <td align="right" style="font-size:{% if big %}18{% else %}14{% endif %}px;font-weight:{% if big %}700{% else %}600{% endif %};color:{{ color|default:'#18181B' }};letter-spacing:-0.2px;font-family:{% if mono %}'JetBrains Mono',ui-monospace,Menlo,monospace{% else %}'DM Sans',Helvetica,Arial,sans-serif{% endif %};">{{ value|safe }}</td>
+    </tr></table>
+  </td>
+</tr>

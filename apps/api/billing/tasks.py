@@ -341,6 +341,8 @@ def _get_owner_email(sub) -> str | None:
     return owner["email"] if owner and owner["email"] else None
 
 
+# URLs y branding — estos son los fallbacks en caso que algún renderer los necesite.
+# Los renderers de email (email_renderers.py) tienen sus propias constantes.
 APP_URL = "https://app.pulstock.cl"
 SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=suscripcion"
 BRAND = "Pulstock"
@@ -362,382 +364,102 @@ def _send_email_safe(to: str, subject: str, body: str, html_message: str | None 
         raise
 
 
-# Cache-buster (?v=YYYYMMDD) — incrementar SIEMPRE que cambie el archivo
-# email-logo.png. Outlook/Hotmail cachean imágenes de emails muy agresivamente
-# y muestran la versión vieja aunque el archivo del server haya cambiado.
-# Cambiar este número fuerza al cliente a re-descargar.
-EMAIL_LOGO_URL = "https://pulstock.cl/email-logo.png?v=20260423c"
-LANDING_URL = "https://pulstock.cl"
-
-
-def _email_data_row(label: str, value: str) -> str:
-    """Helper: tabla 2-columnas para filas de datos (Outlook-safe, no flex)."""
-    return f"""
-    <tr>
-        <td style="padding:6px 0;font-size:13px;color:#6B7280;font-family:Helvetica,Arial,sans-serif;">{label}</td>
-        <td align="right" style="padding:6px 0;font-size:14px;font-weight:600;color:#18181B;font-family:Helvetica,Arial,sans-serif;">{value}</td>
-    </tr>"""
-
-
-def _email_callout(bg: str, border: str, content_html: str) -> str:
-    """Helper: tarjeta destacada (callout) en tabla Outlook-safe.
-
-    Reemplaza al viejo patrón <div style="background:...;border:...;border-radius:...">
-    que Outlook no renderea bien (sin border-radius + sin padding consistente).
-    """
-    return f"""
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:{bg};border:1px solid {border};border-radius:10px;margin:0 0 16px;">
-        <tr><td style="padding:16px 18px;font-family:Helvetica,Arial,sans-serif;">{content_html}</td></tr>
-    </table>"""
-
-
-def _billing_html(title: str, color: str, body_html: str, cta_text: str | None = None, cta_url: str | None = None) -> str:
-    """Wrap email content in branded HTML template.
-
-    Diseñada para verse profesional en:
-    - Gmail (web + iOS + Android)
-    - Outlook (desktop + web + dark mode)
-    - Apple Mail (con dark mode)
-    - Hotmail/Live
-
-    Por compatibilidad cross-client:
-    - Tablas para layout (flex/grid no andan en Outlook).
-    - Inline styles only (Gmail strippea <style> en send).
-    - Imagen del logo desde URL pública (no embebida).
-    - Fonts system-safe.
-    - Mobile-friendly (max-width 600 + ancho fluido).
-    """
-    cta = ""
-    if cta_text and cta_url:
-        cta = f"""
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:36px auto 12px;">
-            <tr>
-                <td align="center" style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);background-color:#4F46E5;border-radius:12px;box-shadow:0 4px 12px rgba(79,70,229,0.25);">
-                    <a href="{cta_url}" style="display:inline-block;padding:16px 40px;color:#ffffff !important;
-                       font-size:15px;font-weight:700;text-decoration:none;font-family:Helvetica,Arial,sans-serif;letter-spacing:0.2px;">
-                        {cta_text} →
-                    </a>
-                </td>
-            </tr>
-        </table>"""
-
-    return f"""<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-<title>{title}</title>
-<!--[if mso]>
-<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-<![endif]-->
-</head>
-<body style="margin:0;padding:0;background:#EEF2FF;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#18181B;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
-
-<!-- Preheader: texto invisible que aparece como preview en Gmail / iOS Mail -->
-<div style="display:none;font-size:1px;color:#EEF2FF;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
-{title} — Pulstock
-</div>
-
-<!-- Wrapper full-width con fondo gradient sutil -->
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:linear-gradient(180deg,#EEF2FF 0%,#F4F4F5 200px);background-color:#EEF2FF;">
-<tr>
-<td align="center" style="padding:40px 16px 32px;">
-
-  <!-- HEADER con logo (sin tarjeta, libre sobre el fondo) -->
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;">
-    <tr>
-      <td align="center" style="padding:0 0 24px;">
-        <a href="{LANDING_URL}" style="text-decoration:none;display:inline-block;">
-          <img src="{EMAIL_LOGO_URL}" alt="Pulstock" width="200"
-               style="display:block;width:200px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;">
-        </a>
-      </td>
-    </tr>
-  </table>
-
-  <!-- TARJETA PRINCIPAL -->
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 4px 20px rgba(79,70,229,0.08),0 1px 3px rgba(0,0,0,0.04);">
-
-    <!-- BARRA DE ACENTO SUPERIOR (color del email) -->
-    <tr>
-      <td height="6" style="background:{color};line-height:6px;font-size:0;height:6px;">&nbsp;</td>
-    </tr>
-
-    <!-- TÍTULO -->
-    <tr>
-      <td style="padding:36px 40px 8px;background:#ffffff;">
-        <h1 style="margin:0;color:#18181B;font-size:24px;font-weight:800;line-height:1.25;letter-spacing:-0.4px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">{title}</h1>
-      </td>
-    </tr>
-
-    <!-- BODY -->
-    <tr>
-      <td style="padding:16px 40px 32px;background:#ffffff;color:#52525B;font-size:15px;line-height:1.65;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-        {body_html}
-        {cta}
-      </td>
-    </tr>
-
-  </table>
-
-  <!-- FOOTER (fuera de la tarjeta, más sutil) -->
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;margin-top:24px;">
-    <tr>
-      <td align="center" style="padding:0 24px;">
-        <p style="margin:0 0 12px;font-size:13px;color:#6B7280;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1.6;">
-          ¿Tienes preguntas? Escríbenos a
-          <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;text-decoration:none;font-weight:600;">{SUPPORT_EMAIL}</a>
-        </p>
-        <p style="margin:0 0 8px;font-size:12px;color:#9CA3AF;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-          <a href="{LANDING_URL}" style="color:#9CA3AF;text-decoration:none;">pulstock.cl</a>
-          &nbsp;·&nbsp;
-          <a href="{APP_URL}/login" style="color:#9CA3AF;text-decoration:none;">Iniciar sesión</a>
-          &nbsp;·&nbsp;
-          <a href="{APP_URL}/dashboard/settings?tab=alertas" style="color:#9CA3AF;text-decoration:none;">Preferencias de email</a>
-        </p>
-        <p style="margin:0;font-size:11px;color:#9CA3AF;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1.5;">
-          © {BRAND} · Recibes este email porque tienes una cuenta en {BRAND}.
-        </p>
-      </td>
-    </tr>
-  </table>
-
-</td>
-</tr>
-</table>
-</body>
-</html>"""
-
-
+# ─────────────────────────────────────────────────────────────
+# EMAIL RENDERING — todas las plantillas viven en
+# apps/api/billing/templates/emails/*.html y se renderean vía
+# apps/api/billing/email_renderers.py (sistema unificado cross-client).
+#
+# Las firmas de estas funciones se mantienen tal cual las llaman otros
+# módulos (billing/services.py, billing/views.py, etc.) para no romper
+# call sites. El HTML se arma adentro del renderer correspondiente.
+# ─────────────────────────────────────────────────────────────
 def _send_welcome_email(user, tenant, plan):
-    """Email de bienvenida después de que el cliente paga + se crea su cuenta.
-
-    Se llama desde billing.views._auto_create_checkout_account después de que
-    el webhook de Flow confirma el pago y se crea Tenant + User + Subscription.
-
-    Objetivos:
-    - Confirmar que la cuenta está lista (alivio post-pago).
-    - Mostrar credenciales de acceso (username + cómo entrar).
-    - Dar 3 primeros pasos concretos para que el user no se pierda.
-    - CTA principal: ir al dashboard.
-    """
+    """Email de bienvenida post-pago / alta de cuenta."""
     if not user or not user.email:
         logger.warning("welcome_email: user sin email, skipping (user_id=%s)", getattr(user, "pk", None))
         return
 
-    name = (user.first_name or user.username or "").strip()
-    saludo = f"¡Bienvenido a {BRAND}, {name}!" if name else f"¡Bienvenido a {BRAND}!"
-    tenant_name = (tenant.name if tenant else "tu negocio") or "tu negocio"
-    plan_name = plan.name if plan else "tu plan"
-
-    subject = f"🎉 Tu cuenta de {BRAND} está lista — {tenant_name}"
-
-    plain = (
-        f"{saludo}\n\n"
-        f"Tu cuenta de {BRAND} está activa y lista para usar.\n\n"
-        f"Negocio: {tenant_name}\n"
-        f"Usuario: {user.username}\n"
-        f"Plan: {plan_name}\n\n"
-        f"Inicia sesión en {APP_URL}/login con tu email y la contraseña que creaste.\n\n"
-        f"Primeros pasos sugeridos:\n"
-        f"1. Carga tus productos (Catálogo).\n"
-        f"2. Realiza tu primera venta (Punto de Venta).\n"
-        f"3. Configura tu impresora térmica (Configuración → Impresoras).\n\n"
-        f"¿Necesitas ayuda? Escríbenos a {SUPPORT_EMAIL}.\n\n"
-        f"Gracias por elegirnos.\n"
-        f"El equipo de {BRAND}"
-    )
-
-    body_html = f"""
-        <p style="margin:0 0 24px;">
-            Tu cuenta está activa y lista para usar. Te dejamos los datos de acceso
-            y los primeros pasos para empezar.
-        </p>
-
-        <!-- Tarjeta con datos de la cuenta -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;margin:0 0 28px;">
-            <tr><td style="padding:18px 20px;">
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                    {_email_data_row("Negocio", tenant_name)}
-                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
-                    {_email_data_row("Usuario", f'<span style="font-family:Menlo,Consolas,monospace;color:#4F46E5;">{user.username}</span>')}
-                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
-                    {_email_data_row("Plan", plan_name)}
-                </table>
-            </td></tr>
-        </table>
-
-        <h2 style="margin:0 0 16px;color:#18181B;font-size:17px;font-weight:700;letter-spacing:-0.2px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-            Tus 3 primeros pasos
-        </h2>
-
-        <!-- Lista de pasos como tabla (Outlook-safe) -->
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
-            <tr>
-                <td valign="top" width="36" style="padding:4px 12px 16px 0;">
-                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">1</div>
-                </td>
-                <td valign="top" style="padding:0 0 16px;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-                    <strong style="color:#18181B;">Carga tus productos</strong> en la sección Catálogo.
-                    Si tienes muchos, puedes importarlos desde un Excel.
-                </td>
-            </tr>
-            <tr>
-                <td valign="top" width="36" style="padding:4px 12px 16px 0;">
-                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">2</div>
-                </td>
-                <td valign="top" style="padding:0 0 16px;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-                    <strong style="color:#18181B;">Realiza tu primera venta</strong> en Punto de Venta
-                    para familiarizarte con el flujo de cobro.
-                </td>
-            </tr>
-            <tr>
-                <td valign="top" width="36" style="padding:4px 12px 0 0;">
-                    <div style="width:28px;height:28px;background:#EEF2FF;border-radius:50%;color:#4F46E5;font-size:14px;font-weight:800;line-height:28px;text-align:center;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">3</div>
-                </td>
-                <td valign="top" style="padding:0;font-size:14px;color:#3F3F46;line-height:1.55;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-                    <strong style="color:#18181B;">Configura tu impresora térmica</strong> en
-                    Configuración &rsaquo; Impresoras para empezar a imprimir boletas.
-                </td>
-            </tr>
-        </table>
-    """
-
-    html = _billing_html(saludo, "#4F46E5", body_html, "Ir al dashboard", f"{APP_URL}/dashboard")
+    from billing.email_renderers import render_welcome
+    subject, plain, html = render_welcome(user, tenant, plan)
     _send_email_safe(user.email, subject, plain, html)
 
 
 def _send_trial_reminder(sub, days_left: int):
     email = _get_owner_email(sub)
-    d = "día" if days_left == 1 else "días"
-    subject = f"Tu prueba vence en {days_left} {d} — {BRAND}"
-    plain = f"Tu período de prueba de {BRAND} vence en {days_left} {d}. Plan: {sub.plan.name}. Gestiona tu suscripción en {SETTINGS_URL}"
-    callout = _email_callout("#F9FAFB", "#E4E4E7", f"""
-        <div style="font-size:12px;color:#71717A;font-family:Helvetica,Arial,sans-serif;">Plan actual</div>
-        <div style="font-size:20px;font-weight:800;color:#18181B;margin:4px 0;font-family:Helvetica,Arial,sans-serif;">{sub.plan.name}</div>
-        <div style="font-size:13px;color:#52525B;font-family:Helvetica,Arial,sans-serif;">${sub.plan.price_clp:,} CLP/mes</div>
-    """)
-    html = _billing_html(f"⏰ Tu prueba vence en {days_left} {d}", "#D97706", f"""
-        <p style="font-size:14px;margin:0 0 16px;">Tu período de prueba vence pronto.</p>
-        {callout}
-        <p style="font-size:13px;color:#52525B;margin:0;">Si no agregas un método de pago, tu cuenta pasará al plan Gratuito.</p>
-    """, "Gestionar suscripción", SETTINGS_URL)
+    from billing.email_renderers import render_trial_reminder
+    subject, plain, html = render_trial_reminder(sub, days_left)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_renewal_reminder(sub, days_left: int):
     email = _get_owner_email(sub)
-    d = "día" if days_left == 1 else "días"
-    fecha = sub.current_period_end.strftime('%d/%m/%Y') if sub.current_period_end else 'pronto'
-    subject = f"Tu suscripción se renueva en {days_left} {d} — {BRAND}"
-    plain = f"Tu suscripción {BRAND} se renueva en {days_left} {d}. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP. Fecha: {fecha}"
-    html = _billing_html(f"📅 Renovación en {days_left} {d}", "#4F46E5", f"""
-        <p style="margin:0 0 24px;">Tu suscripción se renovará automáticamente.</p>
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;margin:0 0 8px;">
-            <tr><td style="padding:18px 20px;">
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                    {_email_data_row("Plan", sub.plan.name)}
-                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
-                    {_email_data_row("Monto", f"${sub.plan.price_clp:,} CLP")}
-                    <tr><td colspan="2" style="border-top:1px solid #E5E7EB;line-height:0;font-size:0;height:1px;">&nbsp;</td></tr>
-                    {_email_data_row("Fecha de cobro", fecha)}
-                </table>
-            </td></tr>
-        </table>
-    """, "Ver suscripción", SETTINGS_URL)
+    from billing.email_renderers import render_renewal_reminder
+    subject, plain, html = render_renewal_reminder(sub, days_left)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_payment_failed_notice(sub):
     email = _get_owner_email(sub)
-    subject = f"⚠️ Problema con tu pago — {BRAND}"
-    plain = f"No pudimos cobrar tu suscripción {BRAND}. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP. Intento {sub.payment_retry_count}/3. Actualiza tu pago en {SETTINGS_URL}"
-    callout = _email_callout("#FEF2F2", "#FECACA", f"""
-        <div style="font-size:13px;font-weight:700;color:#DC2626;margin-bottom:4px;font-family:Helvetica,Arial,sans-serif;">Plan: {sub.plan.name} — ${sub.plan.price_clp:,} CLP</div>
-        <div style="font-size:12px;color:#52525B;font-family:Helvetica,Arial,sans-serif;">Intento {sub.payment_retry_count} de 3 · Tu acceso se mantiene por 3 días más.</div>
-    """)
-    html = _billing_html("⚠️ No pudimos procesar tu pago", "#DC2626", f"""
-        <p style="font-size:14px;margin:0 0 16px;">Hubo un problema con el cobro de tu suscripción.</p>
-        {callout}
-        <p style="font-size:13px;color:#52525B;margin:0;">Actualiza tu método de pago para evitar la suspensión.</p>
-    """, "Actualizar método de pago", SETTINGS_URL)
+    invoice_number = _latest_invoice_number(sub)
+    from billing.email_renderers import render_payment_failed
+    subject, plain, html = render_payment_failed(sub, invoice_number)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_suspension_notice(sub):
     email = _get_owner_email(sub)
-    subject = f"🔒 Cuenta suspendida — {BRAND}"
-    plain = f"Tu cuenta {BRAND} ha sido suspendida por falta de pago. Tus datos se conservan 30 días. Reactiva en {SETTINGS_URL}. Ayuda: {SUPPORT_EMAIL}"
-    callout = _email_callout("#F9FAFB", "#E4E4E7", f"""
-        <p style="font-size:13px;color:#52525B;margin:0 0 8px;font-family:Helvetica,Arial,sans-serif;">Tus datos están seguros y se conservarán por <strong style="color:#18181B;">30 días</strong>.</p>
-        <p style="font-size:13px;color:#52525B;margin:0;font-family:Helvetica,Arial,sans-serif;">Reactiva tu cuenta actualizando tu método de pago.</p>
-    """)
-    html = _billing_html("🔒 Tu cuenta ha sido suspendida", "#18181B", f"""
-        <p style="font-size:14px;margin:0 0 16px;">No pudimos procesar tu pago después de 3 intentos.</p>
-        {callout}
-        <p style="font-size:12px;color:#71717A;margin:0;">¿Necesitas ayuda? <a href="mailto:{SUPPORT_EMAIL}" style="color:#4F46E5;">{SUPPORT_EMAIL}</a></p>
-    """, "Reactivar cuenta", SETTINGS_URL)
+    from billing.email_renderers import render_suspension
+    subject, plain, html = render_suspension(sub)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_payment_recovered_notice(sub):
     email = _get_owner_email(sub)
-    fecha = sub.current_period_end.strftime('%d/%m/%Y') if sub.current_period_end else '—'
-    subject = f"✅ Pago procesado — {BRAND}"
-    plain = f"Tu pago de {BRAND} fue procesado. Plan: {sub.plan.name}. Próximo cobro: {fecha}."
-    callout = _email_callout("#ECFDF5", "#A7F3D0", f"""
-        <div style="font-size:13px;font-weight:700;color:#16A34A;font-family:Helvetica,Arial,sans-serif;">Plan: {sub.plan.name}</div>
-        <div style="font-size:12px;color:#52525B;margin-top:4px;font-family:Helvetica,Arial,sans-serif;">Próximo cobro: {fecha}</div>
-    """)
-    html = _billing_html("✅ Pago procesado exitosamente", "#16A34A", f"""
-        <p style="font-size:14px;margin:0 0 16px;">Tu suscripción está activa.</p>
-        {callout}
-        <p style="font-size:13px;color:#52525B;margin:0;">Gracias por confiar en {BRAND}.</p>
-    """, "Ir al dashboard", f"{APP_URL}/dashboard")
+    invoice_number = _latest_invoice_number(sub)
+    from billing.email_renderers import render_payment_recovered
+    subject, plain, html = render_payment_recovered(sub, invoice_number)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_trial_converted_notice(sub):
     email = _get_owner_email(sub)
-    fecha = sub.current_period_end.strftime('%d/%m/%Y') if sub.current_period_end else '—'
-    subject = f"✅ Suscripción activada — {BRAND}"
-    plain = f"Tu prueba terminó y tu suscripción {BRAND} está activa. Plan: {sub.plan.name}, ${sub.plan.price_clp:,} CLP/mes. Próximo cobro: {fecha}."
-    callout = _email_callout("#ECFDF5", "#A7F3D0", f"""
-        <div style="font-size:13px;font-weight:700;color:#16A34A;font-family:Helvetica,Arial,sans-serif;">{sub.plan.name} — ${sub.plan.price_clp:,} CLP/mes</div>
-        <div style="font-size:12px;color:#52525B;margin-top:4px;font-family:Helvetica,Arial,sans-serif;">Próximo cobro: {fecha}</div>
-    """)
-    html = _billing_html("✅ Suscripción activada", "#16A34A", f"""
-        <p style="font-size:14px;margin:0 0 16px;">Tu período de prueba terminó y tu plan está activo.</p>
-        {callout}
-        <p style="font-size:13px;color:#52525B;margin:0;">Ya podés usar todas las funcionalidades de tu plan.</p>
-    """, "Ir al dashboard", f"{APP_URL}/dashboard")
+    from billing.email_renderers import render_trial_converted
+    subject, plain, html = render_trial_converted(sub)
     _send_email_safe(email, subject, plain, html)
 
 
 def _send_trial_expired_notice(sub):
     email = _get_owner_email(sub)
-    subject = f"Tu prueba terminó — {BRAND}"
-    plain = f"Tu prueba de {BRAND} terminó. Tu cuenta está en plan Gratuito. Para volver a {sub.plan.name}: {SETTINGS_URL}"
-    def _bullet(txt: str) -> str:
-        return f"""
-        <tr>
-            <td valign="top" width="16" style="padding:3px 8px 3px 0;font-size:12px;color:#D97706;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">•</td>
-            <td style="padding:3px 0;font-size:12px;color:#52525B;font-family:Helvetica,Arial,sans-serif;line-height:1.5;">{txt}</td>
-        </tr>"""
+    products_count = 0
+    try:
+        from catalog.models import Product
+        products_count = Product.objects.filter(
+            tenant=sub.tenant, is_active=True
+        ).count()
+    except Exception:
+        pass
 
-    callout = _email_callout("#FFFBEB", "#FDE68A", f"""
-        <div style="font-size:13px;font-weight:700;color:#D97706;margin-bottom:8px;font-family:Helvetica,Arial,sans-serif;">Plan Gratuito incluye:</div>
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-            {_bullet("Hasta 100 productos")}
-            {_bullet("1 local, 1 bodega")}
-            {_bullet("1 usuario")}
-        </table>
-    """)
-    html = _billing_html("Tu período de prueba terminó", "#D97706", f"""
-        <p style="font-size:14px;margin:0 0 16px;">No pudimos procesar el pago. Tu cuenta está ahora en el plan Gratuito.</p>
-        {callout}
-        <p style="font-size:13px;color:#52525B;margin:0;">Para volver al plan <strong>{sub.plan.name}</strong> (${sub.plan.price_clp:,} CLP/mes):</p>
-    """, f"Volver a {sub.plan.name}", SETTINGS_URL)
+    from billing.email_renderers import render_trial_expired
+    subject, plain, html = render_trial_expired(sub, products_count=products_count)
     _send_email_safe(email, subject, plain, html)
+
+
+def _latest_invoice_number(sub) -> str:
+    """Devuelve un número de factura para mostrar en el email.
+
+    Invoice no tiene campo `number` explícito, usamos el ID formateado.
+    Si no hay invoice, usamos el ID de la suscripción.
+    """
+    try:
+        from billing.models import Invoice
+        inv_id = (
+            Invoice.objects.filter(subscription=sub)
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if inv_id:
+            return f"INV-{inv_id:05d}"
+    except Exception:
+        pass
+    return f"INV-{getattr(sub, 'pk', 0):05d}"

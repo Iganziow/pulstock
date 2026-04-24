@@ -1,0 +1,12 @@
+{# tone: indigo|green|red|amber|black  text: "BIENVENIDA · CUENTA ACTIVA" #}
+{% if tone == "green" %}{% with bg="#ECFDF5" fg="#16A34A" %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-block;background:{{ bg }};border-radius:999px;"><tr><td style="padding:6px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;color:{{ fg }};letter-spacing:0.06em;text-transform:uppercase;line-height:1;">● {{ text }}</td></tr></table>
+{% endwith %}{% elif tone == "red" %}{% with bg="#FEF2F2" fg="#DC2626" %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-block;background:{{ bg }};border-radius:999px;"><tr><td style="padding:6px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;color:{{ fg }};letter-spacing:0.06em;text-transform:uppercase;line-height:1;">● {{ text }}</td></tr></table>
+{% endwith %}{% elif tone == "amber" %}{% with bg="#FFFBEB" fg="#D97706" %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-block;background:{{ bg }};border-radius:999px;"><tr><td style="padding:6px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;color:{{ fg }};letter-spacing:0.06em;text-transform:uppercase;line-height:1;">● {{ text }}</td></tr></table>
+{% endwith %}{% elif tone == "black" %}{% with bg="#E4E4E7" fg="#18181B" %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-block;background:{{ bg }};border-radius:999px;"><tr><td style="padding:6px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;color:{{ fg }};letter-spacing:0.06em;text-transform:uppercase;line-height:1;">● {{ text }}</td></tr></table>
+{% endwith %}{% else %}{% with bg="#EEF2FF" fg="#4F46E5" %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="display:inline-block;background:{{ bg }};border-radius:999px;"><tr><td style="padding:6px 12px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:600;color:{{ fg }};letter-spacing:0.06em;text-transform:uppercase;line-height:1;">● {{ text }}</td></tr></table>
+{% endwith %}{% endif %}

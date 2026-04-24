@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 02 · Trial reminder
+Context:
+  days_left int, plan (name, price_clp), trial_ends_at datetime, settings_url
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#FFFBEB" border="#FDE68A" fg="#D97706" icon="⏱" title="{{ days_left }} días restantes de prueba" body="Tu plan <strong>"|add:plan.name|add:"</strong> vence el "|add:trial_ends_at|date:"j \\d\\e F"|add:". Si no agregas un método de pago, tu cuenta pasará automáticamente al plan Gratuito." %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Plan actual" value=plan.name big=True %}
+      {% include "emails/_partials/data_row.html" with label="Precio" value=plan.price_formatted %}
+      {% include "emails/_partials/data_row.html" with label="Termina" value=trial_ends_at|date:"d/m/Y" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Lo que perderías en el plan gratuito</h2>
+<ul style="margin:0 0 8px;padding:0 0 0 18px;color:#3F3F46;font-size:14px;line-height:1.75;font-family:'DM Sans',Helvetica,Arial,sans-serif;">
+  <li>Reportes avanzados y análisis ABC semanal</li>
+  <li>Múltiples locales y bodegas</li>
+  <li>Usuarios y permisos por rol</li>
+  <li>Integraciones con boleta electrónica</li>
+</ul>
+{% endblock %}

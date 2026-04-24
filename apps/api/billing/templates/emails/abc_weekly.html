@@ -1,0 +1,72 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 09 · ABC weekly report
+Context:
+  tenant             obj con name
+  date_from, date_to date
+  kpis               dict: revenue_formatted, profit_formatted, margin_pct, products_count
+  class_counts       dict: a_count, b_count, c_count
+  class_bars         dict: a_pct, b_pct, c_pct (números 0-100)
+  items_a            list of {name, sku, units, revenue_formatted, margin_pct, cls}
+  items_b            list idem
+  dashboard_url      str
+{% endcomment %}
+{% block body %}
+
+<!-- KPIs (3 tarjetas, tabla 3-col) -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
+  <tr>
+    <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
+        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Revenue</div>
+        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#18181B;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.revenue_formatted }}</div>
+        {% if kpis.revenue_delta %}<div style="font-size:11px;color:#71717A;margin-top:2px;">{{ kpis.revenue_delta }}</div>{% endif %}
+      </td></tr></table>
+    </td>
+    <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
+        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Utilidad</div>
+        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#16A34A;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.profit_formatted }}</div>
+        <div style="font-size:11px;color:#71717A;margin-top:2px;">Margen {{ kpis.margin_pct }}%</div>
+      </td></tr></table>
+    </td>
+    <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
+        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Productos</div>
+        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#18181B;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.products_count }}</div>
+        <div style="font-size:11px;color:#71717A;margin-top:2px;">activos con venta</div>
+      </td></tr></table>
+    </td>
+  </tr>
+</table>
+
+<!-- Distribución ABC -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F6F4FE" style="background:#F6F4FE;border:1px solid #C7D2FE;border-radius:12px;margin:0 0 12px;">
+  <tr><td style="padding:14px 18px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+      <td style="font-size:13px;color:#3F3F46;font-family:'DM Sans',Helvetica,Arial,sans-serif;">Distribución ABC</td>
+      <td align="right" style="font-family:'JetBrains Mono',Menlo,monospace;font-size:12px;font-weight:600;">
+        <span style="color:#16A34A;">●</span> <span style="color:#18181B;">{{ class_counts.a_count }} A</span>
+        &nbsp;&nbsp;<span style="color:#D97706;">●</span> <span style="color:#18181B;">{{ class_counts.b_count }} B</span>
+        &nbsp;&nbsp;<span style="color:#A1A1AA;">●</span> <span style="color:#18181B;">{{ class_counts.c_count }} C</span>
+      </td>
+    </tr></table>
+  </td></tr>
+</table>
+
+<!-- Barra visual -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 28px;border-radius:4px;overflow:hidden;"><tr>
+  <td width="{{ class_bars.a_pct }}%" height="8" bgcolor="#16A34A" style="background:#16A34A;line-height:8px;font-size:0;">&nbsp;</td>
+  <td width="{{ class_bars.b_pct }}%" height="8" bgcolor="#D97706" style="background:#D97706;line-height:8px;font-size:0;">&nbsp;</td>
+  <td width="{{ class_bars.c_pct }}%" height="8" bgcolor="#A1A1AA" style="background:#A1A1AA;line-height:8px;font-size:0;">&nbsp;</td>
+</tr></table>
+
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Top productos · Clase A</h2>
+{% include "emails/_partials/product_table.html" with items=items_a border="#ECECF1" header_bg="#FAFAFC" header_fg="#71717A" %}
+
+{% if items_b %}
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Clase B · Oportunidad de crecimiento</h2>
+{% include "emails/_partials/product_table.html" with items=items_b border="#ECECF1" header_bg="#FAFAFC" header_fg="#71717A" %}
+{% endif %}
+
+{% endblock %}

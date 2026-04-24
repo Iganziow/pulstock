@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 08 · Trial expired
+Context: previous_plan_name, products_count, products_limit
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#FFFBEB" border="#FDE68A" fg="#D97706" icon="i" title="Plan Gratuito · Qué incluye" body=free_plan_features_html %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Plan anterior" value=previous_plan_name %}
+      {% include "emails/_partials/data_row.html" with label="Plan actual" value="Gratuito" big=True color="#D97706" %}
+      {% include "emails/_partials/data_row.html" with label="Productos" value=products_usage %}
+      {% include "emails/_partials/data_row.html" with label="Datos" value="Conservados sin límite" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<p style="margin:0 0 8px;font-size:13.5px;line-height:1.65;color:#3F3F46;letter-spacing:-0.1px;">
+  Puedes volver a <strong>{{ previous_plan_name }}</strong> en cualquier momento y todo queda exactamente como lo dejaste.
+</p>
+{% endblock %}

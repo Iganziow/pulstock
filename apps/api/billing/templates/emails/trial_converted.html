@@ -1,0 +1,32 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 07 · Trial converted
+Context: plan, payment_method, first_charge_formatted, next_charge, features (list[str])
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#ECFDF5" border="#A7F3D0" fg="#16A34A" icon="★" title=converted_title body=converted_body %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}
+      {% include "emails/_partials/data_row.html" with label="Método de pago" value=payment_method mono=True %}
+      {% include "emails/_partials/data_row.html" with label="Primer cobro" value=first_charge_formatted %}
+      {% include "emails/_partials/data_row.html" with label="Próximo cobro" value=next_charge|date:"d/m/Y" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Ahora tienes acceso a</h2>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 8px;">
+  {% for row in feature_rows %}
+  <tr>
+    {% for f in row %}
+    <td valign="top" width="50%" style="padding:6px 8px 6px 0;font-size:13.5px;color:#3F3F46;font-family:'DM Sans',Helvetica,Arial,sans-serif;">
+      <span style="color:#16A34A;font-weight:700;">✓</span>&nbsp; {{ f }}
+    </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

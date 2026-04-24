@@ -1,0 +1,13 @@
+{% comment %}
+Partials reutilizables.
+
+USO:
+  {% include "emails/_partials/eyebrow.html" with tone="indigo" text="BIENVENIDA · CUENTA ACTIVA" %}
+  {% include "emails/_partials/subtitle.html" with text="Gracias por unirte." %}
+  {% include "emails/_partials/cta.html" with tone="indigo" label="Abrir mi dashboard" url="https://..." secondary_label="Descargar app" secondary_url="https://..." %}
+  {% include "emails/_partials/callout.html" with tone="red" icon="!" title="..." body="..." %}
+  {% include "emails/_partials/datarow.html" with label="Plan" value="Pulstock Pro" %}
+  ...
+
+Los archivos reales están en subfiles de esta carpeta.
+{% endcomment %}

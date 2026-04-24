@@ -1,0 +1,29 @@
+{% comment %}Partial: tabla de stock bajo.
+Context: items, fg, bg, line, is_critical
+{% endcomment %}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid {{ line }};border-radius:14px;margin:0 0 20px;overflow:hidden;">
+  <tr bgcolor="{{ bg }}" style="background:{{ bg }};">
+    <td style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ fg }};letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid {{ line }};">Producto</td>
+    <td style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ fg }};letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid {{ line }};">Ubicación</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ fg }};letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid {{ line }};">Stock</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ fg }};letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid {{ line }};">Mín</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ fg }};letter-spacing:1px;text-transform:uppercase;font-weight:700;border-bottom:1px solid {{ line }};">Pedir</td>
+  </tr>
+  {% for it in items %}
+  <tr>
+    <td style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;">
+      <div style="font-weight:600;font-size:13px;color:#18181B;letter-spacing:-0.1px;">{{ it.name }}</div>
+      <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:11px;color:#A1A1AA;margin-top:2px;">{{ it.sku|default:"—" }}</div>
+    </td>
+    <td style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:12.5px;color:#3F3F46;">{{ it.warehouse|default:"—" }}</td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}">
+      {% if it.on_hand == 0 %}
+        <span style="display:inline-block;padding:3px 8px;border-radius:6px;background:#FEF2F2;color:#DC2626;font-family:'JetBrains Mono',Menlo,monospace;font-size:11px;font-weight:700;">AGOTADO</span>
+      {% else %}
+        <span style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:700;color:{{ fg }};font-size:13px;">{{ it.on_hand }}</span>
+      {% endif %}
+    </td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;color:#71717A;">{{ it.min }}</td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#4F46E5;">+{{ it.deficit }}</td>
+  </tr>
+  {% endfor %}
+</table>
