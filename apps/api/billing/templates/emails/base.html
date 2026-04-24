@@ -40,7 +40,11 @@ Blocks:
     .ps-px{padding-left:24px !important;padding-right:24px !important;}
     .ps-hero-px{padding-left:24px !important;padding-right:24px !important;}
     .ps-h1{font-size:24px !important;line-height:1.2 !important;}
-    .ps-kpi{display:block !important;width:100% !important;margin-bottom:8px !important;}
+    /* En mobile los 3 tiles se apilan. Resetear el padding asimétrico que
+       cada <td> tiene inline (ej. "padding-right:5px", "padding:0 5px",
+       "padding-left:5px") — si no, cada tile queda con un ancho distinto
+       y se ven desparejos. El !important anula el inline sin !important. */
+    .ps-kpi{display:block !important;width:100% !important;margin:0 0 8px !important;padding:0 !important;}
     .ps-hide-sm{display:none !important;}
   }
 </style>
