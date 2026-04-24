@@ -8,7 +8,7 @@ Context: days_left, plan, current_period_end, payment_method, next_period_end
   Hola {{ user.first_name|default:"" }}, este es un aviso amistoso sobre tu próxima renovación. Si todo está en orden, puedes ignorar este correo.
 </p>
 
-<table role="presentation" class="ps-kpi-tile" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F6F4FE" style="background:#F6F4FE;border:1px solid #C7D2FE;border-radius:14px;margin:0 0 20px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F6F4FE" style="background:#F6F4FE;border:1px solid #C7D2FE;border-radius:14px;margin:0 0 20px;">
   <tr><td style="padding:4px 20px;">
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
       {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}
