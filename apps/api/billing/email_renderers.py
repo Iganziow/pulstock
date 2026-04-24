@@ -129,12 +129,19 @@ def render_trial_reminder(sub, days_left):
 
 
 # ─────────── 03 Renewal reminder ───────────
-def render_renewal_reminder(sub, days_left, payment_method="Visa ···· 4829"):
+def render_renewal_reminder(sub, days_left, payment_method=None):
+    """Email de renovación próxima.
+
+    payment_method: string formateado (ej. "Visa ···· 4829") si la sub tiene
+      tarjeta registrada. Si es None, usamos un fallback genérico.
+    """
     plan = sub.plan
     plan.price_formatted = _fmt_clp(plan.price_clp)
     end = sub.current_period_end
     next_end = end + timedelta(days=30) if end else None
     period_range = f"{end.strftime('%d/%m')} → {next_end.strftime('%d/%m/%Y')}" if end and next_end else "—"
+    # Fallback si no hay tarjeta registrada
+    payment_method_display = payment_method or "Tu método de pago registrado"
     subject = f"Tu suscripción se renueva en {days_left} días — {BRAND}"
     ctx = _base_ctx(
         tone="indigo",
@@ -144,7 +151,7 @@ def render_renewal_reminder(sub, days_left, payment_method="Visa ···· 4829")
         subtitle="No tienes que hacer nada: cobraremos automáticamente tu método de pago registrado.",
         plan=plan, user=sub.tenant,
         current_period_end=end,
-        payment_method=payment_method,
+        payment_method=payment_method_display,
         period_range=period_range,
         cta_text="Ver mi suscripción",
         cta_url=SETTINGS_URL,
@@ -157,20 +164,51 @@ def render_renewal_reminder(sub, days_left, payment_method="Visa ···· 4829")
 
 
 # ─────────── 04 Payment failed ───────────
-def render_payment_failed(sub, invoice_number, failure_reason="fondos insuficientes",
-                          payment_method="Visa ···· 4829", access_until=None):
+def render_payment_failed(sub, invoice_number, failure_reason=None,
+                          payment_method=None, access_until=None):
+    """Email de pago fallido.
+
+    failure_reason: mensaje del gateway (ej. "Tarjeta vencida"). Si es None,
+      usamos un mensaje genérico para no inventar un motivo.
+    payment_method: "Visa ···· 4829" o None. Si None, usamos "Tu tarjeta".
+    access_until: fecha hasta la que el cliente mantiene acceso antes de
+      suspensión. Si None, se estima 3 días desde hoy (grace period común).
+    """
     plan = sub.plan
     plan.price_formatted = _fmt_clp(plan.price_clp)
     access_until = access_until or (timezone.now() + timedelta(days=3))
+
+    # Construir el título y body del callout sin inventar datos.
+    if payment_method:
+        card_title = f"{payment_method} fue rechazada"
+    else:
+        card_title = "El cobro fue rechazado"
+
+    if failure_reason:
+        card_body = (
+            f"Motivo informado: <em>{failure_reason}</em>. "
+            f"Volveremos a intentar el cobro en 48 horas. Si falla 3 veces, "
+            f"tu cuenta se suspenderá temporalmente."
+        )
+    else:
+        card_body = (
+            "El banco emisor no autorizó la transacción. "
+            "Volveremos a intentar el cobro en 48 horas. Si falla 3 veces, "
+            "tu cuenta se suspenderá temporalmente."
+        )
+
     subject = f"⚠️ No pudimos procesar tu pago — {BRAND}"
     ctx = _base_ctx(
         tone="red",
         subject_line=subject,
         eyebrow=f"Pago · Intento {sub.payment_retry_count} de 3",
         hero_title="No pudimos procesar tu pago",
-        subtitle=f"Tu tarjeta fue rechazada por el banco emisor. Actualiza tu método de pago antes del {access_until.strftime('%d de %B').lower()} para mantener tu acceso.",
-        payment_failed_title=f"{payment_method} fue rechazada",
-        payment_failed_body=f"Motivo informado: <em>{failure_reason}</em>. Volveremos a intentar el cobro en 48 horas. Si falla 3 veces, tu cuenta se suspenderá temporalmente.",
+        subtitle=(
+            f"Actualiza tu método de pago antes del "
+            f"{access_until.strftime('%d de %B').lower()} para mantener tu acceso."
+        ),
+        payment_failed_title=card_title,
+        payment_failed_body=card_body,
         plan=plan,
         invoice_number=invoice_number,
         retry_progress=f"{sub.payment_retry_count} de 3",
@@ -214,10 +252,24 @@ def render_suspension(sub, amount_due=None):
 
 # ─────────── 06 Payment recovered ───────────
 def render_payment_recovered(sub, invoice_number, amount=None,
-                             payment_method="Visa ···· 4829", charged_at=None):
+                             payment_method=None, charged_at=None):
+    """Email de pago recuperado tras retry exitoso.
+
+    payment_method: string (ej. "Tarjeta ···· 6623") o None. Si None,
+      el body omite la mención de tarjeta.
+    """
     amount = amount or sub.plan.price_clp
     amount_formatted = _fmt_clp(amount)
     charged_at = charged_at or timezone.now()
+
+    if payment_method:
+        recovered_body = (
+            f"Cargado a <span style='font-family:JetBrains Mono,monospace;'>"
+            f"{payment_method}</span> el {charged_at.strftime('%d/%m/%Y a las %H:%M')}."
+        )
+    else:
+        recovered_body = f"Cobro procesado el {charged_at.strftime('%d/%m/%Y a las %H:%M')}."
+
     subject = f"✅ Pago procesado — {BRAND}"
     ctx = _base_ctx(
         tone="green",
@@ -226,7 +278,7 @@ def render_payment_recovered(sub, invoice_number, amount=None,
         hero_title="¡Listo! Procesamos tu pago correctamente",
         subtitle="Tu suscripción sigue activa y tienes acceso completo a todas las funciones.",
         recovered_title=f"Cobro exitoso · {amount_formatted}",
-        recovered_body=f"Cargado a <span style='font-family:JetBrains Mono,monospace;'>{payment_method}</span> el {charged_at.strftime('%d/%m/%Y a las %H:%M')}.",
+        recovered_body=recovered_body,
         plan=sub.plan,
         invoice_number=invoice_number,
         amount_formatted=amount_formatted,
@@ -242,7 +294,7 @@ def render_payment_recovered(sub, invoice_number, amount=None,
 
 
 # ─────────── 07 Trial converted ───────────
-def render_trial_converted(sub, payment_method="Visa ···· 4829"):
+def render_trial_converted(sub, payment_method=None):
     plan = sub.plan
     amount_formatted = _fmt_clp(plan.price_clp)
     features = [
@@ -261,7 +313,9 @@ def render_trial_converted(sub, payment_method="Visa ···· 4829"):
         converted_title=f"{plan.name} · Activado",
         converted_body=f"Primer cobro de <strong>{amount_formatted}</strong> procesado correctamente.",
         plan=plan,
-        payment_method=payment_method,
+        # Fallback: si no hay tarjeta registrada, mostrar texto genérico en vez
+        # de dejar el campo vacío (rompería el diseño del data_row).
+        payment_method=payment_method or "Tu método de pago",
         first_charge_formatted=amount_formatted,
         next_charge=sub.current_period_end,
         feature_rows=feature_rows,
