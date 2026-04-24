@@ -399,14 +399,20 @@ def _flow_charge_customer(subscription: Subscription, invoice: Invoice) -> dict:
 # ─────────────────────────────────────────────────────────────
 def _flow_get_payment_status(token: str) -> dict:
     """
-    Consulta el estado de un pago usando el token recibido en el webhook.
+    Consulta el estado extendido de un pago usando el token recibido en el webhook.
 
-    Flow retorna un objeto PaymentStatus con campos:
-      - flowOrder: número de orden Flow
-      - commerceOrder: nuestro invoice.pk
-      - requestDate: fecha de la orden
-      - status: 1=pendiente, 2=pagado, 3=rechazado, 4=anulado
-      - subject, currency, amount, payer, optional, paymentData
+    Usamos /payment/getStatusExtended (NO /payment/getStatus) porque el extended
+    retorna los datos del pago que necesitamos para el cliente y los emails:
+      - paymentData.media             (ej. 'webpay', 'Mach', 'Servipag')
+      - paymentData.mediaType         ('Crédito' / 'Débito')
+      - paymentData.cardLast4Numbers  ('9876')
+      - paymentData.cardNumber        ('457630 **** **** 9876' — contiene marca)
+      - paymentData.installments      (cuotas)
+      - paymentData.autorizationCode  (código autorización)
+      - lastError.code / .message     (cuando hubo rechazo)
+
+    Flow retorna en `status`:
+      1=pendiente, 2=pagado, 3=rechazado, 4=anulado
     """
     # Validar que el token no esté vacío ni sea excesivamente largo
     if not token or len(token) > 512:
@@ -414,20 +420,76 @@ def _flow_get_payment_status(token: str) -> dict:
         return {"status": -1, "error": "Token inválido"}
 
     try:
-        result = _flow_api_call("GET", "/payment/getStatus", {"token": token})
+        result = _flow_api_call("GET", "/payment/getStatusExtended", {"token": token})
         logger.info(
-            "Flow getStatus: commerceOrder=%s status=%s flowOrder=%s",
+            "Flow getStatusExtended: commerceOrder=%s status=%s flowOrder=%s media=%s last4=%s",
             result.get("commerceOrder"),
             result.get("status"),
             result.get("flowOrder"),
+            (result.get("paymentData") or {}).get("media"),
+            (result.get("paymentData") or {}).get("cardLast4Numbers"),
         )
         return result
     except FlowAPIError as e:
-        logger.error("Flow getStatus error: %s", e)
+        logger.error("Flow getStatusExtended error: %s", e)
         return {"status": -1, "error": e.message, "raw": e.raw}
     except Exception as e:
         logger.error("Error consultando estado Flow: %s", e, exc_info=True)
         return {"status": -1, "error": str(e)}
+
+
+def extract_payment_details(flow_status: dict) -> dict:
+    """Extrae los campos relevantes del response /payment/getStatusExtended.
+
+    Uso:
+        details = extract_payment_details(flow_status_response)
+        invoice.card_last4 = details["card_last4"]
+        invoice.card_brand = details["card_brand"]
+        ... etc
+
+    Devuelve un dict con todos los campos listos para asignar directamente al
+    modelo Invoice. Campos ausentes vuelven "" (string vacío) o None para ints.
+
+    Marca de tarjeta: Flow no la devuelve explícitamente en un campo separado,
+    pero se puede inferir del BIN (primeros 6 dígitos en `paymentData.cardNumber`).
+    Los BINs más comunes:
+      - 4xxxxx → Visa
+      - 5xxxxx → Mastercard
+      - 34/37xx → American Express
+    """
+    payment_data = flow_status.get("paymentData") or {}
+    last_error = flow_status.get("lastError") or {}
+
+    # Extraer card_number "457630 **** **** 9876" → BIN "457630" → marca
+    card_number = payment_data.get("cardNumber") or ""
+    card_bin = card_number.split(" ")[0] if card_number else ""
+
+    card_brand = ""
+    if card_bin:
+        first = card_bin[0] if card_bin else ""
+        if first == "4":
+            card_brand = "Visa"
+        elif first == "5":
+            card_brand = "Mastercard"
+        elif card_bin[:2] in ("34", "37"):
+            card_brand = "American Express"
+        elif card_bin[:2] == "62":
+            card_brand = "UnionPay"
+        elif card_bin[:4] == "6011" or card_bin[:2] == "65":
+            card_brand = "Discover"
+        else:
+            card_brand = "Tarjeta"  # fallback genérico
+
+    return {
+        "card_last4": (payment_data.get("cardLast4Numbers") or "")[:4],
+        "card_brand": card_brand,
+        "payment_media": (payment_data.get("media") or "")[:40],
+        "payment_media_type": (payment_data.get("mediaType") or "")[:20],
+        "installments": payment_data.get("installments") or None,
+        "authorization_code": (payment_data.get("autorizationCode") or "")[:40],
+        "failure_code": (last_error.get("code") or "")[:20],
+        "failure_message": last_error.get("message") or "",
+    }
 
 
 # ─────────────────────────────────────────────────────────────

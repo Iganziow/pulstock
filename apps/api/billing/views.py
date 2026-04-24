@@ -404,8 +404,30 @@ class ConfirmPaymentView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                invoice.gateway_tx_id = str(payment_data.get("flowOrder", ""))
-                invoice.save(update_fields=["gateway_tx_id"])
+                # Extraer datos del pago y guardarlos en el Invoice
+                # (mismo flujo que el webhook — ver _FlowWebhookView).
+                from .gateway import extract_payment_details
+                details = extract_payment_details(payment_data)
+
+                invoice.gateway_tx_id      = str(payment_data.get("flowOrder", ""))
+                invoice.card_last4         = details["card_last4"]
+                invoice.card_brand         = details["card_brand"]
+                invoice.payment_media      = details["payment_media"]
+                invoice.payment_media_type = details["payment_media_type"]
+                invoice.installments       = details["installments"]
+                invoice.authorization_code = details["authorization_code"]
+                invoice.failure_code       = ""
+                invoice.failure_message    = ""
+                invoice.save(update_fields=[
+                    "gateway_tx_id", "card_last4", "card_brand",
+                    "payment_media", "payment_media_type", "installments",
+                    "authorization_code", "failure_code", "failure_message",
+                ])
+
+                if details["card_last4"]:
+                    sub.card_last4 = details["card_last4"]
+                    sub.card_brand = details["card_brand"]
+                    sub.save(update_fields=["card_last4", "card_brand"])
 
                 PaymentAttempt.objects.create(
                     invoice=invoice,
@@ -416,8 +438,9 @@ class ConfirmPaymentView(APIView):
 
                 activate_period(sub, invoice)
                 logger.info(
-                    "ConfirmPayment: pago exitoso invoice=#%d tenant=%s",
+                    "ConfirmPayment: pago exitoso invoice=#%d tenant=%s card=%s·%s",
                     invoice.pk, sub.tenant_id,
+                    details["card_brand"] or "-", details["card_last4"] or "----",
                 )
                 return Response({
                     "ok": True,
@@ -426,9 +449,20 @@ class ConfirmPaymentView(APIView):
                 })
 
             elif flow_status in (3, 4):
-                error = "Pago rechazado" if flow_status == 3 else "Pago anulado"
+                # Extraer motivo real de Flow si lo hay
+                from .gateway import extract_payment_details
+                details = extract_payment_details(payment_data)
+                if details["failure_message"]:
+                    error = details["failure_message"]
+                else:
+                    error = "Pago rechazado" if flow_status == 3 else "Pago anulado"
+
                 if invoice.status not in (Invoice.Status.FAILED, Invoice.Status.PAID):
+                    invoice.failure_code    = details["failure_code"]
+                    invoice.failure_message = error
+                    invoice.save(update_fields=["failure_code", "failure_message"])
                     register_payment_failure(sub, invoice, error_msg=error, raw=payment_data)
+
                 return Response({
                     "ok": False,
                     "status": "rejected",
@@ -722,9 +756,35 @@ class FlowWebhookView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                # Guardar tx_id de Flow en la factura
-                invoice.gateway_tx_id = str(flow_order)
-                invoice.save(update_fields=["gateway_tx_id"])
+                # Extraer datos del pago (tarjeta, medio, cuotas, auth) y
+                # guardarlos en la factura — son los que muestran los emails
+                # payment_recovered / renewal / trial_converted.
+                from .gateway import extract_payment_details
+                details = extract_payment_details(payment_data)
+
+                invoice.gateway_tx_id      = str(flow_order)
+                invoice.card_last4         = details["card_last4"]
+                invoice.card_brand         = details["card_brand"]
+                invoice.payment_media      = details["payment_media"]
+                invoice.payment_media_type = details["payment_media_type"]
+                invoice.installments       = details["installments"]
+                invoice.authorization_code = details["authorization_code"]
+                # Limpiar failure fields si el pago se recuperó tras un retry
+                invoice.failure_code       = ""
+                invoice.failure_message    = ""
+                invoice.save(update_fields=[
+                    "gateway_tx_id", "card_last4", "card_brand",
+                    "payment_media", "payment_media_type", "installments",
+                    "authorization_code", "failure_code", "failure_message",
+                ])
+
+                # Syncear también Subscription.card_* (mirror del último pago OK,
+                # para mostrar al cliente el método en emails sin tener que
+                # lookup el último Invoice cada vez).
+                if details["card_last4"]:
+                    sub.card_last4 = details["card_last4"]
+                    sub.card_brand = details["card_brand"]
+                    sub.save(update_fields=["card_last4", "card_brand"])
 
                 # Registrar intento exitoso
                 PaymentAttempt.objects.create(
@@ -737,17 +797,31 @@ class FlowWebhookView(APIView):
                 # Activar período pagado
                 activate_period(sub, invoice)
                 logger.info(
-                    "Flow webhook: pago exitoso invoice=#%d tenant=%s flowOrder=%s",
+                    "Flow webhook: pago exitoso invoice=#%d tenant=%s flowOrder=%s card=%s·%s",
                     invoice.pk, sub.tenant_id, flow_order,
+                    details["card_brand"] or "-", details["card_last4"] or "----",
                 )
 
             elif flow_status in (3, 4):
                 # RECHAZADO (3) o ANULADO (4)
-                error = "Pago rechazado por Flow" if flow_status == 3 else "Pago anulado"
+                # Extraer motivo real de Flow antes de registrar el fallo. Lo
+                # que viene en lastError.message es lo que le vamos a mostrar
+                # al cliente en el email payment_failed.
+                from .gateway import extract_payment_details
+                details = extract_payment_details(payment_data)
+                if details["failure_message"]:
+                    error = details["failure_message"]
+                else:
+                    error = "Pago rechazado por Flow" if flow_status == 3 else "Pago anulado"
+
+                invoice.failure_code    = details["failure_code"]
+                invoice.failure_message = error
+                invoice.save(update_fields=["failure_code", "failure_message"])
+
                 register_payment_failure(sub, invoice, error_msg=error, raw=payment_data)
                 logger.warning(
-                    "Flow webhook: pago fallido invoice=#%d status=%d error=%s",
-                    invoice.pk, flow_status, error,
+                    "Flow webhook: pago fallido invoice=#%d status=%d code=%s error=%s",
+                    invoice.pk, flow_status, details["failure_code"] or "-", error,
                 )
 
             elif flow_status == 1:
@@ -765,12 +839,18 @@ from .models import CheckoutSession
 from .gateway import create_checkout_payment_link
 
 
-def _auto_create_checkout_account(session):
+def _auto_create_checkout_account(session, payment_data=None):
     """Crea Tenant + User automáticamente cuando session tiene los datos.
     Usa el password hash ya almacenado (no re-hashear).
 
     Thread-safe: usa select_for_update dentro del atomic para evitar que el
     webhook y el GET /status creen la cuenta dos veces en paralelo.
+
+    payment_data: dict opcional con el response de /payment/getStatusExtended
+      de Flow. Si se pasa, se extraen los campos card_last4, card_brand,
+      payment_media, etc. y se guardan en el Invoice creado. También se
+      syncean Subscription.card_last4 y card_brand para que los emails de
+      renewal / payment_recovered puedan mostrar el método real.
     """
     from datetime import timedelta
     from django.db import transaction
@@ -853,6 +933,21 @@ def _auto_create_checkout_account(session):
             current_period_start=now,
             current_period_end=now + timedelta(days=30),
         )
+        # Extraer datos del pago si venían en el webhook (getStatusExtended)
+        # para mostrarlos al cliente en el email de welcome / primer invoice.
+        card_last4 = card_brand = payment_media = payment_media_type = ""
+        installments = None
+        authorization_code = ""
+        if payment_data:
+            from .gateway import extract_payment_details
+            details = extract_payment_details(payment_data)
+            card_last4         = details["card_last4"]
+            card_brand         = details["card_brand"]
+            payment_media      = details["payment_media"]
+            payment_media_type = details["payment_media_type"]
+            installments       = details["installments"]
+            authorization_code = details["authorization_code"]
+
         invoice = Invoice.objects.create(
             subscription=sub,
             status=Invoice.Status.PAID,
@@ -863,6 +958,12 @@ def _auto_create_checkout_account(session):
             gateway_order_id=session.gateway_order_id,
             gateway_tx_id=session.gateway_tx_id,
             paid_at=now,
+            card_last4=card_last4,
+            card_brand=card_brand,
+            payment_media=payment_media,
+            payment_media_type=payment_media_type,
+            installments=installments,
+            authorization_code=authorization_code,
         )
         PaymentAttempt.objects.create(
             invoice=invoice,
@@ -870,6 +971,12 @@ def _auto_create_checkout_account(session):
             gateway="flow",
             raw={"checkout_session": str(session.token)},
         )
+
+        # Syncear también en la Subscription (mirror del último pago OK)
+        if card_last4:
+            sub.card_last4 = card_last4
+            sub.card_brand = card_brand
+            sub.save(update_fields=["card_last4", "card_brand"])
 
         session.status = CheckoutSession.STATUS_COMPLETED
         session.tenant = tenant
@@ -1331,13 +1438,15 @@ class FlowCheckoutWebhookView(APIView):
                     session.save(update_fields=["status", "gateway_tx_id"])
                     logger.info("Checkout webhook: session #%d marcada como PAID", session.pk)
 
-                # Auto-create account si tenemos los datos (dentro del lock)
+                # Auto-create account si tenemos los datos (dentro del lock).
+                # Pasamos payment_data para que el Invoice creado guarde los
+                # detalles de la tarjeta usada (last4, brand, media, etc.).
                 if (session.status == CheckoutSession.STATUS_PAID
                         and session.business_name
                         and session.owner_username
                         and session.owner_password_hash):
                     try:
-                        _auto_create_checkout_account(session)
+                        _auto_create_checkout_account(session, payment_data=payment_data)
                     except Exception as e:
                         logger.exception("Auto-create account failed for session #%d: %s",
                                          session.pk, e)

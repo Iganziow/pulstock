@@ -190,6 +190,29 @@ class Invoice(models.Model):
     gateway_tx_id    = models.CharField(max_length=120, blank=True, default="")
     payment_url      = models.URLField(blank=True, default="", help_text="URL de pago Flow/Transbank")
 
+    # ── Datos del pago capturados desde la respuesta del gateway ──
+    # Se populan desde /payment/getStatusExtended al confirmar el pago (webhook).
+    # Usados en emails (payment_recovered, renewal, trial_converted) para mostrar
+    # al cliente el método real con el que se cobró, en vez de placeholders.
+    card_last4         = models.CharField(max_length=4, blank=True, default="",
+                                          help_text="Últimos 4 dígitos de la tarjeta (ej. '9876')")
+    card_brand         = models.CharField(max_length=30, blank=True, default="",
+                                          help_text="Marca de tarjeta (Visa, Mastercard, Amex, etc.)")
+    payment_media      = models.CharField(max_length=40, blank=True, default="",
+                                          help_text="Medio de pago Flow (ej. 'webpay', 'Mach', 'Servipag')")
+    payment_media_type = models.CharField(max_length=20, blank=True, default="",
+                                          help_text="Tipo de pago (ej. 'Crédito', 'Débito')")
+    installments       = models.PositiveSmallIntegerField(null=True, blank=True,
+                                                         help_text="Número de cuotas si fue crédito")
+    authorization_code = models.CharField(max_length=40, blank=True, default="",
+                                          help_text="Código de autorización del banco emisor")
+
+    # Datos del fallo (si el intento falló). Vienen de paymentData.lastError.
+    failure_code    = models.CharField(max_length=20, blank=True, default="",
+                                       help_text="Código de error del gateway (ej. '01')")
+    failure_message = models.TextField(blank=True, default="",
+                                       help_text="Mensaje de error humano (ej. 'Tarjeta vencida')")
+
     paid_at    = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
