@@ -594,12 +594,16 @@ def _latest_paid_invoice(sub):
 
     Usado para mostrar datos reales en los emails payment_recovered y
     trial_converted (amount, card, paid_at reales).
+
+    Nota: ordenamos por `-created_at, -pk` para tener orden determinístico
+    cuando múltiples invoices se crean en el mismo segundo (caso común en
+    tests y posible en producción con webhooks rápidos).
     """
     try:
         from billing.models import Invoice
         return (
             Invoice.objects.filter(subscription=sub, status=Invoice.Status.PAID)
-            .order_by("-created_at")
+            .order_by("-created_at", "-pk")
             .first()
         )
     except Exception:
@@ -622,7 +626,7 @@ def _latest_invoice_failure_message(sub) -> str | None:
                 status__in=[Invoice.Status.FAILED, Invoice.Status.PENDING],
             )
             .exclude(failure_message="")
-            .order_by("-created_at")
+            .order_by("-created_at", "-pk")
             .first()
         )
         if inv and inv.failure_message:
