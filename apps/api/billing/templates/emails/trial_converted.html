@@ -6,7 +6,7 @@ Context: plan, payment_method, first_charge_formatted, next_charge, features (li
 {% block body %}
 {% include "emails/_partials/callout.html" with bg="#ECFDF5" border="#A7F3D0" fg="#16A34A" icon="★" title=converted_title body=converted_body %}
 
-<table role="presentation" class="ps-kpi-tile" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
   <tr><td style="padding:4px 20px;">
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
       {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}

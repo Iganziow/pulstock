@@ -6,7 +6,7 @@ Context: previous_plan_name, products_count, products_limit
 {% block body %}
 {% include "emails/_partials/callout.html" with bg="#FFFBEB" border="#FDE68A" fg="#D97706" icon="i" title="Plan Gratuito · Qué incluye" body=free_plan_features_html %}
 
-<table role="presentation" class="ps-kpi-tile" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
   <tr><td style="padding:4px 20px;">
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
       {% include "emails/_partials/data_row.html" with label="Plan anterior" value=previous_plan_name %}
