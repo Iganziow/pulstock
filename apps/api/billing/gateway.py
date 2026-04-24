@@ -479,6 +479,12 @@ def extract_payment_details(flow_status: dict) -> dict:
             card_brand = "Discover"
         else:
             card_brand = "Tarjeta"  # fallback genérico
+    elif payment_data.get("cardLast4Numbers"):
+        # Flow sandbox (y a veces prod) no devuelve el cardNumber con BIN,
+        # solo los últimos 4 dígitos. En ese caso no podemos inferir la marca;
+        # usamos un label genérico para no dejar el brand vacío (los emails
+        # lo usan para mostrar "Visa ···· 6623" o "Tarjeta ···· 6623").
+        card_brand = "Tarjeta"
 
     return {
         "card_last4": (payment_data.get("cardLast4Numbers") or "")[:4],
