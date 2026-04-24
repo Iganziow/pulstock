@@ -23,18 +23,45 @@ Blocks:
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<!--
+  Dark mode: deshabilitado explícitamente. El diseño es light-only;
+  permitir que Outlook.com / Hotmail / Outlook móvil inviertan los
+  colores rompe las tarjetas blancas, el contraste del texto y los
+  KPIs. Los 3 meta + la regla CSS [data-ogsc/data-ogsb] + color-scheme
+  en inline bloquean los 3 esquemas de dark mode que usa Microsoft.
+-->
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light only">
+<meta name="x-apple-disable-message-reformatting">
 <title>{{ subject_line|default:"Pulstock" }}</title>
 <!--[if mso]>
 <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
 <style>table,td,div,h1,h2,p,a{font-family:Arial,Helvetica,sans-serif !important;}</style>
 <![endif]-->
 <style>
+  :root{color-scheme:light only;supported-color-schemes:light only;}
   body{margin:0;padding:0;width:100% !important;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
   table{border-collapse:collapse;mso-table-lspace:0;mso-table-rspace:0;}
   img{border:0;outline:none;-ms-interpolation-mode:bicubic;display:block;}
   a{text-decoration:none;}
+
+  /* ── Outlook.com / Hotmail dark mode: forzar light ─────────────
+     Microsoft usa [data-ogsc] (outlook.com generated selector color)
+     y [data-ogsb] (background) para inyectar colores cuando el
+     usuario tiene dark mode activo. Revertimos acá. */
+  [data-ogsc] body,[data-ogsb] body{background:#F4F5FB !important;}
+  [data-ogsc] .ps-card,[data-ogsb] .ps-card{background:#FFFFFF !important;}
+  [data-ogsc] .ps-kpi-tile,[data-ogsb] .ps-kpi-tile{background:#F7F7F8 !important;}
+  [data-ogsc] h1,[data-ogsc] h2,[data-ogsc] strong{color:#18181B !important;}
+  [data-ogsc] p,[data-ogsc] td,[data-ogsc] span{color:#3F3F46 !important;}
+  [data-ogsc] .ps-muted{color:#71717A !important;}
+
+  @media (prefers-color-scheme: dark){
+    body{background:#F4F5FB !important;}
+    .ps-card{background:#FFFFFF !important;}
+    .ps-kpi-tile{background:#F7F7F8 !important;}
+  }
+
   @media only screen and (max-width:620px){
     .ps-wrap{width:100% !important;max-width:100% !important;}
     .ps-px{padding-left:24px !important;padding-right:24px !important;}
@@ -79,7 +106,7 @@ Blocks:
     <!-- TARJETA -->
     <tr>
       <td style="padding:0 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FFFFFF" style="background:#FFFFFF;border-radius:20px;border:1px solid #ECECF1;overflow:hidden;">
+        <table role="presentation" class="ps-card" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FFFFFF" style="background:#FFFFFF !important;background-color:#FFFFFF !important;border-radius:20px;border:1px solid #ECECF1;overflow:hidden;">
 
           <!-- HERO -->
           <tr>
