@@ -374,8 +374,10 @@ def render_abc_weekly(tenant, date_from, date_to, items_a, items_b, items_c,
     def _prep(items, cls):
         return [{
             "name": i["product_name"],
-            "sku": i.get("sku", "—"),
-            "units": f"{int(i.get('units', 0)):,}".replace(",", "."),
+            "sku": i.get("sku") or "—",
+            # reports.services.get_abc_analysis retorna `qty` (string Decimal).
+            # Fallback a `units` por compat con mocks del management command.
+            "units": f"{int(float(i.get('qty') or i.get('units') or 0)):,}".replace(",", "."),
             "revenue_formatted": _fmt_short(float(i["revenue"])),
             "margin_pct": f"{float(i.get('margin_pct', 0)):.0f}",
             "cls": cls,

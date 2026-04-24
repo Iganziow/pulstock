@@ -868,6 +868,18 @@ def _auto_create_checkout_account(session, payment_data=None):
         )
         if locked_session.status == CheckoutSession.STATUS_COMPLETED:
             return  # idempotente: otro proceso ya creó la cuenta
+        # Doble seguridad: si ya hay un tenant asociado al session (cuenta
+        # parcialmente creada en un run previo), NO reintentamos — evita crear
+        # un segundo Tenant si una exception previa rompió el atomic sin
+        # marcar COMPLETED. El status queda en PAID y un humano puede
+        # completar manualmente si hace falta.
+        if locked_session.tenant_id:
+            logger.warning(
+                "Auto-create skipped: session #%d ya tiene tenant_id=%s asignado "
+                "(estado inconsistente, requiere intervención manual)",
+                locked_session.pk, locked_session.tenant_id,
+            )
+            return
         session = locked_session
 
         email = session.email

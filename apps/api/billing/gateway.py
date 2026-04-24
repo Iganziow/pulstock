@@ -486,15 +486,31 @@ def extract_payment_details(flow_status: dict) -> dict:
         # lo usan para mostrar "Visa ···· 6623" o "Tarjeta ···· 6623").
         card_brand = "Tarjeta"
 
+    # Castear defensivamente: Flow puede devolver int / string / None de forma
+    # inconsistente según el endpoint y los medios de pago. Esto evita que un
+    # response raro explote el webhook y haga perder el pago.
+    last4_raw = payment_data.get("cardLast4Numbers")
+    last4 = str(last4_raw)[:4] if last4_raw is not None else ""
+
+    installments_raw = payment_data.get("installments")
+    installments = None
+    if installments_raw is not None:
+        try:
+            n = int(installments_raw)
+            if n > 0:
+                installments = n
+        except (TypeError, ValueError):
+            installments = None
+
     return {
-        "card_last4": (payment_data.get("cardLast4Numbers") or "")[:4],
+        "card_last4": last4,
         "card_brand": card_brand,
-        "payment_media": (payment_data.get("media") or "")[:40],
-        "payment_media_type": (payment_data.get("mediaType") or "")[:20],
-        "installments": payment_data.get("installments") or None,
-        "authorization_code": (payment_data.get("autorizationCode") or "")[:40],
-        "failure_code": (last_error.get("code") or "")[:20],
-        "failure_message": last_error.get("message") or "",
+        "payment_media": str(payment_data.get("media") or "")[:40],
+        "payment_media_type": str(payment_data.get("mediaType") or "")[:20],
+        "installments": installments,
+        "authorization_code": str(payment_data.get("autorizationCode") or "")[:40],
+        "failure_code": str(last_error.get("code") or "")[:20],
+        "failure_message": str(last_error.get("message") or ""),
     }
 
 
