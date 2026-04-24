@@ -1,0 +1,24 @@
+{% comment %}
+KPI tile uniforme — 1 tarjeta de 3 líneas (label + value + sublabel).
+
+Context:
+  label     str      — eyebrow chico arriba (ej. "Revenue", "Agotados")
+  value     str      — número grande (ej. "$12.9M", "2", "55 un.")
+  sublabel  str      — línea inferior (ej. "Margen 38%", "productos"). Si está
+                       vacía se muestra un espacio no-breaking para mantener
+                       la altura de la tarjeta uniforme cuando se apilan 3
+                       tiles en desktop o mobile.
+  color     str      — hex del valor. Default #18181B (negro).
+
+Uso:
+  {% include "emails/_partials/kpi_tile.html" with label="Revenue" value=kpis.revenue_formatted sublabel=kpis.revenue_delta %}
+
+Garantía: todas las tiles incluidas con este partial tienen altura
+idéntica en Gmail + Outlook + Apple Mail, tanto en desktop como en
+mobile (3 líneas × misma tipografía + line-height + min-height).
+{% endcomment %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
+  <div style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;line-height:1.4;">{{ label }}</div>
+  <div style="font-family:'DM Sans','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:{{ color|default:'#18181B' }};margin-top:4px;letter-spacing:-0.5px;line-height:1.2;">{{ value }}</div>
+  <div style="font-family:'DM Sans','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;color:#71717A;margin-top:2px;line-height:1.4;min-height:15px;">{% if sublabel %}{{ sublabel|safe }}{% else %}&nbsp;{% endif %}</div>
+</td></tr></table>
