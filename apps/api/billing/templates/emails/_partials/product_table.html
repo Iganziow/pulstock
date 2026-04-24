@@ -1,0 +1,25 @@
+{% comment %}Partial: tabla de productos para ABC report.
+Context: items (list of {name, sku, units, revenue_formatted, margin_pct, cls}), border, header_bg, header_fg
+{% endcomment %}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid {{ border }};border-radius:14px;margin:0 0 20px;overflow:hidden;">
+  <tr bgcolor="{{ header_bg }}" style="background:{{ header_bg }};">
+    <td style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ header_fg }};letter-spacing:1px;text-transform:uppercase;font-weight:600;border-bottom:1px solid {{ border }};">Producto</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ header_fg }};letter-spacing:1px;text-transform:uppercase;font-weight:600;border-bottom:1px solid {{ border }};">Unid.</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ header_fg }};letter-spacing:1px;text-transform:uppercase;font-weight:600;border-bottom:1px solid {{ border }};">Revenue</td>
+    <td align="right" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ header_fg }};letter-spacing:1px;text-transform:uppercase;font-weight:600;border-bottom:1px solid {{ border }};">Mgn</td>
+    <td align="center" style="padding:10px 16px;font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:{{ header_fg }};letter-spacing:1px;text-transform:uppercase;font-weight:600;border-bottom:1px solid {{ border }};">Cls</td>
+  </tr>
+  {% for it in items %}
+  <tr>
+    <td style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid {{ border }};{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;">
+      <div style="font-weight:600;font-size:13px;color:#18181B;letter-spacing:-0.1px;">{{ it.name }}</div>
+      <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:11px;color:#A1A1AA;margin-top:2px;">{{ it.sku }}</div>
+    </td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid {{ border }};{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;color:#3F3F46;">{{ it.units }}</td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid {{ border }};{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;color:#18181B;">{{ it.revenue_formatted }}</td>
+    <td align="right" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid {{ border }};{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;color:#3F3F46;">{{ it.margin_pct }}%</td>
+    <td align="center" style="padding:12px 16px;{% if not forloop.last %}border-bottom:1px solid {{ border }};{% endif %}">
+      <span style="display:inline-block;font-family:'JetBrains Mono',Menlo,monospace;font-size:11px;font-weight:700;color:{% if it.cls == 'A' %}#16A34A{% elif it.cls == 'B' %}#D97706{% else %}#71717A{% endif %};background:#FFFFFF;border:1px solid {% if it.cls == 'A' %}#A7F3D0{% elif it.cls == 'B' %}#FDE68A{% else %}#D4D4D8{% endif %};padding:2px 8px;border-radius:6px;">{{ it.cls }}</span>
+    </td>
+  </tr>
+  {% endfor %}
+</table>

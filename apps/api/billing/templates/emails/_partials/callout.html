@@ -1,0 +1,27 @@
+{% comment %}Partial: Callout semántico (caja de aviso con icono).
+Context requerido:
+  bg str (ej #EEF2FF)
+  border str (ej #C7D2FE)
+  fg str (ej #4F46E5)
+  icon str — carácter o "i","!","✓","★","🔒"
+  title str
+  body str|safe — opcional
+{% endcomment %}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="{{ bg }}" style="background:{{ bg }};border:1px solid {{ border }};border-radius:14px;margin:0 0 20px;">
+  <tr>
+    <td style="padding:18px 20px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+        {% if icon %}
+        <td valign="top" width="32" style="padding-right:14px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td align="center" valign="middle" width="32" height="32" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid {{ border }};border-radius:10px;color:{{ fg }};font-weight:700;font-size:16px;font-family:'DM Sans',Helvetica,Arial,sans-serif;line-height:32px;width:32px;height:32px;">{{ icon }}</td>
+          </tr></table>
+        </td>
+        {% endif %}
+        <td valign="top" style="font-family:'DM Sans',Helvetica,Arial,sans-serif;">
+          {% if title %}<div style="font-size:14px;font-weight:700;color:{{ fg }};letter-spacing:-0.1px;{% if body %}margin-bottom:4px;{% endif %}">{{ title }}</div>{% endif %}
+          {% if body %}<div style="font-size:13px;color:#3F3F46;line-height:1.55;">{{ body|safe }}</div>{% endif %}
+        </td>
+      </tr></table>
+    </td>
+  </tr>
+</table>

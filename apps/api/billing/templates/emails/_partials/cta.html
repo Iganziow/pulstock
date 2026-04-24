@@ -1,0 +1,50 @@
+{# cta.html — botón principal + link secundario opcional.
+   tone: indigo|green|red|amber|black
+   label: "Abrir mi dashboard"
+   url: "https://..."
+   secondary_label (opt): "Descargar app"
+   secondary_url (opt): "https://..."
+#}
+{% if tone == "green" %}{% with accent="#16A34A" accent2="#16A34A" %}
+<tr><td class="ps-cta-wrap" style="padding:12px 36px 36px;">
+  <!--[if mso]>
+  <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ url }}" style="height:52px;v-text-anchor:middle;width:520px;" arcsize="24%" stroke="f" fillcolor="{{ accent }}"><w:anchorlock/><center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{{ label }} &rarr;</center></v:roundrect>
+  <![endif]-->
+  <!--[if !mso]><!-- -->
+  <a class="ps-cta" href="{{ url }}" style="display:block;text-align:center;text-decoration:none;background:{{ accent }};background-image:linear-gradient(135deg,{{ accent }} 0%,{{ accent2 }} 100%);color:#ffffff;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:600;font-size:15px;padding:15px 24px;border-radius:12px;box-shadow:0 6px 16px -4px {{ accent }}55;letter-spacing:-0.1px;">{{ label }} <span style="opacity:0.85;">&rarr;</span></a>
+  <!--<![endif]-->
+  {% if secondary_label %}<p style="text-align:center;margin:14px 0 0;"><a href="{{ secondary_url|default:'#' }}" style="color:#71717A;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;text-decoration:none;border-bottom:1px dotted #A1A1AA;padding-bottom:1px;">{{ secondary_label }}</a></p>{% endif %}
+</td></tr>
+{% endwith %}{% elif tone == "red" %}{% with accent="#DC2626" accent2="#DC2626" %}
+<tr><td class="ps-cta-wrap" style="padding:12px 36px 36px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ url }}" style="height:52px;v-text-anchor:middle;width:520px;" arcsize="24%" stroke="f" fillcolor="{{ accent }}"><w:anchorlock/><center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{{ label }} &rarr;</center></v:roundrect><![endif]-->
+  <!--[if !mso]><!-- -->
+  <a class="ps-cta" href="{{ url }}" style="display:block;text-align:center;text-decoration:none;background:{{ accent }};background-image:linear-gradient(135deg,{{ accent }} 0%,{{ accent2 }} 100%);color:#ffffff;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:600;font-size:15px;padding:15px 24px;border-radius:12px;box-shadow:0 6px 16px -4px {{ accent }}55;letter-spacing:-0.1px;">{{ label }} <span style="opacity:0.85;">&rarr;</span></a>
+  <!--<![endif]-->
+  {% if secondary_label %}<p style="text-align:center;margin:14px 0 0;"><a href="{{ secondary_url|default:'#' }}" style="color:#71717A;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;text-decoration:none;border-bottom:1px dotted #A1A1AA;padding-bottom:1px;">{{ secondary_label }}</a></p>{% endif %}
+</td></tr>
+{% endwith %}{% elif tone == "amber" %}{% with accent="#D97706" accent2="#D97706" %}
+<tr><td class="ps-cta-wrap" style="padding:12px 36px 36px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ url }}" style="height:52px;v-text-anchor:middle;width:520px;" arcsize="24%" stroke="f" fillcolor="{{ accent }}"><w:anchorlock/><center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{{ label }} &rarr;</center></v:roundrect><![endif]-->
+  <!--[if !mso]><!-- -->
+  <a class="ps-cta" href="{{ url }}" style="display:block;text-align:center;text-decoration:none;background:{{ accent }};background-image:linear-gradient(135deg,{{ accent }} 0%,{{ accent2 }} 100%);color:#ffffff;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:600;font-size:15px;padding:15px 24px;border-radius:12px;box-shadow:0 6px 16px -4px {{ accent }}55;letter-spacing:-0.1px;">{{ label }} <span style="opacity:0.85;">&rarr;</span></a>
+  <!--<![endif]-->
+  {% if secondary_label %}<p style="text-align:center;margin:14px 0 0;"><a href="{{ secondary_url|default:'#' }}" style="color:#71717A;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;text-decoration:none;border-bottom:1px dotted #A1A1AA;padding-bottom:1px;">{{ secondary_label }}</a></p>{% endif %}
+</td></tr>
+{% endwith %}{% elif tone == "black" %}{% with accent="#18181B" accent2="#18181B" %}
+<tr><td class="ps-cta-wrap" style="padding:12px 36px 36px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ url }}" style="height:52px;v-text-anchor:middle;width:520px;" arcsize="24%" stroke="f" fillcolor="{{ accent }}"><w:anchorlock/><center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{{ label }} &rarr;</center></v:roundrect><![endif]-->
+  <!--[if !mso]><!-- -->
+  <a class="ps-cta" href="{{ url }}" style="display:block;text-align:center;text-decoration:none;background:{{ accent }};background-image:linear-gradient(135deg,{{ accent }} 0%,{{ accent2 }} 100%);color:#ffffff;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:600;font-size:15px;padding:15px 24px;border-radius:12px;box-shadow:0 6px 16px -4px {{ accent }}55;letter-spacing:-0.1px;">{{ label }} <span style="opacity:0.85;">&rarr;</span></a>
+  <!--<![endif]-->
+  {% if secondary_label %}<p style="text-align:center;margin:14px 0 0;"><a href="{{ secondary_url|default:'#' }}" style="color:#71717A;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;text-decoration:none;border-bottom:1px dotted #A1A1AA;padding-bottom:1px;">{{ secondary_label }}</a></p>{% endif %}
+</td></tr>
+{% endwith %}{% else %}{% with accent="#4F46E5" accent2="#7C3AED" %}
+<tr><td class="ps-cta-wrap" style="padding:12px 36px 36px;">
+  <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ url }}" style="height:52px;v-text-anchor:middle;width:520px;" arcsize="24%" stroke="f" fillcolor="{{ accent }}"><w:anchorlock/><center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">{{ label }} &rarr;</center></v:roundrect><![endif]-->
+  <!--[if !mso]><!-- -->
+  <a class="ps-cta" href="{{ url }}" style="display:block;text-align:center;text-decoration:none;background:{{ accent }};background-image:linear-gradient(135deg,{{ accent }} 0%,{{ accent2 }} 100%);color:#ffffff;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-weight:600;font-size:15px;padding:15px 24px;border-radius:12px;box-shadow:0 6px 16px -4px {{ accent }}55;letter-spacing:-0.1px;">{{ label }} <span style="opacity:0.85;">&rarr;</span></a>
+  <!--<![endif]-->
+  {% if secondary_label %}<p style="text-align:center;margin:14px 0 0;"><a href="{{ secondary_url|default:'#' }}" style="color:#71717A;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;text-decoration:none;border-bottom:1px dotted #A1A1AA;padding-bottom:1px;">{{ secondary_label }}</a></p>{% endif %}
+</td></tr>
+{% endwith %}{% endif %}

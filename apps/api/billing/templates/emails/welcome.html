@@ -1,0 +1,50 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 01 · Welcome
+Context requerido:
+  user            obj con first_name, username, email
+  tenant          obj con name
+  plan            obj con name, price_clp (int)
+  next_charge     date — próximo cobro
+  dashboard_url   str
+{% endcomment %}
+{% block body %}
+<p style="margin:0 0 20px;font-size:15px;line-height:1.65;color:#3F3F46;letter-spacing:-0.1px;">
+  Tu cuenta está activa y lista para operar. Te dejamos tus datos de acceso y los primeros pasos para empezar en minutos.
+</p>
+
+<!-- DataCard -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F6F4FE" style="background:#F6F4FE;border:1px solid #C7D2FE;border-radius:14px;margin:0 0 24px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Negocio" value=tenant.name %}
+      {% include "emails/_partials/data_row.html" with label="Usuario" value=user.username mono=True color="#4F46E5" %}
+      {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}
+      {% include "emails/_partials/data_row.html" with label="Próximo cobro" value=next_charge|date:"j \\d\\e F, Y" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Tus 3 primeros pasos</h2>
+
+<!-- Steps -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+  {% for step in steps %}
+  <tr>
+    <td style="padding:14px 0;{% if not forloop.last %}border-bottom:1px solid #ECECF1;{% endif %}">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+        <td valign="top" width="32" style="padding-right:14px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td align="center" valign="middle" width="32" height="32" bgcolor="#EEF2FF" style="background:#EEF2FF;color:#4F46E5;font-weight:700;font-size:14px;font-family:'JetBrains Mono',Menlo,monospace;line-height:32px;border-radius:10px;">{{ forloop.counter|stringformat:"02d" }}</td>
+          </tr></table>
+        </td>
+        <td valign="top" style="padding-top:4px;">
+          <div style="font-weight:600;font-size:15px;color:#18181B;letter-spacing:-0.1px;font-family:'DM Sans',Helvetica,Arial,sans-serif;">{{ step.title }}</div>
+          <div style="font-size:13.5px;color:#71717A;margin-top:3px;line-height:1.55;font-family:'DM Sans',Helvetica,Arial,sans-serif;">{{ step.body|safe }}</div>
+        </td>
+      </tr></table>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

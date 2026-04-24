@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 05 · Suspension
+Context: suspended_at, retry_count, max_retries, amount_due, data_until
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#F4F4F5" border="#D4D4D8" fg="#18181B" icon="🔒" title="Acceso pausado · Datos conservados 30 días" body="Productos, ventas, clientes y reportes se mantienen intactos. Al actualizar tu pago, recuperas todo exactamente como lo dejaste." %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Suspendida el" value=suspended_at|date:"d/m/Y" %}
+      {% include "emails/_partials/data_row.html" with label="Intentos de cobro" value=retry_progress %}
+      {% include "emails/_partials/data_row.html" with label="Deuda pendiente" value=amount_due big=True %}
+      {% include "emails/_partials/data_row.html" with label="Datos hasta" value=data_until|date:"d/m/Y" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<p style="margin:0 0 8px;font-size:13.5px;line-height:1.65;color:#3F3F46;letter-spacing:-0.1px;">
+  Después del {{ data_until|date:"j \\d\\e F" }}, tus datos se eliminarán de forma permanente según nuestra política de retención. Si necesitas exportar información, escríbenos antes de esa fecha.
+</p>
+{% endblock %}

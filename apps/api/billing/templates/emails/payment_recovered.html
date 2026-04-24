@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 06 · Payment recovered
+Context: plan, invoice_number, amount_formatted, payment_method, charged_at, next_charge
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#ECFDF5" border="#A7F3D0" fg="#16A34A" icon="✓" title=recovered_title body=recovered_body %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}
+      {% include "emails/_partials/data_row.html" with label="Factura" value=invoice_number mono=True %}
+      {% include "emails/_partials/data_row.html" with label="Monto cobrado" value=amount_formatted big=True color="#16A34A" %}
+      {% include "emails/_partials/data_row.html" with label="Próximo cobro" value=next_charge|date:"d/m/Y" is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+<p style="margin:0 0 8px;font-size:13.5px;line-height:1.65;color:#3F3F46;letter-spacing:-0.1px;">
+  Gracias por seguir confiando en Pulstock para hacer crecer tu negocio 💚
+</p>
+{% endblock %}

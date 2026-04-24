@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email 03 · Renewal reminder
+Context: days_left, plan, current_period_end, payment_method, next_period_end
+{% endcomment %}
+{% block body %}
+<p style="margin:0 0 20px;font-size:15px;line-height:1.65;color:#3F3F46;letter-spacing:-0.1px;">
+  Hola {{ user.first_name|default:"" }}, este es un aviso amistoso sobre tu próxima renovación. Si todo está en orden, puedes ignorar este correo.
+</p>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#F6F4FE" style="background:#F6F4FE;border:1px solid #C7D2FE;border-radius:14px;margin:0 0 20px;">
+  <tr><td style="padding:4px 20px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+      {% include "emails/_partials/data_row.html" with label="Plan" value=plan.name %}
+      {% include "emails/_partials/data_row.html" with label="Monto a cobrar" value=plan.price_formatted big=True color="#4F46E5" %}
+      {% include "emails/_partials/data_row.html" with label="Método de pago" value=payment_method mono=True %}
+      {% include "emails/_partials/data_row.html" with label="Fecha de cobro" value=current_period_end|date:"d/m/Y" %}
+      {% include "emails/_partials/data_row.html" with label="Próximo período" value=period_range is_last=True %}
+    </table>
+  </td></tr>
+</table>
+
+{% include "emails/_partials/callout.html" with bg="#EEF2FF" border="#C7D2FE" fg="#4F46E5" title="¿Quieres cambiar de plan?" body="Puedes cambiarte al plan Anual y ahorrar el equivalente a 2 meses al año." %}
+{% endblock %}
