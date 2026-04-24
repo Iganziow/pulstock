@@ -13,29 +13,17 @@ Context:
 {% endcomment %}
 {% block body %}
 
-<!-- KPIs (3 tarjetas, tabla 3-col) -->
+<!-- KPIs (3 tiles uniformes vía partial kpi_tile) -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
   <tr>
     <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Revenue</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#18181B;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.revenue_formatted }}</div>
-        {% if kpis.revenue_delta %}<div style="font-size:11px;color:#71717A;margin-top:2px;">{{ kpis.revenue_delta }}</div>{% endif %}
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="Revenue" value=kpis.revenue_formatted sublabel=kpis.revenue_delta %}
     </td>
     <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Utilidad</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#16A34A;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.profit_formatted }}</div>
-        <div style="font-size:11px;color:#71717A;margin-top:2px;">Margen {{ kpis.margin_pct }}%</div>
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="Utilidad" value=kpis.profit_formatted sublabel=kpis.margin_sublabel color="#16A34A" %}
     </td>
     <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Productos</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#18181B;margin-top:4px;letter-spacing:-0.5px;">{{ kpis.products_count }}</div>
-        <div style="font-size:11px;color:#71717A;margin-top:2px;">activos con venta</div>
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="Productos" value=kpis.products_count sublabel="activos con venta" %}
     </td>
   </tr>
 </table>

@@ -9,27 +9,17 @@ Context:
 {% endcomment %}
 {% block body %}
 
-<!-- KPIs -->
+<!-- KPIs (3 tiles uniformes vía partial kpi_tile) -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
   <tr>
     <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Agotados</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#DC2626;margin-top:4px;letter-spacing:-0.5px;">{{ critical_count }}</div>
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="Agotados" value=critical_count sublabel="stock en 0" color="#DC2626" %}
     </td>
     <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">Bajo mínimo</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#D97706;margin-top:4px;letter-spacing:-0.5px;">{{ low_count }}</div>
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="Bajo mínimo" value=low_count sublabel="productos" color="#D97706" %}
     </td>
     <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="#FAFAFC" style="background:#FAFAFC;border:1px solid #ECECF1;border-radius:12px;"><tr><td style="padding:14px 14px 16px;">
-        <div style="font-family:'JetBrains Mono',Menlo,monospace;font-size:10px;color:#71717A;letter-spacing:1px;text-transform:uppercase;font-weight:600;">A reponer</div>
-        <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;color:#18181B;margin-top:4px;letter-spacing:-0.5px;">{{ total_deficit }} un.</div>
-        <div style="font-size:11px;color:#71717A;margin-top:2px;">suma total</div>
-      </td></tr></table>
+      {% include "emails/_partials/kpi_tile.html" with label="A reponer" value=total_deficit_formatted sublabel="suma total" %}
     </td>
   </tr>
 </table>
