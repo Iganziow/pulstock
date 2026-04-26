@@ -387,6 +387,7 @@ class TenantDetailView(APIView):
             "legal_name": t.legal_name,
             "business_type": getattr(t, "business_type", "other") or "other",
             "is_active": t.is_active,
+            "internal_notes": t.internal_notes,
             "created_at": t.created_at.isoformat(),
             "users": users,
             "stores": stores,
@@ -1274,4 +1275,223 @@ class AdminImportSalesView(APIView):
             "skipped": skipped,
             "errors": errors[:20],
             "total_rows": len(rows),
+        })
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SOPORTE — Features para que el admin pueda asistir clientes en tiempo real
+# (Fase: pre-piloto cafetería)
+# ═════════════════════════════════════════════════════════════════════════════
+
+class AdminUserResetPasswordView(APIView):
+    """POST /api/superadmin/users/<id>/reset-password/
+
+    Genera una contraseña aleatoria nueva para el user y la setea con
+    set_password(). Devuelve la pass UNA sola vez en la respuesta para que
+    el admin se la dicte/envíe al cliente. Después de este request, la pass
+    nueva ya no puede recuperarse — solo el cliente la conoce (y el admin
+    si la guardó del response).
+
+    Pensado para el escenario "cliente olvidó su contraseña" sin tener un
+    flujo automático de password reset por email todavía.
+    """
+    permission_classes = PERMS
+
+    def post(self, request, user_id):
+        import secrets, string
+        user = get_object_or_404(User, pk=user_id)
+
+        # Pass legible: 12 chars, sin caracteres confusos (0/O, 1/l/I)
+        alphabet = string.ascii_letters + string.digits
+        alphabet = "".join(c for c in alphabet if c not in "0OIl1")
+        new_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        logger.info(
+            "Superadmin %s reset password for user %d (%s)",
+            request.user.email, user.pk, user.email,
+        )
+        return Response({
+            "ok": True,
+            "user_id": user.pk,
+            "email": user.email,
+            "new_password": new_password,
+            "warning": "Esta contraseña solo se muestra UNA VEZ. Anótela ahora.",
+        })
+
+
+class AdminTenantResendEmailView(APIView):
+    """POST /api/superadmin/tenants/<id>/resend-email/
+
+    Body: { "type": "welcome" | "payment_link" | "trial_reminder" |
+                     "payment_recovered" | "renewal_reminder" }
+
+    Reenvía un email transaccional al owner del tenant. Útil cuando el
+    cliente reporta "no me llegó". Usa los renderers existentes para
+    asegurar consistencia con los emails automáticos.
+    """
+    permission_classes = PERMS
+
+    EMAIL_TYPES = {
+        "welcome", "payment_link", "trial_reminder",
+        "payment_recovered", "renewal_reminder",
+    }
+
+    def post(self, request, tenant_id):
+        email_type = (request.data.get("type") or "").strip().lower()
+        if email_type not in self.EMAIL_TYPES:
+            return Response(
+                {"detail": f"type debe ser uno de: {', '.join(sorted(self.EMAIL_TYPES))}"},
+                status=400,
+            )
+
+        tenant = get_object_or_404(Tenant, pk=tenant_id)
+
+        owner = User.objects.filter(
+            tenant=tenant, role="owner", is_active=True,
+        ).first()
+        if not owner or not owner.email:
+            return Response(
+                {"detail": "El tenant no tiene un owner activo con email."},
+                status=400,
+            )
+
+        sub = Subscription.objects.filter(tenant=tenant).select_related("plan").first()
+
+        try:
+            from billing import tasks as T
+            from django.utils import timezone as _tz
+
+            if email_type == "welcome":
+                if not sub:
+                    return Response({"detail": "El tenant no tiene suscripción."}, status=400)
+                T._send_welcome_email(owner, tenant, sub.plan)
+            elif email_type == "trial_reminder":
+                if not sub or not sub.trial_ends_at:
+                    return Response({"detail": "El tenant no tiene un trial activo."}, status=400)
+                days_left = max(0, (sub.trial_ends_at - _tz.now()).days)
+                T._send_trial_reminder(sub, days_left)
+            elif email_type == "renewal_reminder":
+                if not sub:
+                    return Response({"detail": "El tenant no tiene suscripción."}, status=400)
+                days_left = max(
+                    0,
+                    (sub.current_period_end - _tz.now()).days if sub.current_period_end else 0,
+                )
+                T._send_renewal_reminder(sub, days_left)
+            elif email_type == "payment_recovered":
+                if not sub:
+                    return Response({"detail": "El tenant no tiene suscripción."}, status=400)
+                T._send_payment_recovered_notice(sub)
+            elif email_type == "payment_link":
+                if not sub:
+                    return Response({"detail": "El tenant no tiene suscripción."}, status=400)
+                T._send_payment_failed_notice(sub)
+        except Exception as e:
+            logger.exception("Resend email %s failed for tenant %d", email_type, tenant_id)
+            return Response(
+                {"detail": f"El email no pudo enviarse: {e}"},
+                status=502,
+            )
+
+        logger.info(
+            "Superadmin %s resent email '%s' to %s (tenant=%d)",
+            request.user.email, email_type, owner.email, tenant_id,
+        )
+        return Response({
+            "ok": True,
+            "type": email_type,
+            "sent_to": owner.email,
+        })
+
+
+class AdminGlobalSearchView(APIView):
+    """GET /api/superadmin/search/?q=texto
+
+    Búsqueda global rápida para soporte. Busca en:
+      - Tenant: name, slug, rut, email, legal_name
+      - User: username, email, first_name, last_name
+
+    Devuelve hasta 20 resultados de cada tipo. q debe tener al menos 2
+    caracteres para evitar listados accidentales.
+    """
+    permission_classes = PERMS
+
+    def get(self, request):
+        q = (request.query_params.get("q") or "").strip()
+        if len(q) < 2:
+            return Response({"tenants": [], "users": [], "query": q})
+
+        tenants_qs = Tenant.objects.filter(
+            Q(name__icontains=q)
+            | Q(slug__icontains=q)
+            | Q(rut__icontains=q)
+            | Q(email__icontains=q)
+            | Q(legal_name__icontains=q)
+        ).order_by("-id")[:20]
+
+        users_qs = User.objects.filter(
+            Q(username__icontains=q)
+            | Q(email__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+        ).select_related("tenant").order_by("-id")[:20]
+
+        return Response({
+            "query": q,
+            "tenants": [
+                {
+                    "id": t.id, "name": t.name, "slug": t.slug,
+                    "rut": t.rut, "email": t.email, "is_active": t.is_active,
+                }
+                for t in tenants_qs
+            ],
+            "users": [
+                {
+                    "id": u.id, "username": u.username, "email": u.email,
+                    "full_name": (f"{u.first_name} {u.last_name}").strip(),
+                    "role": u.role, "is_active": u.is_active,
+                    "tenant": {"id": u.tenant_id, "name": u.tenant.name} if u.tenant else None,
+                }
+                for u in users_qs
+            ],
+        })
+
+
+class AdminTenantNotesView(APIView):
+    """PATCH /api/superadmin/tenants/<id>/notes/
+
+    Actualiza el campo internal_notes del tenant. Soporte interno (no
+    visible al cliente). Útil para el admin para anotar contexto del
+    cliente: "llamó por X, prefiere WhatsApp, etc."
+
+    Body: { "internal_notes": "texto..." }
+    """
+    permission_classes = PERMS
+
+    def patch(self, request, tenant_id):
+        tenant = get_object_or_404(Tenant, pk=tenant_id)
+        notes = request.data.get("internal_notes", "")
+        if not isinstance(notes, str):
+            return Response({"detail": "internal_notes debe ser string."}, status=400)
+
+        if len(notes) > 5000:
+            return Response(
+                {"detail": "Las notas no pueden exceder 5000 caracteres."},
+                status=400,
+            )
+
+        tenant.internal_notes = notes
+        tenant.save(update_fields=["internal_notes"])
+
+        logger.info(
+            "Superadmin %s updated internal_notes for tenant %d (%d chars)",
+            request.user.email, tenant.id, len(notes),
+        )
+        return Response({
+            "ok": True,
+            "tenant_id": tenant.id,
+            "internal_notes": tenant.internal_notes,
         })

@@ -28,6 +28,11 @@ class Tenant(models.Model):
     primary_color = models.CharField(max_length=7, blank=True, default="#4F46E5",
         help_text="Color principal (hex)")
 
+    # ── Soporte interno (NO visible al cliente) ──
+    internal_notes = models.TextField(blank=True, default="",
+        help_text="Notas privadas del equipo Pulstock — visibles solo en superadmin "
+                  "(ej. 'Llamó por X, prefiere WhatsApp, dueño Pedro')")
+
     # ── Configuración de boleta/recibo ──
     receipt_header = models.TextField(blank=True, default="",
         help_text="Texto adicional en el encabezado de boletas")
