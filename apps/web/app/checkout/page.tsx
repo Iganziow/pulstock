@@ -149,7 +149,7 @@ function CheckoutInner() {
         } else if (res.status === 429) {
           setError("Demasiados intentos. Espera unos minutos antes de volver a intentar.");
         } else {
-          setError(data?.detail || "No pudimos iniciar el pago. Intenta de nuevo o contacta a soporte@pulstock.cl.");
+          setError(data?.detail || "No pudimos iniciar el pago. Intenta de nuevo o contacta a pulstock.admin@gmail.com.");
         }
         return;
       }
@@ -158,7 +158,7 @@ function CheckoutInner() {
         // Redirige a Flow. El user vuelve después a /checkout/complete.
         window.location.href = data.payment_url;
       } else {
-        setError("Recibimos respuesta del servidor pero sin URL de pago. Intenta de nuevo o contacta a soporte@pulstock.cl.");
+        setError("Recibimos respuesta del servidor pero sin URL de pago. Intenta de nuevo o contacta a pulstock.admin@gmail.com.");
       }
     } catch {
       setError("Sin conexión a internet. Verifica tu WiFi o datos móviles y vuelve a intentar.");

@@ -1099,7 +1099,7 @@ class CheckoutCreateView(APIView):
             # No exponer mensajes técnicos del gateway al usuario final.
             logger.error("Flow checkout creation failed: %s", result.get("error"))
             return Response(
-                {"detail": "El sistema de pagos no responde en este momento. Intenta de nuevo en 1 minuto. Si el problema continúa, escríbenos a soporte@pulstock.cl."},
+                {"detail": "El sistema de pagos no responde en este momento. Intenta de nuevo en 1 minuto. Si el problema continúa, escríbenos a pulstock.admin@gmail.com."},
                 status=502,
             )
 

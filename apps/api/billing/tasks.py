@@ -434,7 +434,7 @@ def _get_owner_email(sub) -> str | None:
 APP_URL = "https://app.pulstock.cl"
 SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=plan"
 BRAND = "Pulstock"
-SUPPORT_EMAIL = "soporte@pulstock.cl"
+SUPPORT_EMAIL = "pulstock.admin@gmail.com"
 
 
 def _send_email_safe(to: str, subject: str, body: str, html_message: str | None = None):

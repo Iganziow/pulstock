@@ -73,7 +73,7 @@ function friendlyError(rawError: string, hasToken: boolean): { title: string; me
   // Fallback genérico
   return {
     title: "Algo no salió como esperábamos",
-    message: rawError || "No pudimos cargar la información del pago. Prueba Reintentar; si el problema continúa, escríbenos a soporte@pulstock.cl.",
+    message: rawError || "No pudimos cargar la información del pago. Prueba Reintentar; si el problema continúa, escríbenos a pulstock.admin@gmail.com.",
     primaryAction: "support",
   };
 }
@@ -320,7 +320,7 @@ function CheckoutCompleteInner() {
               }}>
                 <strong>Importante:</strong> si efectivamente pagaste, NO vuelvas a pagar.
                 Espera unos minutos y presiona &ldquo;Verificar de nuevo&rdquo;.
-                Si el problema persiste, contáctanos a soporte@pulstock.cl con tu RUT.
+                Si el problema persiste, contáctanos a pulstock.admin@gmail.com con tu RUT.
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 16 }}>
                 <button onClick={handleRetry} style={{
@@ -355,7 +355,7 @@ function CheckoutCompleteInner() {
                   background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700,
                   textDecoration: "none",
                 }}>Intentar de nuevo</a>
-                <a href="mailto:soporte@pulstock.cl" style={{
+                <a href="mailto:pulstock.admin@gmail.com" style={{
                   display: "inline-block", padding: "10px 18px", borderRadius: C.r,
                   background: "transparent", color: C.mid, fontSize: 13, fontWeight: 600,
                   textDecoration: "none", border: `1px solid ${C.border}`,
@@ -413,7 +413,7 @@ function CheckoutCompleteInner() {
                     border: friendly.primaryAction === "back" ? "none" : `1px solid ${C.border}`,
                   }}>{friendly.primaryAction === "back" ? "Ir a planes" : "← Volver a planes"}</a>
                   {friendly.primaryAction === "support" && (
-                    <a href="mailto:soporte@pulstock.cl" style={{
+                    <a href="mailto:pulstock.admin@gmail.com" style={{
                       display: "inline-block", padding: "10px 18px", borderRadius: C.r,
                       background: "transparent", color: C.mid, fontSize: 13, fontWeight: 600,
                       textDecoration: "none", border: `1px solid ${C.border}`,
