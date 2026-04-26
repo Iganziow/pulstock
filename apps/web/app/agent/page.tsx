@@ -77,14 +77,14 @@ export default function AgentPage() {
           </span>
         </Link>
         <a
-          href="mailto:soporte@pulstock.cl"
+          href="mailto:pulstock.admin@gmail.com"
           style={{
             fontSize: 13,
             color: "#6B7280",
             textDecoration: "none",
           }}
         >
-          soporte@pulstock.cl
+          pulstock.admin@gmail.com
         </a>
       </header>
 
@@ -450,8 +450,8 @@ export default function AgentPage() {
             </FAQ>
             <FAQ q="Me sale un error">
               Escribime a{" "}
-              <a href="mailto:soporte@pulstock.cl" style={{ color: "#4F46E5" }}>
-                soporte@pulstock.cl
+              <a href="mailto:pulstock.admin@gmail.com" style={{ color: "#4F46E5" }}>
+                pulstock.admin@gmail.com
               </a>{" "}
               con un screenshot. Te respondo en horas.
             </FAQ>
