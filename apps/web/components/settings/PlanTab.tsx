@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Card } from "./SettingsUI";
@@ -99,15 +99,34 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
     })();
   }, []);
 
+  // Guard sincrónico para que dos clicks rápidos en el botón "Pagar" no
+  // creen 2 invoices duplicadas. setBusy es async (React puede deferir el
+  // re-render), así que el botón disabled NO es suficiente. El useRef
+  // chequea ANTES del fetch en el mismo tick.
+  const payingRef = useRef(false);
   const handlePay = async () => {
+    if (payingRef.current) return;
+    payingRef.current = true;
     setBusy(true);
     try {
       const data = await apiFetch("/billing/subscription/pay/", { method: "POST", body: JSON.stringify({}) });
       if (data.payment_url) {
         window.location.href = data.payment_url;
+      } else {
+        flash("err", "No recibimos un link de pago. Intenta de nuevo.");
       }
-    } catch { flash("err", "No se pudo generar el link de pago."); }
-    finally { setBusy(false); }
+    } catch (e: any) {
+      // apiFetch tiene timeout 30s — si lo superó, mensaje específico.
+      if (e?.name === "AbortError" || e?.message?.includes("timeout")) {
+        flash("err", "El servidor tardó demasiado. Verifica tu conexión y vuelve a intentar.");
+      } else {
+        flash("err", "No se pudo generar el link de pago.");
+      }
+    }
+    finally {
+      payingRef.current = false;
+      setBusy(false);
+    }
   };
 
   const handleUpgrade = async (key: string) => {

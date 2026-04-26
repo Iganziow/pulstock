@@ -138,7 +138,16 @@ function redirectToExpired() {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<Response> {
+/**
+ * Fetch con timeout configurable. Si la respuesta no llega en `timeoutMs`,
+ * se aborta el request y throws AbortError.
+ *
+ * Usado por `apiFetch` internamente, y exportado para flujos públicos
+ * (checkout, login, register) que NO usan apiFetch porque no requieren
+ * el JWT — pero igual necesitan timeout para no colgar la UI si la API
+ * se cuelga.
+ */
+export function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));

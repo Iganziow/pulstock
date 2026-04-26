@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { C } from "@/lib/theme";
 import { LogoIcon } from "@/components/ui/Logo";
+import { fetchWithTimeout } from "@/lib/api";
 
 type Plan = { key: string; name: string; price_clp: number; max_products: number; max_stores: number; max_users: number; has_forecast: boolean; has_abc: boolean; has_reports: boolean; has_transfers: boolean };
 
@@ -58,7 +59,9 @@ function CheckoutInner() {
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   useEffect(() => {
-    fetch(`${API}/billing/plans/`)
+    // Listar planes — timeout 15s para no quedar cargando indefinido si la
+    // API no responde. Si falla, igual hay un fallback amigable abajo.
+    fetchWithTimeout(`${API}/billing/plans/`, {}, 15000)
       .then(r => r.json())
       .then(data => {
         const list = (data || []).filter((p: Plan) => p.price_clp > 0);
@@ -121,7 +124,9 @@ function CheckoutInner() {
     setError("");
 
     try {
-      const res = await fetch(`${API}/billing/checkout/create/`, {
+      // Timeout 30s. Si Flow API tarda más, abortamos y mostramos error
+      // claro en lugar de quedar "Procesando..." indefinidamente.
+      const res = await fetchWithTimeout(`${API}/billing/checkout/create/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -133,7 +138,7 @@ function CheckoutInner() {
           owner_username: ownerUser.trim(),
           owner_password: password,
         }),
-      });
+      }, 30000);
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
@@ -160,8 +165,13 @@ function CheckoutInner() {
       } else {
         setError("Recibimos respuesta del servidor pero sin URL de pago. Intenta de nuevo o contacta a pulstock.admin@gmail.com.");
       }
-    } catch {
-      setError("Sin conexión a internet. Verifica tu WiFi o datos móviles y vuelve a intentar.");
+    } catch (e: any) {
+      // AbortError si el fetch se canceló por timeout (>30s).
+      if (e?.name === "AbortError") {
+        setError("El servidor tardó demasiado en responder. Verifica tu conexión y vuelve a intentar.");
+      } else {
+        setError("Sin conexión a internet. Verifica tu WiFi o datos móviles y vuelve a intentar.");
+      }
     } finally {
       submittingRef.current = false;
       setLoading(false);

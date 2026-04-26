@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { C } from "@/lib/theme";
+import { fetchWithTimeout } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -108,7 +109,12 @@ function CheckoutCompleteInner() {
       return;
     }
     try {
-      const res = await fetch(`${API}/billing/checkout/status/?token=${token}`);
+      // Timeout 10s en el primer fetch del status (post-redirect de Flow).
+      // Sin timeout, si el server tarda en responder el user veía
+      // "Verificando..." indefinidamente.
+      const res = await fetchWithTimeout(
+        `${API}/billing/checkout/status/?token=${token}`, {}, 10000,
+      );
       const data = await res.json();
       if (!mountedRef.current) return;
 
@@ -147,7 +153,12 @@ function CheckoutCompleteInner() {
           }
 
           try {
-            const r = await fetch(`${API}/billing/checkout/status/?token=${token}`);
+            // Timeout corto (5s) en cada poll — si un fetch se cuelga
+            // queremos cortarlo y reintentar en la próxima iteración, no
+            // dejar el setInterval colgado en una request infinita.
+            const r = await fetchWithTimeout(
+              `${API}/billing/checkout/status/?token=${token}`, {}, 5000,
+            );
             const d = await r.json();
             if (!mountedRef.current) return;
             setSession(d);
@@ -158,7 +169,7 @@ function CheckoutCompleteInner() {
             ) {
               stopPolling();
             }
-          } catch { /* retry en próxima iteración */ }
+          } catch { /* retry en próxima iteración (incluye AbortError por timeout) */ }
         }, POLL_INTERVAL_MS);
       }
     } catch {
