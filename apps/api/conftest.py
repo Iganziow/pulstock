@@ -1,4 +1,57 @@
+import os
 import pytest
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recrea las migraciones merge huérfanas de core que pdeploy genera al
+# deployar pero que NO están commiteadas al repo (intencionalmente — ver
+# docs/ops/04-deploy.md). Sin estos archivos, las migraciones que dependen
+# de esos nodes no encuentran el padre y los tests fallan con
+# NodeNotFoundError. Mismo patrón que `pdeploy`.
+# ─────────────────────────────────────────────────────────────────────────────
+# El huérfano `0018_merge_*` (recreado por pdeploy en el server) depende
+# de `0017_merge_20260405_1600` que también es huérfano y depende de otros
+# huérfanos en cadena. Para evitar mantener TODA la cadena en el conftest,
+# usamos dependencies SIMPLIFICADAS que solo apuntan a archivos del repo.
+#
+# En PRODUCCIÓN, las migrations ya están aplicadas con el grafo histórico
+# real — las dependencies son solo metadata de orden, no afectan el estado
+# de la DB. En tests locales, este grafo simplificado es suficiente para
+# que Django resuelva las leaves sin NodeNotFoundError.
+_ORPHAN_MIGRATIONS = [
+    ("0018_merge_0017_cronheartbeat_0017_merge_20260405_1600.py", [
+        ("core", "0017_cronheartbeat"),
+    ]),
+]
+
+def _recreate_orphan_merge_migrations():
+    here = os.path.dirname(__file__)
+    migrations_dir = os.path.join(here, "core", "migrations")
+    for filename, deps in _ORPHAN_MIGRATIONS:
+        target = os.path.join(migrations_dir, filename)
+        if os.path.exists(target):
+            continue
+        deps_str = ",\n        ".join(f"({a!r}, {b!r})" for a, b in deps)
+        content = (
+            "# Merge migration auto-recreado para pytest. Mismo patrón que pdeploy.\n"
+            "# Ver docs/ops/04-deploy.md.\n"
+            "from django.db import migrations\n\n"
+            "class Migration(migrations.Migration):\n"
+            "    dependencies = [\n"
+            f"        {deps_str},\n"
+            "    ]\n"
+            "    operations = []\n"
+        )
+        try:
+            with open(target, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError:
+            pass
+
+
+_recreate_orphan_merge_migrations()
+
+
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
