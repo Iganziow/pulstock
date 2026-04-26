@@ -960,11 +960,15 @@ class TestTasks:
 
     @override_settings(PAYMENT_GATEWAY="mock")
     def test_expire_trials_charges_on_success(self, subscription):
-        """Trial vencido → intenta cobrar. Mock éxito → ACTIVE."""
+        """Trial vencido CON tarjeta → intenta cobrar. Mock éxito → ACTIVE."""
         import os
         os.environ.pop("PAYMENT_GATEWAY_MOCK_FAIL", None)
         subscription.status = Subscription.Status.TRIALING
         subscription.trial_ends_at = timezone.now() - timedelta(hours=1)
+        # Con tarjeta registrada → entra al branch de cobro
+        subscription.flow_customer_id = "cus_mock_test"
+        subscription.card_last4 = "4242"
+        subscription.card_brand = "Visa"
         subscription.save()
 
         from billing.tasks import expire_trials
@@ -976,12 +980,16 @@ class TestTasks:
 
     @override_settings(PAYMENT_GATEWAY="mock")
     def test_expire_trials_failure_sets_past_due(self, subscription):
-        """Trial vencido + fallo de pago → PAST_DUE."""
+        """Trial vencido CON tarjeta + fallo de pago → PAST_DUE (entra al ciclo de retries)."""
         import os
         os.environ["PAYMENT_GATEWAY_MOCK_FAIL"] = "1"
         try:
             subscription.status = Subscription.Status.TRIALING
             subscription.trial_ends_at = timezone.now() - timedelta(hours=1)
+            # Con tarjeta registrada → intenta cobrar y falla → PAST_DUE
+            subscription.flow_customer_id = "cus_mock_test"
+            subscription.card_last4 = "4242"
+            subscription.card_brand = "Visa"
             subscription.save()
 
             from billing.tasks import expire_trials
@@ -991,6 +999,34 @@ class TestTasks:
             assert subscription.status == Subscription.Status.PAST_DUE
         finally:
             os.environ.pop("PAYMENT_GATEWAY_MOCK_FAIL", None)
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_expire_trials_no_card_cancels_subscription(self, subscription):
+        """Trial vencido SIN tarjeta → CANCELLED (no hay plan Free en Pulstock).
+
+        Regression test del bug donde la cuenta quedaba en PAST_DUE bloqueada
+        en lugar de cancelarse. Con este branch, el cliente puede agregar
+        tarjeta dentro de los 30 días para reactivar.
+        """
+        subscription.status = Subscription.Status.TRIALING
+        subscription.trial_ends_at = timezone.now() - timedelta(hours=1)
+        # Explícitamente: SIN tarjeta
+        subscription.flow_customer_id = ""
+        subscription.card_last4 = ""
+        subscription.cancelled_at = None
+        subscription.save()
+
+        from billing.tasks import expire_trials
+        result = expire_trials()
+        assert result["converted"] >= 1
+
+        subscription.refresh_from_db()
+        assert subscription.status == Subscription.Status.CANCELLED
+        assert subscription.cancelled_at is not None
+        # No debe haber creado un Invoice fantasma de cobro fallido
+        assert not Invoice.objects.filter(
+            subscription=subscription, status=Invoice.Status.FAILED,
+        ).exists()
 
     @override_settings(PAYMENT_GATEWAY="mock")
     def test_retry_failed_payments_success(self, subscription):

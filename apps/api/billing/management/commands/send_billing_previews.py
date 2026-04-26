@@ -50,6 +50,8 @@ class _MockSub:
         self.payment_retry_count = 2
         self.next_retry_at = timezone.now() + timedelta(days=2)
         self.suspended_at = timezone.now() - timedelta(hours=6)
+        self.cancelled_at = timezone.now() - timedelta(hours=1)
+        self.flow_customer_id = ""
         # Datos de tarjeta realistas — los emails payment_method los usan via
         # _sub_payment_method() del módulo tasks.py. Probamos con formato
         # Visa normal para ver cómo se ve en el email.

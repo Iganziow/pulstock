@@ -829,11 +829,15 @@ class TestCeleryTasks:
 
     @override_settings(PAYMENT_GATEWAY="mock")
     def test_expire_trial_charges(self, subscription):
-        """expire_trials: trial vencido → intenta cobro."""
+        """expire_trials: trial vencido CON tarjeta → intenta cobro → ACTIVE."""
         from billing.tasks import expire_trials
         subscription.status = Subscription.Status.TRIALING
         subscription.trial_ends_at = timezone.now() - timedelta(hours=1)
         subscription.current_period_end = timezone.now() - timedelta(hours=1)
+        # Con tarjeta registrada → entra al branch de cobro
+        subscription.flow_customer_id = "cus_mock_test"
+        subscription.card_last4 = "4242"
+        subscription.card_brand = "Visa"
         subscription.save()
 
         expire_trials()

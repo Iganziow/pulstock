@@ -318,12 +318,24 @@ def retry_failed_payments(self):
              soft_time_limit=300, time_limit=360)
 def expire_trials(self):
     """
-    Corre diariamente. Los trials vencidos sin método de pago
-    pasan a FREE. Los que sí tienen método de pago, se cobran.
+    Corre diariamente. Procesa trials vencidos:
+
+    - Si la suscripción TIENE tarjeta registrada (`flow_customer_id` +
+      `card_last4`), intenta cobrar el primer período. Si OK → ACTIVE.
+      Si falla → PAST_DUE (entra al ciclo de retries).
+
+    - Si la suscripción NO tiene tarjeta → `status=CANCELLED`. Pulstock
+      no tiene plan Free, así que sin método de pago el cliente pierde
+      acceso. El email "trial_expired" lo invita a agregar tarjeta para
+      reactivar (los datos se conservan 30 días).
+
+    El status `CANCELLED` es preferible a `PAST_DUE` para este caso
+    porque PAST_DUE implica un cobro fallido pendiente de retry, lo cual
+    no aplica acá: el cliente nunca puso tarjeta para fallar el cobro.
     """
     from django.conf import settings as dj_settings
     from .models import Subscription, Plan
-    from .services import change_plan, create_invoice, activate_period, register_payment_failure
+    from .services import create_invoice, activate_period, register_payment_failure
     from .gateway import charge_subscription
 
     lifetime_slugs = getattr(dj_settings, "BILLING_LIFETIME_SLUGS", [])
@@ -363,7 +375,23 @@ def expire_trials(self):
                 if not sub.trial_ends_at or sub.trial_ends_at > now:
                     continue
 
-                # Intentar cobrar el primer período
+                # ── Sin tarjeta: cancelar suscripción, no intentar cobrar ──
+                # Si no hay flow_customer_id ni card_last4, no tiene sentido
+                # crear un Invoice ni llamar al gateway: el cliente nunca
+                # ingresó método de pago. Marcamos cancelled y notificamos.
+                if not sub.flow_customer_id or not sub.card_last4:
+                    sub.status = Subscription.Status.CANCELLED
+                    sub.cancelled_at = now
+                    sub.save(update_fields=["status", "cancelled_at"])
+                    _send_trial_expired_notice(sub)
+                    logger.info(
+                        "Trial vencido sin tarjeta: tenant=%s → cancelled",
+                        sub.tenant_id,
+                    )
+                    converted += 1
+                    continue
+
+                # ── Con tarjeta: intentar cobrar el primer período ──
                 invoice = create_invoice(sub)
                 result  = charge_subscription(sub, invoice)
 
@@ -372,10 +400,14 @@ def expire_trials(self):
                     _send_trial_converted_notice(sub)
                     logger.info("Trial convertido a activo: tenant=%s", sub.tenant_id)
                 else:
-                    # Sin pago → bajar a Free y notificar
+                    # Tarjeta registrada pero el cobro falló → entra al ciclo
+                    # de retries (PAST_DUE) en lugar de cancelar de inmediato.
                     register_payment_failure(sub, invoice, error_msg=result.get("error", ""))
-                    _send_trial_expired_notice(sub)
-                    logger.info("Trial vencido sin pago: tenant=%s → downgrade a Free", sub.tenant_id)
+                    _send_payment_failed_notice(sub)
+                    logger.info(
+                        "Trial con tarjeta cobro fallido: tenant=%s → past_due",
+                        sub.tenant_id,
+                    )
 
                 converted += 1
         except Exception as exc:
