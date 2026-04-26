@@ -117,9 +117,14 @@ function refreshAccessToken(): Promise<string | null> {
 }
 
 function redirectToLogin() {
+  // Si la sesión expiró estando en el panel superadmin, debemos volver al
+  // login de superadmin, NO al login de tenants. clearTokens() borra la
+  // marca is_superuser, así que la chequeamos ANTES de limpiar.
+  const isSuper = typeof window !== "undefined"
+    && localStorage.getItem("is_superuser") === "true";
   clearTokens();
   if (typeof window !== "undefined") {
-    window.location.href = "/login";
+    window.location.href = isSuper ? "/superadmin/login" : "/login";
   }
 }
 

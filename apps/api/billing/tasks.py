@@ -432,7 +432,7 @@ def _get_owner_email(sub) -> str | None:
 # URLs y branding — estos son los fallbacks en caso que algún renderer los necesite.
 # Los renderers de email (email_renderers.py) tienen sus propias constantes.
 APP_URL = "https://app.pulstock.cl"
-SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=suscripcion"
+SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=plan"
 BRAND = "Pulstock"
 SUPPORT_EMAIL = "soporte@pulstock.cl"
 

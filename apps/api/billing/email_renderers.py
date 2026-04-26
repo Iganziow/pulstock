@@ -34,7 +34,7 @@ from django.utils import timezone
 
 APP_URL = "https://app.pulstock.cl"
 LANDING_URL = "https://pulstock.cl"
-SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=suscripcion"
+SETTINGS_URL = f"{APP_URL}/dashboard/settings?tab=plan"
 BRAND = "Pulstock"
 SUPPORT_EMAIL = "soporte@pulstock.cl"
 LOGO_URL = "https://pulstock.cl/email-logo.png?v=20260424"
