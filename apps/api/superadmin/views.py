@@ -212,8 +212,14 @@ class TenantListView(APIView):
         })
 
     def post(self, request):
-        """Crear tenant desde superadmin con owner, store y warehouse."""
+        """Crear tenant desde superadmin con owner, store y warehouse.
+
+        Toda la creación va dentro de un atomic() para que si algo falla
+        (ej. owner_email ya existe, o IntegrityError de slug por race),
+        no queden objetos huérfanos (Tenant sin Store, etc.).
+        """
         from django.utils.text import slugify
+        from django.db import transaction, IntegrityError
         from stores.models import Store
         from core.models import Warehouse
 
@@ -222,73 +228,90 @@ class TenantListView(APIView):
         if not name:
             return Response({"detail": "Nombre del negocio es requerido."}, status=400)
 
-        slug = slugify(name)
-        # Ensure unique slug
-        base_slug = slug
-        counter = 1
-        while Tenant.objects.filter(slug=slug).exists():
-            slug = f"{base_slug}-{counter}"
-            counter += 1
-
-        tenant = Tenant.objects.create(
-            name=name,
-            slug=slug,
-            business_type=data.get("business_type", "retail"),
-            email=data.get("email", ""),
-            phone=data.get("phone", ""),
-            rut=data.get("rut", ""),
-            legal_name=data.get("legal_name", ""),
-            giro=data.get("giro", ""),
-            address=data.get("address", ""),
-            city=data.get("city", ""),
-            comuna=data.get("comuna", ""),
-        )
-
-        # Create default store + warehouse
-        store_name = data.get("store_name", "Local Principal")
-        store = Store.objects.create(tenant=tenant, name=store_name, is_active=True)
-        warehouse = Warehouse.objects.create(
-            tenant=tenant, store=store,
-            name=data.get("warehouse_name", "Bodega Principal"),
-        )
-        tenant.default_warehouse = warehouse
-        tenant.save(update_fields=["default_warehouse"])
-
-        # Create owner user if email+password provided
-        owner_data = {}
+        # Validación temprana de owner email (antes del atomic) para devolver
+        # 400 limpio en vez de IntegrityError genérico.
         owner_email = data.get("owner_email", "").strip()
         owner_password = data.get("owner_password", "").strip()
         if owner_email and owner_password:
             if User.objects.filter(username=owner_email).exists():
                 return Response({"detail": f"El usuario {owner_email} ya existe."}, status=400)
-            owner = User.objects.create_user(
-                username=owner_email,
-                email=owner_email,
-                password=owner_password,
-                first_name=data.get("owner_first_name", ""),
-                last_name=data.get("owner_last_name", ""),
-                tenant=tenant,
-                role="owner",
-                active_store=store,
-            )
-            owner_data = {"id": owner.id, "email": owner.email}
 
-        # Create subscription if plan specified
-        sub_data = None
-        plan_key = data.get("plan_key")
-        if plan_key:
-            try:
-                plan = Plan.objects.get(key=plan_key, is_active=True)
-                sub, _ = Subscription.objects.get_or_create(
-                    tenant=tenant,
-                    defaults={
-                        "plan": plan,
-                        "status": data.get("sub_status", "active"),
-                    },
+        # Construir slug único — el while no es bulletproof contra race
+        # entre 2 superadmin (caso muy raro pero posible). Si la creación
+        # falla con IntegrityError lo capturamos abajo y retry una vez.
+        base_slug = slugify(name)
+        slug = base_slug
+        counter = 1
+        while Tenant.objects.filter(slug=slug).exists():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        try:
+            with transaction.atomic():
+                tenant = Tenant.objects.create(
+                    name=name,
+                    slug=slug,
+                    business_type=data.get("business_type", "retail"),
+                    email=data.get("email", ""),
+                    phone=data.get("phone", ""),
+                    rut=data.get("rut", ""),
+                    legal_name=data.get("legal_name", ""),
+                    giro=data.get("giro", ""),
+                    address=data.get("address", ""),
+                    city=data.get("city", ""),
+                    comuna=data.get("comuna", ""),
                 )
-                sub_data = {"plan": plan.name, "status": sub.status}
-            except Plan.DoesNotExist:
-                pass
+
+                store_name = data.get("store_name", "Local Principal")
+                store = Store.objects.create(tenant=tenant, name=store_name, is_active=True)
+                warehouse = Warehouse.objects.create(
+                    tenant=tenant, store=store,
+                    name=data.get("warehouse_name", "Bodega Principal"),
+                )
+                tenant.default_warehouse = warehouse
+                tenant.save(update_fields=["default_warehouse"])
+
+                owner_data = {}
+                if owner_email and owner_password:
+                    owner = User.objects.create_user(
+                        username=owner_email,
+                        email=owner_email,
+                        password=owner_password,
+                        first_name=data.get("owner_first_name", ""),
+                        last_name=data.get("owner_last_name", ""),
+                        tenant=tenant,
+                        role="owner",
+                        active_store=store,
+                    )
+                    owner_data = {"id": owner.id, "email": owner.email}
+
+                sub_data = None
+                plan_key = data.get("plan_key")
+                if plan_key:
+                    try:
+                        plan = Plan.objects.get(key=plan_key, is_active=True)
+                        sub, _ = Subscription.objects.get_or_create(
+                            tenant=tenant,
+                            defaults={
+                                "plan": plan,
+                                "status": data.get("sub_status", "active"),
+                            },
+                        )
+                        sub_data = {"plan": plan.name, "status": sub.status}
+                    except Plan.DoesNotExist:
+                        pass
+        except IntegrityError as e:
+            # Race condition rara: 2 superadmin creando con el mismo slug
+            # exacto a la vez. El atomic hace rollback de todo. Devolvemos
+            # 409 conflict para que el frontend pueda reintentar con otro nombre.
+            logger.warning(
+                "Superadmin tenant create IntegrityError (probable slug race): %s — name=%s",
+                e, name,
+            )
+            return Response(
+                {"detail": "El nombre o slug del negocio ya existe. Intenta con otro nombre."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         logger.info("Superadmin %s created tenant %d (%s)", request.user.email, tenant.id, name)
 

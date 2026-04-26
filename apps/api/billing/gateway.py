@@ -233,7 +233,7 @@ def _charge_mock(subscription: Subscription, invoice: Invoice) -> dict:
 def _create_mock_payment_link(subscription: Subscription, invoice: Invoice) -> dict:
     order_id = f"MOCK-LINK-{invoice.pk}"
     cfg = _flow_cfg()
-    url = f"{cfg['app_base']}/dashboard/settings?tab=suscripcion&mock_pay={invoice.pk}"
+    url = f"{cfg['app_base']}/dashboard/settings?tab=plan&mock_pay={invoice.pk}"
     invoice.payment_url = url
     invoice.gateway_order_id = order_id
     invoice.save(update_fields=["payment_url", "gateway_order_id"])

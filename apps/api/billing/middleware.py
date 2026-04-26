@@ -107,7 +107,7 @@ class SubscriptionAccessMiddleware(MiddlewareMixin):
                     "detail": "Tu suscripción está suspendida. Actualiza tu método de pago.",
                     "code":   "subscription_suspended",
                     "status": cached["status"],
-                    "action_url": "/dashboard/settings?tab=suscripcion",
+                    "action_url": "/dashboard/settings?tab=plan",
                 },
                 status=402,
             )
