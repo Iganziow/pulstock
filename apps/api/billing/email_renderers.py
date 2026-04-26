@@ -330,31 +330,52 @@ def render_trial_converted(sub, payment_method=None):
 
 
 # ─────────── 08 Trial expired ───────────
-def render_trial_expired(sub, products_count=0, products_limit=100):
+def render_trial_expired(sub, products_count=0, products_limit=None):
+    """Email cuando el trial vence y NO hay tarjeta registrada.
+
+    Pulstock no tiene plan Free, así que la cuenta queda CANCELLED y el
+    cliente pierde acceso. El copy invita a reactivar agregando tarjeta.
+    Los datos se conservan 30 días según política de retención.
+    """
     previous_plan_name = sub.plan.name
-    free_features_html = (
-        "<div style='display:block;margin-top:6px;'>"
-        "• Hasta 100 productos &nbsp; • 1 local, 1 bodega<br>"
-        "• 1 usuario &nbsp; • Reportes básicos"
-        "</div>"
-    )
+    previous_plan_price = _fmt_clp(sub.plan.price_clp)
+
+    # `products_limit` ya no aplica (no hay plan Free); lo ignoramos para
+    # mantener la firma backwards-compat pero no se muestra al cliente.
+    _ = products_limit
+
+    # Cuenta cuántos días le quedan al cliente para reactivar antes de
+    # que se eliminen los datos (política: 30 días desde la cancelación).
+    cancelled_at = sub.cancelled_at or timezone.now()
+    data_retention_until = cancelled_at + timedelta(days=30)
+
     subject = f"Tu prueba terminó — {BRAND}"
     ctx = _base_ctx(
         tone="amber",
         subject_line=subject,
         eyebrow="Prueba · Finalizada",
-        hero_title="Tu prueba terminó — ahora estás en el plan Gratuito",
-        subtitle="No pudimos procesar el pago. Tu cuenta sigue activa, pero con algunos límites.",
-        free_plan_features_html=free_features_html,
+        hero_title="Tu prueba terminó · Reactivá tu cuenta",
+        subtitle=(
+            f"Tu período de prueba de 7 días en {previous_plan_name} ya venció. "
+            f"Para seguir usando {BRAND}, agrega un método de pago. "
+            f"Tus datos se conservan hasta el "
+            f"{data_retention_until.strftime('%d/%m/%Y')}."
+        ),
         previous_plan_name=previous_plan_name,
-        products_usage=f"{products_count} / {products_limit} activos",
-        cta_text=f"Volver a {previous_plan_name}",
+        previous_plan_price=previous_plan_price,
+        products_count=products_count,
+        data_retention_until=data_retention_until,
+        cta_text=f"Reactivar con {previous_plan_name}",
         cta_url=SETTINGS_URL,
-        secondary_text="Continuar en plan gratuito",
-        secondary_url=f"{APP_URL}/dashboard",
+        secondary_text="Ver otros planes",
+        secondary_url=f"{LANDING_URL}/precios",
     )
     html = render_to_string("emails/trial_expired.html", ctx)
-    plain = f"Tu prueba terminó. Ahora en plan Gratuito. Volver a {previous_plan_name}: {SETTINGS_URL}"
+    plain = (
+        f"Tu prueba de {BRAND} terminó. Para seguir usando la app, "
+        f"agregá tu método de pago: {SETTINGS_URL}\n\n"
+        f"Tus datos se conservan hasta el {data_retention_until.strftime('%d/%m/%Y')}."
+    )
     return subject, plain, html
 
 
