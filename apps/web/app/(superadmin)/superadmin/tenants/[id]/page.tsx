@@ -73,6 +73,54 @@ export default function TenantDetailPage() {
     load();
   };
 
+  // ── SOPORTE ──
+  const [resetting, setResetting] = useState<number | null>(null);
+  const [newPassword, setNewPassword] = useState<{ email: string; pwd: string } | null>(null);
+  const resetUserPassword = async (userId: number, userEmail: string) => {
+    if (!confirm(`Generar nueva contraseña para ${userEmail}?\n\nLa contraseña actual dejará de funcionar inmediatamente.`)) return;
+    setResetting(userId);
+    try {
+      const r = await apiFetch(`/superadmin/users/${userId}/reset-password/`, { method: "POST" });
+      setNewPassword({ email: r.email, pwd: r.new_password });
+    } catch (e: any) {
+      flash(e?.data?.detail || "Error al generar contraseña.");
+    } finally {
+      setResetting(null);
+    }
+  };
+
+  const [resending, setResending] = useState<string | null>(null);
+  const resendEmail = async (type: string) => {
+    setResending(type);
+    try {
+      const r = await apiFetch(`/superadmin/tenants/${tenantId}/resend-email/`, {
+        method: "POST", body: JSON.stringify({ type }),
+      });
+      flash(`Email "${type}" enviado a ${r.sent_to}.`);
+    } catch (e: any) {
+      flash(e?.data?.detail || "Error al reenviar.");
+    } finally {
+      setResending(null);
+    }
+  };
+
+  const [notes, setNotes] = useState<string>("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  useEffect(() => { if (data?.internal_notes !== undefined) setNotes(data.internal_notes || ""); }, [data?.internal_notes]);
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await apiFetch(`/superadmin/tenants/${tenantId}/notes/`, {
+        method: "PATCH", body: JSON.stringify({ internal_notes: notes }),
+      });
+      flash("Notas guardadas.");
+    } catch (e: any) {
+      flash(e?.data?.detail || "Error al guardar notas.");
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
   if (loading) return <div style={{ color: C.mute, padding: 40 }}>Cargando...</div>;
   if (!data) return <div style={{ color: C.mute, padding: 40 }}>Tenant no encontrado.</div>;
 
@@ -233,9 +281,17 @@ export default function TenantDetailPage() {
                     {u.is_active ? "Activo" : "Inactivo"}
                   </span>
                 </td>
-                <td style={{ padding: "8px 10px" }}>
+                <td style={{ padding: "8px 10px", display: "flex", gap: 6 }}>
                   <button onClick={() => toggleUser(u.id)} style={{ ...btnStyle, background: u.is_active ? C.red + "15" : C.green + "15", color: u.is_active ? C.red : C.green, fontSize: 11 }}>
                     {u.is_active ? "Desactivar" : "Activar"}
+                  </button>
+                  <button
+                    onClick={() => resetUserPassword(u.id, u.email)}
+                    disabled={resetting === u.id}
+                    style={{ ...btnStyle, background: C.yellow + "15", color: C.yellow, fontSize: 11, opacity: resetting === u.id ? 0.5 : 1 }}
+                    title="Generar contraseña nueva"
+                  >
+                    {resetting === u.id ? "..." : "🔑 Reset pass"}
                   </button>
                 </td>
               </tr>
@@ -243,6 +299,115 @@ export default function TenantDetailPage() {
           </tbody>
         </table>
       </Card>
+
+      {/* Reenviar emails */}
+      <Card title="Reenviar email al cliente" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          Útil cuando el cliente reporta "no me llegó". Se envía al email del owner ({data.users.find((u: any) => u.role === "owner")?.email || "—"}).
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {[
+            { type: "welcome",           label: "🎉 Bienvenida" },
+            { type: "payment_link",      label: "💳 Link de pago" },
+            { type: "trial_reminder",    label: "⏰ Aviso de trial" },
+            { type: "renewal_reminder",  label: "📅 Aviso de renovación" },
+            { type: "payment_recovered", label: "✅ Pago recuperado" },
+          ].map((b) => (
+            <button
+              key={b.type}
+              onClick={() => resendEmail(b.type)}
+              disabled={resending === b.type}
+              style={{
+                ...btnStyle, background: C.accent + "15", color: C.accent, fontSize: 12,
+                opacity: resending === b.type ? 0.5 : 1,
+              }}
+            >
+              {resending === b.type ? "Enviando..." : b.label}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Notas internas */}
+      <Card title="Notas internas (solo admin)" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 8 }}>
+          Estas notas NO son visibles al cliente. Anota acá contexto del cliente, llamadas, decisiones, etc.
+        </div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={5000}
+          rows={4}
+          placeholder="Ej: Dueño Pedro, prefiere WhatsApp +569... Ya pagó 2 veces sin issues."
+          style={{
+            width: "100%", boxSizing: "border-box",
+            background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: "10px 12px", fontSize: 13, color: C.text, fontFamily: "inherit",
+            resize: "vertical", minHeight: 80,
+          }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: C.mute }}>{notes.length} / 5000</span>
+          <button
+            onClick={saveNotes}
+            disabled={savingNotes || notes === (data.internal_notes || "")}
+            style={{
+              ...btnStyle, background: C.accent, color: C.white, fontSize: 12,
+              opacity: (savingNotes || notes === (data.internal_notes || "")) ? 0.5 : 1,
+            }}
+          >
+            {savingNotes ? "Guardando..." : "Guardar notas"}
+          </button>
+        </div>
+      </Card>
+
+      {/* Modal de password nueva */}
+      {newPassword && (
+        <div
+          onClick={() => setNewPassword(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,.7)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+              padding: 24, maxWidth: 480, width: "90%",
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+              🔑 Nueva contraseña generada
+            </div>
+            <div style={{ fontSize: 12, color: C.mute, marginBottom: 16 }}>
+              Para <strong style={{ color: C.text }}>{newPassword.email}</strong>. Esta contraseña solo se muestra UNA VEZ. Anótala o cópiala ahora.
+            </div>
+            <div style={{
+              background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+              padding: "14px 16px", fontFamily: "monospace", fontSize: 18, fontWeight: 700,
+              color: C.accent, textAlign: "center", letterSpacing: 1.5, userSelect: "all",
+              marginBottom: 16,
+            }}>
+              {newPassword.pwd}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => { navigator.clipboard.writeText(newPassword.pwd); flash("Copiado al portapapeles."); }}
+                style={{ ...btnStyle, background: C.accent + "20", color: C.accent }}
+              >
+                📋 Copiar
+              </button>
+              <button
+                onClick={() => setNewPassword(null)}
+                style={{ ...btnStyle, background: C.accent, color: C.white }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Facturas */}
       {data.invoices.length > 0 && (
