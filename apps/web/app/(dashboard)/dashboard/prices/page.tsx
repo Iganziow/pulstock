@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { apiFetch, getAccessToken } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Btn, Spinner } from "@/components/ui";
 import { formatCLP, extractErr } from "@/lib/format";
 import { sanitizePrice, calcMargin } from "@/components/prices/helpers";
@@ -22,6 +23,7 @@ function iS(extra?: React.CSSProperties): React.CSSProperties {
 
 export default function PricesPage() {
   useGlobalStyles();
+  const mob = useIsMobile();
 
   // Data
   const [rows, setRows] = useState<PriceRow[]>([]);
@@ -246,7 +248,7 @@ export default function PricesPage() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: mob ? "16px 12px" : "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* Toast */}
       {msg && (
