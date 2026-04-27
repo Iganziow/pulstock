@@ -81,10 +81,10 @@ export default function SuggestionsPage() {
       <div>
         <Link href="/dashboard/forecast" style={{ fontSize: 13, color: C.mute, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-          Volver a prediccion
+          Volver a predicción
         </Link>
         <h1 style={{ margin: 0, fontSize: mob ? 24 : 32, fontWeight: 700, letterSpacing: "-.02em", color: C.text }}>Pedidos sugeridos</h1>
-        <p style={{ margin: "6px 0 0", fontSize: 15, color: C.mute }}>Recomendaciones automatizadas basadas en tu ritmo de ventas.</p>
+        <p style={{ margin: "6px 0 0", fontSize: 15, color: C.mute }}>Te decimos cuánto pedir según tu ritmo de ventas.</p>
       </div>
 
       {/* MESSAGES */}
