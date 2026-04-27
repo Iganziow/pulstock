@@ -56,17 +56,10 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
     insights.push({ icon: "📊", text: `Estilo de venta: ${pl.label} — ${pl.desc}` });
   }
 
-  // 3. Accuracy — qué tan acertada es la predicción
-  const mape = m.mape;
-  if (typeof mape === "number" && Number.isFinite(mape) && mape >= 0) {
-    const acc = Math.max(0, Math.min(100, Math.round(100 - mape)));
-    let label: string, friendly: string;
-    if (acc >= 85)      { label = "Muy buena";   friendly = "Las predicciones suelen acertar mucho"; }
-    else if (acc >= 70) { label = "Buena";       friendly = "Las predicciones suelen ser confiables"; }
-    else if (acc >= 50) { label = "Aceptable";   friendly = "Tomá las predicciones como referencia"; }
-    else                { label = "Baja";        friendly = "Mejorará cuando tengas más historial de ventas"; }
-    insights.push({ icon: acc >= 70 ? "✅" : "⚠️", text: `Qué tan acertada es: ${acc}% (${label}). ${friendly}.` });
-  }
+  // (Antes había un insight de "Qué tan acertada es" basado en MAPE, pero
+  //  cuando el modelo está aprendiendo el porcentaje es bajo y el cliente
+  //  piensa que la app no funciona. Es una métrica interna de debugging,
+  //  no algo que el dueño de la cafetería deba ver.)
 
   // 4. Trend — está vendiendo más o menos
   const trend = p.trend;
@@ -155,17 +148,19 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
     });
   }
 
-  // 10. Data quality — pocos datos
+  // (Antes mostrábamos "Tenemos N días de tus ventas — la predicción se
+  //  vuelve más certera con el tiempo". El cliente lo leía como "la app no
+  //  tiene datos suficientes" y le generaba dudas. Es información interna,
+  //  no algo que el dueño de la cafetería deba ver.)
+  //
+  // SÍ mostramos el mensaje cuando NO hay ventas registradas para ese
+  // producto, porque ahí sí es útil saber que la predicción se basa en
+  // productos parecidos (transparencia) y NO en datos propios todavía.
   const dpts = typeof model.data_points === "number" ? model.data_points : 0;
-  if (dpts > 0 && dpts < 14) {
-    insights.push({
-      icon: "⏳",
-      text: `Tenemos ${dpts} día${dpts === 1 ? "" : "s"} de tus ventas — la predicción se vuelve más certera con el tiempo`,
-    });
-  } else if (dpts === 0) {
+  if (dpts === 0) {
     insights.push({
       icon: "ℹ️",
-      text: "Todavía no hay ventas registradas para este producto. La predicción se basa en productos parecidos.",
+      text: "Aún no hay ventas registradas de este producto. Mientras tanto, calculamos la predicción mirando productos parecidos.",
     });
   }
 
