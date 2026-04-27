@@ -30,6 +30,37 @@ function unitOptions(current: string): string[] {
 }
 const PAGE_SIZE = 50;
 
+// ─── Helpers de formato para inputs numéricos ────────────────────────────────
+//
+// El backend devuelve precios y costos como string DecimalField (e.g. "22500.00")
+// y stocks con 3 decimales ("0.000"). Mostrarlos así en el input se ve raro
+// para el dueño de la cafetería que está acostumbrado a "$22.500" en CLP, sin
+// centavos. Estas helpers limpian el string ANTES de meterlo al input:
+//
+//   cleanInt("22500.00")  → "22500"      ← precios CLP, sin decimales
+//   cleanInt("0")         → "0"
+//   cleanInt("")          → ""
+//   cleanDec("0.000")     → "0"          ← stock mínimo, sin trailing zeros
+//   cleanDec("1.500")     → "1.5"
+//   cleanDec("2")         → "2"
+//
+// No tocan el valor cuando el user está editando — solo se aplican al cargar.
+
+function cleanInt(s: string | number | null | undefined): string {
+  if (s === null || s === undefined || s === "") return "";
+  const n = typeof s === "number" ? s : parseFloat(s);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n));
+}
+
+function cleanDec(s: string | number | null | undefined): string {
+  if (s === null || s === undefined || s === "") return "";
+  const n = typeof s === "number" ? s : parseFloat(s);
+  if (!Number.isFinite(n)) return "";
+  // Hasta 3 decimales pero sin trailing zeros: 1.500 → "1.5", 0.000 → "0"
+  return String(parseFloat(n.toFixed(3)));
+}
+
 // =============================================================================
 // MAIN PAGE
 // =============================================================================
@@ -66,6 +97,12 @@ export default function CatalogPage() {
   const [catName, setCatName]   = useState("");
   const [catCode, setCatCode]   = useState("");
   const [catParentId, setCatParentId] = useState<number | "">("");
+  // Estación de impresión que se le asignará por defecto a la categoría
+  // nueva. Si null, los productos de esta categoría caen al fallback.
+  // Solo se muestra el selector si el tenant tiene estaciones definidas
+  // — para clientes con 1 sola impresora es ruido innecesario.
+  const [catStationId, setCatStationId] = useState<number | "">("");
+  const [stations, setStations] = useState<{id: number; name: string}[]>([]);
 
   // Form: producto (crear)
   const [pSku, setPSku]               = useState("");
@@ -146,8 +183,16 @@ export default function CatalogPage() {
   }, []);
   useEffect(() => { loadCategories(); }, [loadCategories]);
 
+  // Carga de estaciones de impresión — opcional, falla silenciosa si el
+  // endpoint no responde (tenants sin permisos de manager o sin estaciones).
+  useEffect(() => {
+    apiFetch("/printing/stations/")
+      .then((d: any[]) => setStations((d || []).map(s => ({ id: s.id, name: s.name }))))
+      .catch(() => { /* sin estaciones — el selector simplemente no aparece */ });
+  }, []);
+
   // Resets
-  const resetCatForm  = () => { setCatName(""); setCatCode(""); setCatParentId(""); };
+  const resetCatForm  = () => { setCatName(""); setCatCode(""); setCatParentId(""); setCatStationId(""); };
   const resetProdForm = () => {
     setPSku(""); setPName(""); setPDesc(""); setPUnit("UN");
     setPPrice("0"); setPActive(true); setPCategoryId(""); setPBarcodes("");
@@ -158,10 +203,15 @@ export default function CatalogPage() {
   const openEditProduct = (p: Product) => {
     setEditId(p.id); setESku(p.sku ?? ""); setEName(p.name ?? "");
     setEDesc(p.description ?? ""); setEUnit(normalizeUnit(p.unit ?? "UN"));
-    setEPrice(p.price ?? "0"); setEActive(!!p.is_active);
+    // Precios/costos en CLP no usan centavos — limpiamos el ".00" del backend
+    // así el input no muestra "22500.00" (que confunde al dueño y se podría
+    // leer mal como "2250.00 + algo"). Stock mínimo: sin trailing zeros.
+    setEPrice(cleanInt(p.price ?? "0"));
+    setEActive(!!p.is_active);
     setECategoryId(p.category?.id ?? "");
     setEBarcodes(p.barcodes?.map((b) => b.code).join(", ") ?? "");
-    setECost(p.cost ?? "0"); setEMinStock(p.min_stock ?? "0");
+    setECost(cleanInt(p.cost ?? "0"));
+    setEMinStock(cleanDec(p.min_stock ?? "0"));
     setEBrand(p.brand ?? ""); setEImageUrl(p.image_url ?? "");
     setEAllowNeg(!!p.allow_negative_stock);
     setShowEditProd(true);
@@ -175,6 +225,10 @@ export default function CatalogPage() {
       const body: any = { name: catName.trim() };
       if (catCode.trim()) body.code = catCode.trim();
       if (catParentId !== "") body.parent_id = catParentId;
+      // Estación de impresión opcional. Solo se envía si el usuario
+      // eligió una; si dejó "— sin estación —", no incluimos el campo
+      // para no enviar null al backend (deja la default null).
+      if (catStationId !== "") body.default_print_station_id = catStationId;
       const created = await apiFetch("/catalog/categories/", { method:"POST", body:JSON.stringify(body) });
       await loadCategories();
       if (created?.id) setPCategoryId(created.id);
@@ -586,6 +640,25 @@ export default function CatalogPage() {
               <input value={catCode} onChange={(e)=>setCatCode(e.target.value)}
                 placeholder="Ej: ABAR" style={{ ...iS, fontFamily:C.mono }} disabled={saving}/>
             </div>
+            {/* Selector de estación de impresión: solo si el tenant tiene
+                estaciones configuradas. Para cafeterías con 1 impresora,
+                este campo no aparece y el flow queda igual que antes. */}
+            {stations.length > 0 && (
+              <div style={FL}>
+                <FLabel>Estación de impresión (opcional)</FLabel>
+                <select value={catStationId}
+                  onChange={(e)=>setCatStationId(e.target.value?Number(e.target.value):"")}
+                  style={iS} disabled={saving}>
+                  <option value="">— sin estación (cae al fallback) —</option>
+                  {stations.map(s=>(
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <span style={{ fontSize:11, color:C.mute, marginTop:2 }}>
+                  Las comandas de productos en esta categoría saldrán en la impresora asignada a esa estación. Lo podés cambiar después.
+                </span>
+              </div>
+            )}
             {catErr && <ErrBox msg={catErr} onClose={()=>setCatErr(null)}/>}
           </div>
         </Modal>
