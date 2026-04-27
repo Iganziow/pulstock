@@ -118,6 +118,9 @@ export default function CatalogPage() {
   const [pBrand, setPBrand]           = useState("");
   const [pImageUrl, setPImageUrl]     = useState("");
   const [pAllowNeg, setPAllowNeg]     = useState(false);
+  // Override de estación a nivel producto (opcional). null/empty = hereda
+  // de la categoría. Solo se muestra el selector si hay estaciones.
+  const [pStationOverride, setPStationOverride] = useState<number | "">("");
 
   // Form: producto (editar)
   const [editId, setEditId]           = useState<number | null>(null);
@@ -134,6 +137,7 @@ export default function CatalogPage() {
   const [eBrand, setEBrand]           = useState("");
   const [eImageUrl, setEImageUrl]     = useState("");
   const [eAllowNeg, setEAllowNeg]     = useState(false);
+  const [eStationOverride, setEStationOverride] = useState<number | "">("");
 
   const [saving, setSaving] = useState(false);
 
@@ -197,15 +201,13 @@ export default function CatalogPage() {
     setPSku(""); setPName(""); setPDesc(""); setPUnit("UN");
     setPPrice("0"); setPActive(true); setPCategoryId(""); setPBarcodes("");
     setPCost("0"); setPMinStock("0"); setPBrand(""); setPImageUrl(""); setPAllowNeg(false);
+    setPStationOverride("");
   };
   const closeEditModal = () => { setShowEditProd(false); setEditId(null); };
 
   const openEditProduct = (p: Product) => {
     setEditId(p.id); setESku(p.sku ?? ""); setEName(p.name ?? "");
     setEDesc(p.description ?? ""); setEUnit(normalizeUnit(p.unit ?? "UN"));
-    // Precios/costos en CLP no usan centavos — limpiamos el ".00" del backend
-    // así el input no muestra "22500.00" (que confunde al dueño y se podría
-    // leer mal como "2250.00 + algo"). Stock mínimo: sin trailing zeros.
     setEPrice(cleanInt(p.price ?? "0"));
     setEActive(!!p.is_active);
     setECategoryId(p.category?.id ?? "");
@@ -214,6 +216,8 @@ export default function CatalogPage() {
     setEMinStock(cleanDec(p.min_stock ?? "0"));
     setEBrand(p.brand ?? ""); setEImageUrl(p.image_url ?? "");
     setEAllowNeg(!!p.allow_negative_stock);
+    // Override de estación (puede ser null/undefined → "")
+    setEStationOverride(p.print_station_override ?? "");
     setShowEditProd(true);
   };
 
@@ -245,17 +249,21 @@ export default function CatalogPage() {
     if (isNaN(price) || price < 0) { setErr("El precio debe ser un número positivo."); return; }
     setSaving(true); setErr(null);
     try {
+      const body: any = {
+        name, sku:pSku.trim()||"", description:pDesc.trim()||"",
+        unit:normalizeUnit(pUnit), price:pPrice||"0",
+        is_active:pActive, category:pCategoryId===""?null:pCategoryId,
+        barcode_codes:parseBarcodeCodes(pBarcodes),
+        cost:pCost||"0", min_stock:pMinStock||"0",
+        brand:pBrand.trim(), image_url:pImageUrl.trim(),
+        allow_negative_stock:pAllowNeg,
+      };
+      // Override de estación a nivel producto (opcional). Solo se envía si
+      // el usuario eligió una. null hace que herede de la categoría.
+      if (pStationOverride !== "") body.print_station_override = pStationOverride;
       const created: Product = await apiFetch("/catalog/products/", {
         method:"POST",
-        body:JSON.stringify({
-          name, sku:pSku.trim()||"", description:pDesc.trim()||"",
-          unit:normalizeUnit(pUnit), price:pPrice||"0",
-          is_active:pActive, category:pCategoryId===""?null:pCategoryId,
-          barcode_codes:parseBarcodeCodes(pBarcodes),
-          cost:pCost||"0", min_stock:pMinStock||"0",
-          brand:pBrand.trim(), image_url:pImageUrl.trim(),
-          allow_negative_stock:pAllowNeg,
-        }),
+        body:JSON.stringify(body),
       });
       setItems((prev) => {
         const next = [created,...prev.filter((x)=>x.id!==created.id)];
@@ -277,6 +285,9 @@ export default function CatalogPage() {
     if (isNaN(price) || price < 0) { setErr("El precio debe ser un número positivo."); return; }
     setSaving(true); setErr(null);
     try {
+      // Override de estación: SIEMPRE enviamos el campo (incluso null) en
+      // PATCH para que se pueda QUITAR el override volviendo a heredar de
+      // la categoría. En CREATE solo enviamos si está seteado.
       const updated: Product = await apiFetch(`/catalog/products/${editId}/`, {
         method:"PATCH",
         body:JSON.stringify({
@@ -287,6 +298,7 @@ export default function CatalogPage() {
           cost:eCost||"0", min_stock:eMinStock||"0",
           brand:eBrand.trim(), image_url:eImageUrl.trim(),
           allow_negative_stock:eAllowNeg,
+          print_station_override: eStationOverride === "" ? null : eStationOverride,
         }),
       });
       setItems((prev) => {
@@ -485,12 +497,35 @@ export default function CatalogPage() {
                   </div>
                 </div>
 
-                {/* Category */}
-                {!mob && <div>
+                {/* Category + Estación de impresión (si tenant usa estaciones) */}
+                {!mob && <div style={{ display:"flex", flexDirection:"column", gap:3, alignItems:"flex-start" }}>
                   {p.category
                     ? <span style={{ fontSize:12, fontWeight:500, color:C.mid, background:C.bg, border:`1px solid ${C.border}`, borderRadius:4, padding:"2px 8px" }}>{p.category.name}</span>
                     : <span style={{ color:C.mute, fontSize:12 }}>{"—"}</span>
                   }
+                  {/* Badge de estación: solo si el tenant tiene estaciones
+                      definidas Y este producto tiene una resuelta (override
+                      o heredada de categoría). Da visibilidad inmediata de
+                      a dónde sale la comanda. */}
+                  {stations.length > 0 && p.effective_print_station_id ? (
+                    <span style={{
+                      fontSize:10, fontWeight:700, color:C.accent,
+                      background:C.accentBg, border:`1px solid ${C.accentBd}`,
+                      borderRadius:4, padding:"1px 6px",
+                      display:"inline-flex", alignItems:"center", gap:3,
+                    }} title="Estación donde se imprime la comanda">
+                      🖨 {stations.find(s => s.id === p.effective_print_station_id)?.name || `#${p.effective_print_station_id}`}
+                      {p.print_station_override ? <span style={{ color:C.mid, fontWeight:500 }}>(override)</span> : null}
+                    </span>
+                  ) : stations.length > 0 ? (
+                    <span style={{
+                      fontSize:10, color:C.mute,
+                      background:"transparent", border:`1px dashed ${C.border}`,
+                      borderRadius:4, padding:"1px 6px",
+                    }} title="Sin estación asignada — cae al fallback">
+                      sin estación
+                    </span>
+                  ) : null}
                 </div>}
 
                 {/* Price */}
@@ -751,6 +786,28 @@ export default function CatalogPage() {
               </div>
             </div>
 
+            {/* Override de estación de impresión a nivel producto. Solo
+                aparece si hay estaciones configuradas. La mayoría de los
+                productos heredan de la categoría — este override es para
+                excepciones (ej: "Café irlandés" en categoría Tragos pero
+                que sale en Cocina porque la cafetera está allá). */}
+            {stations.length > 0 && (
+              <div style={FL}>
+                <FLabel>Estación de impresión (override opcional)</FLabel>
+                <select value={pStationOverride}
+                  onChange={(e)=>setPStationOverride(e.target.value?Number(e.target.value):"")}
+                  style={iS} disabled={saving}>
+                  <option value="">— Heredar de la categoría —</option>
+                  {stations.map(s=>(
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <Hint>
+                  Solo usalo si este producto en particular debe salir en una estación distinta a la de su categoría. Lo normal es dejarlo heredado.
+                </Hint>
+              </div>
+            )}
+
             <div style={FL}>
               <FLabel>URL de imagen</FLabel>
               <input value={pImageUrl} onChange={(e)=>setPImageUrl(e.target.value)}
@@ -847,6 +904,26 @@ export default function CatalogPage() {
                 <CascadeSelect categories={categories} value={eCategoryId} onChange={setECategoryId} disabled={saving} />
               </div>
             </div>
+
+            {/* Override de estación de impresión (mismo concepto que en
+                Crear). Si el usuario lo cambia a "" → al guardar se manda
+                null y el producto vuelve a heredar de su categoría. */}
+            {stations.length > 0 && (
+              <div style={FL}>
+                <FLabel>Estación de impresión (override opcional)</FLabel>
+                <select value={eStationOverride}
+                  onChange={(e)=>setEStationOverride(e.target.value?Number(e.target.value):"")}
+                  style={iS} disabled={saving}>
+                  <option value="">— Heredar de la categoría —</option>
+                  {stations.map(s=>(
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <Hint>
+                  Lo normal es dejarlo heredado. Override solo si este producto debe salir en una estación distinta a la de su categoría.
+                </Hint>
+              </div>
+            )}
 
             <div style={FL}>
               <FLabel>URL de imagen</FLabel>
