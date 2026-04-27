@@ -537,6 +537,15 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
   // (b) Impresora local configurada en este dispositivo (BLE/USB/agente
   //     específico). Es el flujo "tengo mi propia impresora conectada acá".
   if (p && p.type !== "system" && input.bytes) {
+    // Si es BT y todavía no hay device cacheado en esta sesión, intentamos
+    // reconectar via getDevices() — el browser puede haber autorizado el
+    // device en sesiones previas y getDevices() lo retorna sin abrir picker.
+    // Esto evita el caso "el user cierra/reabre la app y BT requiere
+    // reparear" que reportaba Mario.
+    if (p.type === "bluetooth") {
+      try { await tryReconnectBluetooth(); } catch { /* falla silenciosa */ }
+    }
+
     try {
       await printBytes(input.bytes, p);
       return { method: p.type, ok: true, printer: p.name };
@@ -544,9 +553,8 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
       const localErrMsg = localErr?.message || String(localErr);
 
       // Si el user CANCELÓ el picker (BT/USB), NO es un error real — es
-      // decisión consciente. No caemos al fallback (sería intentar mandar
-      // al agente PC que probablemente tampoco está). Devolvemos
-      // `cancelled: true` y el caller decide si mostrar UI o silenciar.
+      // decisión consciente. Retornamos `cancelled: true` para que el
+      // caller silencie el banner rojo.
       const wasCancelled = /user cancell?ed|user dismissed|user denied|user aborted|notallowederror|aborterror/i.test(localErrMsg);
       if (wasCancelled) {
         return {
@@ -555,24 +563,15 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
         };
       }
 
-      // Si la local falla por otra razón, intentamos el agente del local
-      // antes de rendirnos.
-      try {
-        const data_b64 = input.bytes ? bytesToB64(input.bytes) : null;
-        const r = await printViaLocalAgent(data_b64, input.html || null, source);
-        return {
-          method: "agent-auto", ok: true, printer: r.printer_name,
-          error: `Fallback al PC del local (impresora '${p.name}' falló: ${localErrMsg})`,
-        };
-      } catch (agentErr: any) {
-        const agentErrMsg = agentErr?.message || String(agentErr);
-        return {
-          method: "failed", ok: false,
-          // Mensaje más corto y útil — el anterior tenía 5 líneas que no
-          // se podían leer en mobile.
-          error: `No se pudo imprimir: ${localErrMsg}. Verifica que la impresora esté encendida y reintenta.`,
-        };
-      }
+      // NO caemos al fallback del agente PC. Antes lo hacíamos pero el
+      // mensaje resultante mezclaba errores ("No hay agentes...") cuando
+      // en realidad el problema era la impresora local — confunde mucho
+      // al user. Si tiene impresora local configurada, asumimos que es la
+      // que quiere usar y mostramos el error real de esa impresora.
+      return {
+        method: "failed", ok: false,
+        error: `No se pudo imprimir en "${p.name}": ${localErrMsg}. Revisa que la impresora esté encendida y conectada por Bluetooth.`,
+      };
     }
   }
 
