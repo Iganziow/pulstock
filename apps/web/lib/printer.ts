@@ -138,25 +138,59 @@ const BT_SERVICES = [
 let cachedBTDevice: any = null;
 let cachedBTCharacteristic: any = null;
 
-// Persistencia entre sesiones — guardamos el nombre del último device
-// que el user pareó para preferirlo al reabrir la app. Web Bluetooth
-// recuerda el permiso del device entre sesiones (a nivel browser/origin),
-// pero el cache en memoria se pierde al recargar — usamos
-// `navigator.bluetooth.getDevices()` para retomarlo sin picker.
-const BT_LAST_DEVICE_NAME_KEY = "pulstock_bt_last_device_name";
+// Persistencia entre sesiones (v2 — más robusta que la versión por nombre).
+//
+// Problema con la versión anterior:
+//   La versión vieja guardaba un solo NOMBRE en localStorage. Mario reportó
+//   que su Xprinter MAHAVEER a veces aparece como "Desconocida" (el nombre
+//   BLE advertised se pierde) y tuvo que parearla 3 veces. Cada pairing
+//   crea un device autorizado nuevo; sin nombre, el código no podía
+//   matchearlo y siempre pedía el picker.
+//
+// Solución: en vez de guardar solo el nombre, guardamos una LISTA de
+// devices conocidos (id + name + último uso). Al reconectar:
+//   1. Listamos todos los devices autorizados via getDevices().
+//   2. Ordenamos por "el más reciente que usaste" (timestamp).
+//   3. Intentamos conectar a cada uno en orden hasta que uno funcione.
+//
+// Esto resiste cambios de nombre y los duplicados de pairings repetidos.
+const BT_DEVICES_KEY = "pulstock_bt_devices_v2";
+// Migración: limpiamos la clave vieja una vez para no dejar basura.
+const BT_LEGACY_KEY = "pulstock_bt_last_device_name";
+
+interface KnownBTDevice {
+  id: string;
+  name: string;
+  lastUsed: number; // epoch ms
+}
+
+function getKnownBTDevices(): KnownBTDevice[] {
+  try {
+    const raw = localStorage.getItem(BT_DEVICES_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
 
 function rememberBTDevice(device: any) {
   try {
-    if (device?.name) {
-      localStorage.setItem(BT_LAST_DEVICE_NAME_KEY, device.name);
-    }
-  } catch { /* localStorage puede fallar en private mode */ }
-}
-
-function getRememberedBTDeviceName(): string | null {
-  try {
-    return localStorage.getItem(BT_LAST_DEVICE_NAME_KEY);
-  } catch { return null; }
+    if (!device?.id) return;
+    const list = getKnownBTDevices();
+    const idx = list.findIndex(d => d.id === device.id);
+    const entry: KnownBTDevice = {
+      id: device.id,
+      name: device.name || "",
+      lastUsed: Date.now(),
+    };
+    if (idx >= 0) list[idx] = entry;
+    else list.push(entry);
+    list.sort((a, b) => b.lastUsed - a.lastUsed);
+    // Cap a 5 — más que suficiente para una cafetería con 1-2 impresoras.
+    localStorage.setItem(BT_DEVICES_KEY, JSON.stringify(list.slice(0, 5)));
+    // Limpiar legacy si quedaba.
+    localStorage.removeItem(BT_LEGACY_KEY);
+  } catch { /* localStorage puede fallar en private mode — ignoramos */ }
 }
 
 /**
@@ -175,47 +209,73 @@ function getRememberedBTDeviceName(): string | null {
  * al picker normal con `pairBluetoothPrinter()`.
  */
 export async function tryReconnectBluetooth(): Promise<boolean> {
-  // Logs de diagnóstico — visibles en DevTools del browser. Útil cuando
-  // un cliente reporta "tengo que parear cada vez". Agrupados con prefijo
-  // [pulstock-bt] para filtrar fácil en consola.
   if (typeof navigator === "undefined" || !navigator.bluetooth) {
     console.log("[pulstock-bt] navigator.bluetooth no disponible");
     return false;
   }
   const bt: any = navigator.bluetooth;
   if (typeof bt.getDevices !== "function") {
-    console.log("[pulstock-bt] getDevices() no soportado en este browser — Mario tendrá que apretar el botón cada vez");
+    console.log("[pulstock-bt] getDevices() no soportado en este browser");
     return false;
   }
 
+  let devices: any[];
   try {
-    const devices: any[] = await bt.getDevices();
-    console.log(`[pulstock-bt] getDevices() retornó ${devices?.length ?? 0} device(s) autorizado(s):`,
-      devices?.map((d) => d.name).filter(Boolean));
-
-    if (!devices || devices.length === 0) {
-      console.log("[pulstock-bt] sin devices autorizados — necesita parear primero");
-      return false;
-    }
-
-    const remembered = getRememberedBTDeviceName();
-    console.log(`[pulstock-bt] device guardado en localStorage: ${remembered}`);
-
-    const target = (remembered && devices.find((d) => d.name === remembered)) || devices[0];
-    if (!target) return false;
-
-    console.log(`[pulstock-bt] reconectando a "${target.name || "(sin nombre)"}"...`);
-    cachedBTDevice = target;
-    const ch = await connectAndFindCharacteristic(target);
-    cachedBTCharacteristic = ch;
-    console.log("[pulstock-bt] reconectado OK");
-    return true;
+    devices = await bt.getDevices();
   } catch (e) {
-    console.warn("[pulstock-bt] reconnect falló:", e);
-    cachedBTDevice = null;
-    cachedBTCharacteristic = null;
+    console.warn("[pulstock-bt] getDevices() falló:", e);
     return false;
   }
+
+  if (!devices || devices.length === 0) {
+    console.log("[pulstock-bt] sin devices autorizados — necesita parear primero");
+    return false;
+  }
+
+  console.log(
+    `[pulstock-bt] ${devices.length} device(s) autorizado(s):`,
+    devices.map((d) => `${d.name || "(sin nombre)"} [${d.id}]`),
+  );
+
+  // Orden de prueba: primero los del storage por "más reciente", después
+  // los huérfanos (pareados pero no en storage). Esto resuelve el caso
+  // de Mario: pareó 3 veces, hay 3 devices autorizados; intentamos
+  // conectar a cada uno hasta que uno funcione (probablemente el más
+  // reciente, pero los duplicados igual quedan disponibles como fallback).
+  const known = getKnownBTDevices();
+  const knownIds = new Set(known.map(k => k.id));
+  const ordered: any[] = [];
+
+  // 1) Devices conocidos en orden de "último uso" (más reciente primero)
+  for (const k of known) {
+    const found = devices.find((d: any) => d.id === k.id);
+    if (found) ordered.push(found);
+  }
+  // 2) Devices autorizados pero no en storage (huérfanos / pairings viejos)
+  for (const d of devices) {
+    if (!knownIds.has(d.id)) ordered.push(d);
+  }
+
+  // Intentar conectar a cada uno secuencialmente. El primero que conecte
+  // y tenga una characteristic de escritura → ese es nuestra impresora.
+  for (const dev of ordered) {
+    try {
+      console.log(`[pulstock-bt] intentando conectar a "${dev.name || "(sin nombre)"}" [${dev.id}]…`);
+      const ch = await connectAndFindCharacteristic(dev);
+      cachedBTDevice = dev;
+      cachedBTCharacteristic = ch;
+      rememberBTDevice(dev); // refresca lastUsed timestamp
+      console.log(`[pulstock-bt] reconectado OK a "${dev.name || "(sin nombre)"}"`);
+      return true;
+    } catch (e) {
+      console.warn(`[pulstock-bt] device ${dev.id} no respondió, probando el siguiente…`, e);
+    }
+  }
+
+  console.warn("[pulstock-bt] ningún device autorizado pudo conectar");
+  cachedBTDevice = null;
+  cachedBTCharacteristic = null;
+  return false;
 }
 
 export async function pairBluetoothPrinter(): Promise<any> {
