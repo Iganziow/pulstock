@@ -433,7 +433,16 @@ class TipsSummaryView(APIView):
         # + $3.000 card, atribuimos al cash 1000×5/8 = $625 y al card $375.
         # Para el caso típico de cafetería (1 método por venta) coincide
         # con 100% al método dominante.
+        #
+        # IMPORTANTE: la última fila absorbe el resto del redondeo, así
+        # la suma de by_payment_method = total_tips (headline) exacto.
+        # Sin esto, propinas como $1.000 split en 3 pagos iguales daban
+        # 333+333+333 = 999 ≠ 1.000 y Mario veía "discrepancia".
         method_totals = {}  # method -> {"total": Decimal, "count": int}
+
+        def _bucket(method):
+            return method_totals.setdefault(method, {"total": Decimal("0"), "count": 0})
+
         sales_with_tips = (
             qs.filter(tip__gt=0)
               .prefetch_related("payments")
@@ -442,17 +451,28 @@ class TipsSummaryView(APIView):
         for sale in sales_with_tips:
             payments = list(sale.payments.all())
             if not payments:
+                # Tip sin payments — atribuir a "cash" por defecto.
+                # Caso raro (datos legacy) pero evita descuadre con headline.
+                b = _bucket("cash")
+                b["total"] += sale.tip
+                b["count"] += 1
                 continue
             total_paid = sum((p.amount for p in payments), Decimal("0"))
             if total_paid <= 0:
                 continue
-            for p in payments:
+            running = Decimal("0")
+            for p in payments[:-1]:
                 share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
-                if share <= 0:
-                    continue
-                bucket = method_totals.setdefault(p.method, {"total": Decimal("0"), "count": 0})
-                bucket["total"] += share
-                bucket["count"] += 1
+                b = _bucket(p.method)
+                b["total"] += share
+                b["count"] += 1
+                running += share
+            last = payments[-1]
+            last_share = sale.tip - running  # absorbe el redondeo
+            b = _bucket(last.method)
+            if last_share > 0:
+                b["total"] += last_share
+                b["count"] += 1
 
         # Etiquetas amigables para el frontend (es-CL).
         method_labels = {

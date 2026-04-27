@@ -54,24 +54,52 @@ def _session_summary(session):
     # cuánto va de propina por débito/crédito/efectivo durante el turno").
     # Distribución proporcional cuando hay split: si pagó $5000 cash + $3000
     # card con $1000 propina, atribuye $625 a cash y $375 a card.
+    #
+    # IMPORTANTE para reconciliación: la última fila absorbe el resto del
+    # redondeo, así que la suma de tips_by_method = sale.tip exacto.
+    # Sin esto, una propina de $1.000 dividida en 3 pagos iguales daría
+    # 333+333+333 = 999, y el total no cuadraría con el headline.
     tips_by_method = {"cash": zero, "debit": zero, "card": zero, "transfer": zero}
     tip_count_by_method = {"cash": 0, "debit": 0, "card": 0, "transfer": 0}
+
+    def _bucket(method):
+        # Si llega un método nuevo (ej: mercadopago en el futuro), se
+        # crea el bucket on-the-fly en vez de descartar el share.
+        if method not in tips_by_method:
+            tips_by_method[method] = zero
+            tip_count_by_method[method] = 0
+        return method
+
     sales_with_tips = session.sales.filter(
         status="COMPLETED", tip__gt=0,
     ).prefetch_related("payments")
     for sale in sales_with_tips:
         payments = list(sale.payments.all())
         if not payments:
+            # Tip sin payments — atribuir a "cash" por defecto. Caso raro
+            # (datos legacy o cobro mal registrado), pero evita que el
+            # total se descuadre vs. el desglose.
+            tips_by_method["cash"] += sale.tip
+            tip_count_by_method["cash"] += 1
             continue
         total_paid = sum((p.amount for p in payments), zero)
         if total_paid <= 0:
             continue
-        for p in payments:
+        # Calcular shares de todos menos el último, luego asignar resto
+        # al último para que la suma cuadre exacto con sale.tip.
+        running = zero
+        for p in payments[:-1]:
             share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
-            if share <= 0 or p.method not in tips_by_method:
-                continue
-            tips_by_method[p.method] += share
-            tip_count_by_method[p.method] += 1
+            m = _bucket(p.method)
+            tips_by_method[m] += share
+            tip_count_by_method[m] += 1
+            running += share
+        last = payments[-1]
+        last_share = sale.tip - running  # absorbe el redondeo
+        m = _bucket(last.method)
+        if last_share > 0:
+            tips_by_method[m] += last_share
+            tip_count_by_method[m] += 1
 
     # Single query for movements: GROUP BY type
     mov_totals = dict(
