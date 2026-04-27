@@ -386,12 +386,54 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
                       >
                         −
                       </button>
-                      <span style={{
-                        minWidth: 24, textAlign: "center",
-                        fontSize: 14, fontWeight: 800, color: C.accent,
-                      }}>
-                        {inCart}
-                      </span>
+                      {/* Cantidad editable directamente con teclado para casos
+                          como "93 gramos de chocolate" — Mario lo pidió. Para
+                          que tipear gramos no requiera apretar + 93 veces. */}
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="1"
+                        step="any"
+                        value={inCart}
+                        onClick={e => e.stopPropagation()}
+                        onFocus={e => { e.stopPropagation(); e.target.select(); }}
+                        onChange={e => {
+                          e.stopPropagation();
+                          const raw = e.target.value;
+                          const n = raw === "" ? 0 : Number(raw);
+                          if (isNaN(n) || n < 0) return;
+                          // Reemplaza la cantidad del item directamente.
+                          // Si n=0, lo saca del carrito.
+                          setCart(prev => {
+                            const exists = prev.find(c => c.product.id === p.id);
+                            if (!exists) {
+                              if (n <= 0) return prev;
+                              return [...prev, { product: p, qty: n, unit_price: p.price || "0", note: "" }];
+                            }
+                            if (n <= 0) return prev.filter(c => c.product.id !== p.id);
+                            return prev.map(c => c.product.id === p.id ? { ...c, qty: n } : c);
+                          });
+                        }}
+                        onBlur={e => {
+                          // Si quedó en 0/vacío al perder foco, mantenerlo
+                          // fuera del carrito (no forzar a 1) — el usuario
+                          // ya lo había sacado intencionalmente.
+                          const n = Number(e.target.value);
+                          if (isNaN(n) || n < 0) {
+                            setCart(prev => prev.filter(c => c.product.id !== p.id));
+                          }
+                        }}
+                        className="qty-input-no-spin"
+                        aria-label={`Cantidad de ${p.name}`}
+                        style={{
+                          width: 48, textAlign: "center",
+                          border: "none", background: "transparent",
+                          fontSize: 14, fontWeight: 800, color: C.accent,
+                          fontFamily: C.font, outline: "none",
+                          padding: "0 4px",
+                          MozAppearance: "textfield",
+                        }}
+                      />
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); addToCart(p); }}

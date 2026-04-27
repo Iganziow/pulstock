@@ -153,11 +153,56 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
                   <div style={{ fontSize: 10, color: C.mute }}>${fmt(c.unit_price)} c/u</div>
                 </div>
 
-                {/* Qty controls */}
+                {/* Qty controls. Mario lo pidió: "los gramos de chocolate
+                    uno pueda poner el número exacto con el teclado no más,
+                    seria mas rapido". Productos vendidos por gramo (chocolate
+                    a granel, jamón, queso, etc.) tenían que tocarse + 100
+                    veces para llegar a 100g. Ahora el centro es un input
+                    editable: tipean "100" y listo. Los botones siguen
+                    funcionando para ajustes finos (+1/-1). step="any"
+                    permite cantidades fraccionarias (ej: 0.5 kg). */}
                 <div style={{ display: "flex", alignItems: "center", gap: 2, background: C.bg, borderRadius: 8, border: `1px solid ${C.border}`, padding: 2 }}>
                   <button type="button" aria-label="Disminuir" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}
                     style={{ width: 34, height: 34, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", fontWeight: 800, fontSize: 16, color: C.mid, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                  <span style={{ width: 28, textAlign: "center", fontSize: 14, fontWeight: 800, color: C.text }}>{c.qty}</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    step="any"
+                    value={c.qty}
+                    onChange={e => {
+                      const raw = e.target.value;
+                      // Permitir vacío temporalmente mientras tipean (no
+                      // resetear a 1 hasta blur), pero no aceptar negativos.
+                      if (raw === "") {
+                        setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: 0 } : x));
+                        return;
+                      }
+                      const n = Number(raw);
+                      if (!isNaN(n) && n >= 0) {
+                        setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: n } : x));
+                      }
+                    }}
+                    onBlur={() => {
+                      // Si quedó en 0 o vacío al perder foco, asumir 1
+                      // (evitar líneas con qty 0 que romperían el cobro).
+                      if (c.qty <= 0) {
+                        setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: 1 } : x));
+                      }
+                    }}
+                    onFocus={e => e.target.select()}
+                    style={{
+                      width: 56, textAlign: "center",
+                      border: "none", background: "transparent",
+                      fontSize: 14, fontWeight: 800, color: C.text,
+                      fontFamily: C.font, outline: "none",
+                      // Quitar las flechitas nativas del number input — ocupan
+                      // espacio y el usuario ya tiene los botones [-] [+].
+                      MozAppearance: "textfield",
+                    }}
+                    className="qty-input-no-spin"
+                    aria-label={`Cantidad de ${c.product.name}`}
+                  />
                   <button type="button" aria-label="Aumentar" onClick={() => setCart(prev => prev.map((x, j) => j === i ? { ...x, qty: x.qty + 1 } : x))}
                     style={{ width: 34, height: 34, borderRadius: 6, border: "none", background: C.accent, cursor: "pointer", fontWeight: 800, fontSize: 16, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                 </div>
