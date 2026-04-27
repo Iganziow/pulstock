@@ -75,8 +75,16 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         paperWidth,
         source: "precuenta",
       });
-      if (!r.ok) setPayErr(r.error || "No se pudo imprimir la pre-cuenta");
+      if (!r.ok) {
+        // Si el user canceló el picker (BT/USB), no mostrar banner rojo —
+        // fue su decisión, puede reintentar apretando el botón de nuevo.
+        if ((r as any).cancelled) return;
+        setPayErr(r.error || "No se pudo imprimir la pre-cuenta");
+      }
     } catch (e: unknown) {
+      // Misma lógica para excepciones no atrapadas dentro de printUniversal.
+      const { isUserCancellation } = await import("@/lib/errors");
+      if (isUserCancellation(e)) return;
       const msg = e instanceof Error ? e.message : "Error al imprimir pre-cuenta";
       setPayErr(msg);
     }
@@ -171,8 +179,14 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         paperWidth,
         source: "pos",
       });
-      if (!r.ok) setPayErr(r.error || "No se pudo imprimir la boleta");
+      if (!r.ok) {
+        // Cancelación del picker = no es error (mismo trato que pre-cuenta).
+        if ((r as any).cancelled) return;
+        setPayErr(r.error || "No se pudo imprimir la boleta");
+      }
     } catch (e: unknown) {
+      const { isUserCancellation } = await import("@/lib/errors");
+      if (isUserCancellation(e)) return;
       const msg = e instanceof Error ? e.message : "Error al imprimir boleta";
       setPayErr(msg);
     }
