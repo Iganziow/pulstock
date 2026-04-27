@@ -59,6 +59,11 @@ export function CategoryTree({
     });
   };
 
+  // Estación que se le asignará a la próxima categoría que el usuario cree
+  // desde este árbol. Compartida entre raíces y subcategorías para
+  // simplificar — se resetea al crear (igual que newName/newCode).
+  const [newStationId, setNewStationId] = useState<number | "">("");
+
   const handleCreate = async (parentId: number | null) => {
     if (!newName.trim()) return;
     setBusy(true); setError(null);
@@ -66,9 +71,10 @@ export function CategoryTree({
       const body: any = { name: newName.trim() };
       if (newCode.trim()) body.code = newCode.trim();
       if (parentId) body.parent_id = parentId;
+      if (newStationId !== "") body.default_print_station_id = newStationId;
       await apiFetch("/catalog/categories/", { method: "POST", body: JSON.stringify(body) });
       await onRefresh();
-      setNewName(""); setNewCode(""); setAddingTo(null);
+      setNewName(""); setNewCode(""); setNewStationId(""); setAddingTo(null);
       if (parentId) setExpanded(prev => new Set(prev).add(parentId));
     } catch (e: any) {
       setError(humanizeError(e, "Error creando categoría"));
@@ -192,13 +198,23 @@ export function CategoryTree({
         {addingTo === cat.id && (
           <div style={{
             display: "flex", gap: 4, padding: "6px 8px", paddingLeft: 28 + depth * 20,
-            borderBottom: `1px solid ${C.border}`, background: C.bg,
+            borderBottom: `1px solid ${C.border}`, background: C.bg, flexWrap: "wrap",
           }}>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre subcategoría"
               onKeyDown={e => e.key === "Enter" && handleCreate(cat.id)}
-              style={{ ...iS, flex: 1, padding: "4px 8px", fontSize: 12 }} autoFocus disabled={busy} />
+              style={{ ...iS, flex: 1, minWidth: 120, padding: "4px 8px", fontSize: 12 }} autoFocus disabled={busy} />
             <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Cód."
               style={{ ...iS, width: 60, padding: "4px 6px", fontSize: 11, fontFamily: "monospace" }} disabled={busy} />
+            {stations.length > 0 && (
+              <select value={newStationId}
+                onChange={e => setNewStationId(e.target.value ? parseInt(e.target.value, 10) : "")}
+                disabled={busy}
+                style={{ ...iS, padding: "4px 6px", fontSize: 11, maxWidth: 120 }}
+                title="Estación de impresión">
+                <option value="">— sin estación —</option>
+                {stations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
             <button type="button" onClick={() => handleCreate(cat.id)} disabled={busy || !newName.trim()} style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
               background: C.accent, color: "#fff", border: "none", borderRadius: 4,
@@ -226,14 +242,24 @@ export function CategoryTree({
       )}
 
       {/* Add root category */}
-      <div style={{ display: "flex", gap: 4, padding: "8px 0", marginBottom: 4 }}>
+      <div style={{ display: "flex", gap: 4, padding: "8px 0", marginBottom: 4, flexWrap: "wrap" }}>
         {addingTo === "root" ? (
           <>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre categoría principal"
               onKeyDown={e => e.key === "Enter" && handleCreate(null)}
-              style={{ ...iS, flex: 1, padding: "6px 10px", fontSize: 13 }} autoFocus disabled={busy} />
+              style={{ ...iS, flex: 1, minWidth: 140, padding: "6px 10px", fontSize: 13 }} autoFocus disabled={busy} />
             <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Cód."
               style={{ ...iS, width: 60, padding: "6px 6px", fontSize: 12, fontFamily: "monospace" }} disabled={busy} />
+            {stations.length > 0 && (
+              <select value={newStationId}
+                onChange={e => setNewStationId(e.target.value ? parseInt(e.target.value, 10) : "")}
+                disabled={busy}
+                style={{ ...iS, padding: "6px 8px", fontSize: 12, maxWidth: 140 }}
+                title="Estación de impresión (opcional)">
+                <option value="">— sin estación —</option>
+                {stations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
             <button type="button" onClick={() => handleCreate(null)} disabled={busy || !newName.trim()} style={{
               padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
               background: C.accent, color: "#fff", border: "none", borderRadius: 6,
