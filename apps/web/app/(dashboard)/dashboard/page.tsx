@@ -428,8 +428,10 @@ export default function DashboardPage() {
 
       <div style={{ padding: mob ? "0 12px 24px" : "0 24px 32px" }}>
 
-        {/* KPI Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: mob ? 10 : 16, marginBottom: 24 }}>
+        {/* KPI Cards — en mobile (≤768px) usamos 1 columna porque con
+            "1fr 1fr" en pantallas chicas (~360px) el subtítulo se cortaba
+            en 3 líneas y quedaba ilegible. */}
+        <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: mob ? 10 : 16, marginBottom: 24 }}>
           <KPICard
             title="Ventas Hoy"
             value={formatCLP(k.sales_today.total)}

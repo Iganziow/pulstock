@@ -362,13 +362,19 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
           const isDefault = p.id === defaultId;
           return (
             <div key={p.id} style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+              // En mobile: info arriba, botones abajo en row con wrap.
+              // En desktop: info y botones en la misma fila.
+              display: "flex",
+              flexDirection: mob ? "column" : "row",
+              alignItems: mob ? "stretch" : "center",
+              gap: mob ? 8 : 12,
+              padding: "12px 14px",
               border: `1.5px solid ${isDefault ? C.accentBd : C.border}`,
               borderRadius: 10, marginBottom: 8,
               background: isDefault ? C.accentBg : "transparent",
             }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 14, fontWeight: 700 }}>{p.name}</span>
                   <span style={{
                     padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700,
@@ -385,7 +391,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
                   {p.paperWidth}mm{p.address ? ` · ${p.address}` : ""}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: mob ? "flex-start" : "flex-end" }}>
                 {!isDefault && (
                   <button onClick={() => handleSetDefault(p.id)} className="cfg-btn" style={{
                     padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",

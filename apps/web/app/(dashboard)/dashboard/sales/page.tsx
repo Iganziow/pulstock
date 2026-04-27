@@ -146,14 +146,17 @@ export default function SalesPage() {
         />
       </div>
 
-      {/* FILTERS */}
+      {/* FILTERS — en mobile (≤768px) los separadores verticales se ocultan
+          porque al wrappear quedan flotando raros. Padding/font de los botones
+          también se reducen para que entren todos los range buttons en 1-2
+          filas máximo en pantallas chicas (~360px). */}
       <div style={{
         background:C.surface, border:`1px solid ${C.border}`,
-        borderRadius:C.rMd, padding:"12px 16px", boxShadow:C.sh,
-        display:"flex", gap:10, alignItems:"center", flexWrap:"wrap",
+        borderRadius:C.rMd, padding: mob ? "10px 12px" : "12px 16px", boxShadow:C.sh,
+        display:"flex", gap: mob ? 6 : 10, alignItems:"center", flexWrap:"wrap",
       }}>
         {/* Search */}
-        <div style={{ position:"relative", flex:1, minWidth:200 }}>
+        <div style={{ position:"relative", flex:1, minWidth: mob ? 0 : 200 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.mute} strokeWidth="2.5" strokeLinecap="round"
             style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}>
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -170,7 +173,7 @@ export default function SalesPage() {
           />
         </div>
 
-        <div style={{ width:1, height:24, background:C.border }}/>
+        {!mob && <div style={{ width:1, height:24, background:C.border }}/>}
 
         {/* Range */}
         {([
@@ -180,14 +183,15 @@ export default function SalesPage() {
           { v:"ALL",   l:"Todo" },
         ] as const).map(b => (
           <button key={b.v} type="button" onClick={() => setRange(b.v)} className="xb" style={{
-            height:32, padding:"0 12px", borderRadius:C.r, fontSize:12, fontWeight:600,
+            height: 32, padding: mob ? "0 8px" : "0 12px",
+            borderRadius:C.r, fontSize: mob ? 11 : 12, fontWeight:600,
             border:`1px solid ${range===b.v ? C.accent : C.border}`,
             background:range===b.v ? C.accentBg : C.surface,
             color:range===b.v ? C.accent : C.mid,
           }}>{b.l}</button>
         ))}
 
-        <div style={{ width:1, height:24, background:C.border }}/>
+        {!mob && <div style={{ width:1, height:24, background:C.border }}/>}
 
         {/* Status */}
         <select value={status} onChange={e => setStatus(e.target.value as any)} style={{
