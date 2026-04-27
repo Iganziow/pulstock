@@ -209,6 +209,66 @@ class TestStationListCreate:
         assert r.status_code == 409
         assert "Cocina" in r.json()["detail"]
 
+    def test_create_revives_soft_deleted_station(self, jwt_client, tenant):
+        """
+        Bug del piloto Marbrava: el user creó "caja", la borró, y al intentar
+        crear "caja" de nuevo recibía 409 — la unique_together (tenant, name)
+        bloqueaba el INSERT porque la fila soft-deleted seguía ahí.
+        Ahora reactivamos la inactiva en vez de fallar.
+        """
+        # Crear y soft-delete
+        original = PrintStation.objects.create(
+            tenant=tenant, name="Caja", is_active=True,
+            sort_order=5, is_default_for_receipts=True,
+        )
+        original_id = original.id
+        original.is_active = False
+        original.is_default_for_receipts = False
+        original.save()
+
+        # Re-crear con mismo nombre + nuevos atributos
+        r = jwt_client.post(
+            self.URL,
+            {"name": "Caja", "is_default_for_receipts": True, "sort_order": 0},
+            format="json",
+        )
+        assert r.status_code == 201, r.json()
+        body = r.json()
+        # Mismo id (revivida, no nueva)
+        assert body["id"] == original_id
+        # Atributos actualizados
+        assert body["is_default_for_receipts"] is True
+        assert body["sort_order"] == 0
+        # Verificar en DB
+        revived = PrintStation.objects.get(id=original_id)
+        assert revived.is_active is True
+        assert revived.is_default_for_receipts is True
+        # Sigue siendo una sola estación con ese nombre
+        assert PrintStation.objects.filter(tenant=tenant, name="Caja").count() == 1
+
+    def test_create_revives_only_when_inactive(self, jwt_client, tenant):
+        """Si ya hay una ACTIVA con el mismo nombre, sí devuelve 409 (es
+        duplicado real). El revive solo aplica a soft-deleted."""
+        PrintStation.objects.create(tenant=tenant, name="Bar", is_active=True)
+        r = jwt_client.post(self.URL, {"name": "Bar"}, format="json")
+        assert r.status_code == 409
+
+    def test_create_revives_does_not_cross_tenants(self, jwt_client, tenant):
+        """Una estación soft-deleted en otro tenant NO se revive cuando este
+        tenant pide el mismo nombre — son tenants distintos."""
+        from core.models import Tenant
+        t2 = Tenant(name="Otro", slug="otro-revive")
+        t2._skip_subscription = True
+        t2.save()
+        PrintStation.objects.create(tenant=t2, name="Caja", is_active=False)
+
+        r = jwt_client.post(self.URL, {"name": "Caja"}, format="json")
+        assert r.status_code == 201
+        # Se creó nueva estación en NUESTRO tenant — la del otro tenant queda
+        # intacta (sigue inactiva).
+        assert PrintStation.objects.filter(tenant=tenant, name="Caja", is_active=True).count() == 1
+        assert PrintStation.objects.filter(tenant=t2, name="Caja", is_active=False).count() == 1
+
     def test_create_blank_name_400(self, jwt_client):
         r = jwt_client.post(self.URL, {"name": ""}, format="json")
         assert r.status_code == 400

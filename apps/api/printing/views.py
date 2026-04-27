@@ -820,6 +820,44 @@ class PrintStationListCreateView(APIView):
                 is_default_for_receipts=True,
             ).update(is_default_for_receipts=False)
 
+        # Si hay una estación INACTIVA con el mismo nombre, la "revivimos"
+        # en vez de fallar con 409. Caso de uso: el user creó "Caja", la
+        # borró por error, y ahora quiere recrearla. La unique_together
+        # (tenant, name) incluye soft-deleted, así que un INSERT directo
+        # falla — confunde al usuario que ya no la ve en el listado.
+        # Reactivar es la UX que el dueño espera.
+        revived = PrintStation.objects.filter(
+            tenant_id=request.user.tenant_id,
+            name=name,
+            is_active=False,
+        ).first()
+        if revived is not None:
+            revived.is_active = True
+            revived.is_default_for_receipts = is_default
+            try:
+                revived.sort_order = int(request.data.get("sort_order") or 0)
+            except (ValueError, TypeError):
+                pass
+            revived.save(update_fields=[
+                "is_active", "is_default_for_receipts", "sort_order", "updated_at",
+            ])
+            logger.info(
+                "PrintStation revived: id=%d tenant=%d name=%s",
+                revived.pk, request.user.tenant_id, revived.name,
+            )
+            return Response({
+                "id": revived.pk,
+                "name": revived.name,
+                "is_default_for_receipts": revived.is_default_for_receipts,
+                "sort_order": revived.sort_order,
+            }, status=201)
+
+        # Si hay una estación ACTIVA con el mismo nombre, sí es duplicado real.
+        if PrintStation.objects.filter(
+            tenant_id=request.user.tenant_id, name=name, is_active=True,
+        ).exists():
+            return Response({"detail": f"Ya existe una estación con el nombre '{name}'."}, status=409)
+
         try:
             station = PrintStation.objects.create(
                 tenant_id=request.user.tenant_id,
@@ -828,6 +866,8 @@ class PrintStationListCreateView(APIView):
                 sort_order=int(request.data.get("sort_order") or 0),
             )
         except Exception:
+            # Race condition: alguien más creó la estación entre el check
+            # y el create. Devolver 409 con mensaje claro.
             return Response({"detail": f"Ya existe una estación con el nombre '{name}'."}, status=409)
 
         return Response({

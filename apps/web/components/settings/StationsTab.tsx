@@ -281,7 +281,8 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
               </div>
               {printers.length === 0 && (
                 <div style={{ marginTop: 4, fontSize: 12, color: C.mute, fontStyle: "italic" }}>
-                  Sin impresoras asignadas — los tickets de esta estación no se imprimirán.
+                  Sin impresoras asignadas. Si no asignás ninguna, los tickets de esta estación
+                  caen al flujo por defecto (impresora Bluetooth del dispositivo o agente PC).
                 </div>
               )}
               {printers.map(p => (
@@ -334,19 +335,29 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
                   </select>
                   <Btn variant="secondary" onClick={() => setAssigningStationId(null)}>Cancelar</Btn>
                 </div>
-              ) : (
+              ) : allPrinters.length > 0 ? (
                 <button
                   onClick={() => setAssigningStationId(s.id)}
-                  disabled={allPrinters.length === 0}
                   style={{
                     marginTop: 8, padding: "6px 14px", border: `1px dashed ${C.borderMd}`,
                     borderRadius: 6, background: "transparent", color: C.accent,
-                    fontSize: 12, fontWeight: 600, cursor: allPrinters.length ? "pointer" : "not-allowed",
-                    fontFamily: "inherit", opacity: allPrinters.length ? 1 : 0.5,
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "inherit",
                   }}
                 >
                   + Asignar impresora
                 </button>
+              ) : (
+                // Mensaje explicativo cuando NO hay agent printers — caso típico
+                // de Mario: usa solo Bluetooth desde el celular, no tiene PC con
+                // agente. Le explicamos por qué no puede asignar y qué pasa.
+                <div style={{
+                  marginTop: 8, padding: "8px 10px",
+                  background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 6,
+                  fontSize: 11, color: C.mute, lineHeight: 1.5,
+                }}>
+                  <strong>No hay impresoras de PC para asignar.</strong> Si solo usás impresoras Bluetooth conectadas a un celular o tablet, dejá la estación sin impresora — los tickets saldrán igual en la BT del dispositivo que mande la comanda. Para asignar impresoras dedicadas por estación, necesitás un PC con el <em>Pulstock Printer Agent</em> (descargable en <span style={{ fontFamily: "monospace", color: C.accent }}>pulstock.cl/agent</span>).
+                </div>
               )}
             </div>
           );
