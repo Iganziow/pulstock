@@ -138,6 +138,68 @@ const BT_SERVICES = [
 let cachedBTDevice: any = null;
 let cachedBTCharacteristic: any = null;
 
+// Persistencia entre sesiones — guardamos el nombre del último device
+// que el user pareó para preferirlo al reabrir la app. Web Bluetooth
+// recuerda el permiso del device entre sesiones (a nivel browser/origin),
+// pero el cache en memoria se pierde al recargar — usamos
+// `navigator.bluetooth.getDevices()` para retomarlo sin picker.
+const BT_LAST_DEVICE_NAME_KEY = "pulstock_bt_last_device_name";
+
+function rememberBTDevice(device: any) {
+  try {
+    if (device?.name) {
+      localStorage.setItem(BT_LAST_DEVICE_NAME_KEY, device.name);
+    }
+  } catch { /* localStorage puede fallar en private mode */ }
+}
+
+function getRememberedBTDeviceName(): string | null {
+  try {
+    return localStorage.getItem(BT_LAST_DEVICE_NAME_KEY);
+  } catch { return null; }
+}
+
+/**
+ * Intenta reconectar a la impresora BT autorizada previamente, SIN abrir
+ * el picker. Retorna true si pudo conectar y dejar el device cacheado.
+ *
+ * Funciona porque:
+ *  - Web Bluetooth recuerda el permiso entre sesiones para devices
+ *    pareados con `requestDevice()`.
+ *  - `navigator.bluetooth.getDevices()` (Chrome ≥85) retorna esos devices
+ *    autorizados sin necesitar gesture del user.
+ *  - `gatt.connect()` NO requiere gesture (solo `requestDevice()`).
+ *
+ * Si el browser no soporta `getDevices()` (Firefox, Safari) o si el device
+ * no está autorizado, devuelve false sin error → el caller hace fallback
+ * al picker normal con `pairBluetoothPrinter()`.
+ */
+export async function tryReconnectBluetooth(): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.bluetooth) return false;
+  const bt: any = navigator.bluetooth;
+  if (typeof bt.getDevices !== "function") return false;
+
+  try {
+    const devices: any[] = await bt.getDevices();
+    if (!devices || devices.length === 0) return false;
+
+    // Preferir el device con el nombre guardado en localStorage. Si no hay,
+    // tomar el primero (cliente con UNA impresora pareada — caso típico).
+    const remembered = getRememberedBTDeviceName();
+    const target = (remembered && devices.find((d) => d.name === remembered)) || devices[0];
+    if (!target) return false;
+
+    cachedBTDevice = target;
+    const ch = await connectAndFindCharacteristic(target);
+    cachedBTCharacteristic = ch;
+    return true;
+  } catch {
+    cachedBTDevice = null;
+    cachedBTCharacteristic = null;
+    return false;
+  }
+}
+
 export async function pairBluetoothPrinter(): Promise<any> {
   if (!navigator.bluetooth) throw new Error("Web Bluetooth no disponible en este navegador");
   const device = await navigator.bluetooth.requestDevice({
@@ -146,6 +208,7 @@ export async function pairBluetoothPrinter(): Promise<any> {
   });
   cachedBTDevice = device;
   cachedBTCharacteristic = null;
+  rememberBTDevice(device);
   return device;
 }
 
@@ -196,6 +259,7 @@ async function sendBluetooth(data: Uint8Array): Promise<void> {
   });
 
   cachedBTDevice = device;
+  rememberBTDevice(device);  // persistir para próximas sesiones
   const ch = await connectAndFindCharacteristic(device);
   cachedBTCharacteristic = ch;
   await sendBTChunks(ch, data);

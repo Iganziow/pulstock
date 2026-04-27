@@ -157,32 +157,41 @@ export default function ReceiptPage() {
     }
   }
 
-  // Auto-print al cargar el recibo: si hay impresora térmica configurada Y
-  // el cliente vuelve a una venta recién hecha, intentamos imprimir solo
-  // (sin que tenga que apretar nada). Ahorra clicks en el flujo POS típico
-  // de cafetería donde el ticket se imprime apenas termina la venta.
+  // Auto-print al cargar el recibo. La estrategia depende del tipo de
+  // impresora configurada como default:
   //
-  // Importante: solo dispara una vez (autoPrintTriedRef) y solo si Web
-  // Bluetooth ya tiene un device autorizado (no abre picker automático,
-  // sería invasivo). El user igual ve el botón "Térmica" prominente.
+  //  - USB / red / system (vía agente PC): siempre auto-print. No
+  //    requiere user gesture porque la impresión la hace un proceso
+  //    server-side / nativo, no el browser.
+  //
+  //  - Bluetooth: intentamos reconectar al device autorizado vía
+  //    `navigator.bluetooth.getDevices()` (Chrome ≥85). Si funciona,
+  //    auto-print sin pedir picker. Si el browser no soporta o el
+  //    device no está autorizado, el user verá el botón "Térmica" y
+  //    podrá disparar manualmente (lo que abre el picker para parear
+  //    por primera vez).
+  //
+  // En todos los casos, solo se intenta una vez por carga (autoPrintTriedRef).
   useEffect(() => {
     if (!sale || !hasThermal || autoPrintTriedRef.current) return;
     autoPrintTriedRef.current = true;
 
     (async () => {
       try {
-        // Solo auto-print si no es una impresora Bluetooth — para BT requiere
-        // gesto del user (click) por seguridad del browser. USB y red sí son
-        // OK porque el agente PC los maneja sin interacción.
-        const { getDefaultPrinter } = await import("@/lib/printer");
+        const { getDefaultPrinter, tryReconnectBluetooth } = await import("@/lib/printer");
         const def = getDefaultPrinter();
         if (!def) return;
-        // BT requiere user gesture en el primer print → mejor que el user
-        // apriete "Térmica" la primera vez. Después el browser cachea y se
-        // puede llamar sin gesture, pero el chequeo es no-trivial. Por
-        // seguridad: solo auto-print con USB/red/system. Para BT mostramos
-        // botón prominente.
-        if (def.type === "bluetooth") return;
+
+        if (def.type === "bluetooth") {
+          // Intentar retomar device BT autorizado previamente (sin picker).
+          const reconnected = await tryReconnectBluetooth();
+          if (!reconnected) {
+            // No hay device autorizado en este browser → el user tiene
+            // que apretar "Térmica" para abrir el picker la primera vez.
+            // No marcamos error — solo dejamos el botón visible.
+            return;
+          }
+        }
         await handleThermalPrint();
       } catch { /* falla silenciosa — el user puede apretar el botón */ }
     })();
