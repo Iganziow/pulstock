@@ -179,6 +179,34 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Integrar el back-button del navegador / gesto de back de Android.
+  // Mario reportó: "si vuelvo para atrás me manda al dashboard". Como
+  // este modal no está en el historial, el back navega a la página
+  // anterior (la mesa o el dashboard) en vez de cerrar el modal.
+  //
+  // Patrón estándar de overlays móviles: empujamos un state al historial
+  // cuando montamos. El back dispara popstate → cerramos el modal sin
+  // navegar. Si el usuario cierra por otra vía (X, ESC, confirmar)
+  // hacemos history.back() para no dejar un entry fantasma.
+  useEffect(() => {
+    let stateConsumed = false;
+    window.history.pushState({ pulstockOverlay: "addItemFullscreen" }, "");
+    const onPop = () => {
+      stateConsumed = true;  // el browser ya consumió nuestro state
+      onClose();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // Si el cierre fue por X / ESC / save, el state nuestro sigue
+      // en el historial — lo retiramos con back() para que la próxima
+      // vez que el usuario haga back vaya realmente a la página anterior.
+      if (!stateConsumed) {
+        window.history.back();
+      }
+    };
+  }, [onClose]);
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 200,
@@ -530,6 +558,26 @@ function QtyEditModal({
   // y quieren tipear 93, no tienen que borrar primero.
   const [buf, setBuf] = useState<string>(currentQty > 0 ? String(currentQty) : "");
   const [fresh, setFresh] = useState<boolean>(true);
+
+  // Back-button handler — MISMO patrón que el AddItemFullscreen padre.
+  // Si Mario aprieta back con este modal abierto, queremos cerrar SOLO
+  // este (el padre sigue abierto con el carrito intacto). Sin esto, el
+  // back cerraría el AddItemFullscreen y perdería el carrito.
+  useEffect(() => {
+    let stateConsumed = false;
+    window.history.pushState({ pulstockOverlay: "qtyEdit" }, "");
+    const onPop = () => {
+      stateConsumed = true;
+      onCancel();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (!stateConsumed) {
+        window.history.back();
+      }
+    };
+  }, [onCancel]);
 
   const press = (key: string) => {
     if (key === "back") {
