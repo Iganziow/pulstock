@@ -27,6 +27,7 @@ import { Spinner } from "@/components/ui";
 
 interface ByDay { date: string; total: string; count: number; }
 interface ByCashier { user_id: number | null; name: string; total: string; count: number; }
+interface ByPaymentMethod { method: string; label: string; total: string; count: number; }
 interface TipsSummary {
   date_from: string;
   date_to: string;
@@ -35,6 +36,7 @@ interface TipsSummary {
   avg_tip: string;
   by_day: ByDay[];
   by_cashier: ByCashier[];
+  by_payment_method?: ByPaymentMethod[];
 }
 
 type Range = "7D" | "30D" | "90D" | "CUSTOM";
@@ -196,6 +198,49 @@ export default function PropinasPage() {
                 <div style={{ fontSize: 12, color: C.mid, marginTop: 2 }}>Generó {topCashier.count} {topCashier.count === 1 ? "venta" : "ventas"} con propina</div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Por método de pago — Mario lo pidió: ver cuánto entra de propina
+            por canal. Útil para reconciliar con el banco (débito/crédito) vs
+            efectivo en mano. Iconos para distinción visual rápida. */}
+        {data.by_payment_method && data.by_payment_method.length > 0 && (
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 16, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.05em", background: C.bg }}>
+              Por método de pago
+            </div>
+            {data.by_payment_method.map((m, i) => {
+              const pct = totalTips > 0 ? (parseFloat(m.total) / totalTips) * 100 : 0;
+              const icon = m.method === "cash" ? "💵"
+                : m.method === "debit" ? "💳"
+                : m.method === "card" ? "💳"
+                : m.method === "transfer" ? "🏦"
+                : "💰";
+              const accent = m.method === "cash" ? C.green
+                : m.method === "debit" ? C.accent
+                : m.method === "card" ? "#f59e0b"
+                : C.mid;
+              return (
+                <div key={m.method} style={{
+                  padding: "12px 14px",
+                  borderBottom: i < (data.by_payment_method!.length - 1) ? `1px solid ${C.border}` : "none",
+                  display: "flex", alignItems: "center", gap: 12,
+                }}>
+                  <div style={{ fontSize: 22, flexShrink: 0 }}>{icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{m.label}</div>
+                    <div style={{ fontSize: 11, color: C.mute, marginTop: 1 }}>{m.count} {m.count === 1 ? "venta" : "ventas"}</div>
+                    <div style={{ marginTop: 6, height: 4, background: C.bg, borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: accent, borderRadius: 2 }} />
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{fmtCLP(parseFloat(m.total))}</div>
+                    <div style={{ fontSize: 11, color: C.mute }}>{pct.toFixed(0)}% del total</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

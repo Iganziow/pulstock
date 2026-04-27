@@ -360,8 +360,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isReceiptPage) return <>{children}</>;
 
   // ── Sidebar content ──────────────────────────────────────────────────
+  // Mario reportó: "no puedo scrolear hacia abajo si no tengo mouse y no
+  // puedo llegar a las funciones de abajo".
+  //
+  // Causa: había DOBLE overflow — el <aside> padre tenía overflowY:auto y
+  // el <nav> interno también con flex:1. Eso confunde el comportamiento
+  // del scroll en touchpads y algunos browsers (Opera GX, Brave, etc.)
+  // porque dos contextos de scroll compiten por el mismo gesture.
+  //
+  // Fix: scroll SOLO a nivel <aside>. El contenido (brand, user, nav,
+  // bottom) fluye natural arriba abajo. Si el sidebar es más alto que
+  // viewport, scrollea como una página completa. Si es más bajo, todo
+  // visible. Touchpad/wheel/swipe funcionan en cualquier parte.
   const sidebarContent = (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: C.font }}>
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100%", fontFamily: C.font }}>
       {/* Brand */}
       <div style={{ padding: collapsed ? "16px 12px" : "16px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${C.border}`, minHeight: TOPBAR_H }}>
         <div style={{ width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #4F46E5, #7C3AED)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 2px 8px rgba(79,70,229,0.25)" }}>
@@ -403,13 +415,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
-      {/* Nav */}
-      <nav className="mobile-nav" style={{ flex: 1, padding: "8px 8px", display: "flex", flexDirection: "column", gap: 1, overflowY: "auto" }}>
+      {/* Nav. SIN overflow propio — deja que el <aside> padre maneje el
+          scroll. flex:1 con marginBottom-auto empuja el bottom al final
+          del contenido cuando el sidebar es corto, pero permite que el
+          bottom siga en flujo cuando el contenido excede el viewport. */}
+      <nav className="mobile-nav" style={{ padding: "8px 8px", display: "flex", flexDirection: "column", gap: 1, flexShrink: 0 }}>
         {navItems}
       </nav>
 
-      {/* Bottom: collapse + logout */}
-      <div style={{ padding: "8px 8px 12px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Bottom: collapse + logout. marginTop:auto lo empuja al fondo
+          cuando hay espacio sobrante; cuando no hay espacio, queda
+          al final del flujo natural y se accede con scroll. */}
+      <div style={{ padding: "8px 8px 12px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 2, marginTop: "auto", flexShrink: 0 }}>
         {/* Collapse toggle (desktop only) */}
         {!isMobile && (
           <button onClick={toggleCollapsed} style={{
@@ -658,13 +675,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // ── DESKTOP ────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: C.font, background: C.bg }}>
-      {/* Sidebar */}
+      {/* Sidebar — height:100vh + overflowY:auto. WebkitOverflowScrolling
+          mejora el touch scroll en iOS/macOS Safari. overscrollBehavior
+          contiene el scroll en este contenedor (no se filtra al body). */}
       <aside style={{
         width: sidebarW, background: C.surface,
         borderRight: `1px solid ${C.border}`, flexShrink: 0,
         position: "sticky", top: 0, height: "100vh", overflowY: "auto",
         transition: "width 0.2s cubic-bezier(0.4,0,0.2,1)",
         overflowX: "hidden",
+        WebkitOverflowScrolling: "touch",
+        overscrollBehavior: "contain",
       }}>
         {sidebarContent}
       </aside>
