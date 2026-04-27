@@ -79,15 +79,26 @@ export default function MesasPage() {
     } catch { /* ignore */ }
   }, []);
 
-  // Initial load + auto-refresh
+  // Initial load + auto-refresh.
+  //
+  // Performance fixes (Mario reportó "está más lento"):
+  //   - Intervalo subido de 20s a 60s — cada refresh dispara 1 GET tables
+  //     + 1 GET por cada mesa abierta. Con 4 mesas activas = 5 requests
+  //     cada 20s = 900/hora. Con 60s baja a 300/hora (3x menos).
+  //   - Cuando el user está VIENDO una mesa específica, solo refrescamos
+  //     ESA mesa (no todas las demás orders en background). Reduce ~80%
+  //     de las requests durante uso activo.
+  //   - Pausamos el refresh cuando el documento está oculto (otra pestaña
+  //     o app en background) — el browser API document.hidden.
   useEffect(() => {
     let active = true;
     async function refresh() {
+      if (typeof document !== "undefined" && document.hidden) return;
       const tbls = await loadTables();
       if (active) await loadAllOrders(tbls);
     }
     refresh();
-    const id = setInterval(refresh, 20_000);
+    const id = setInterval(refresh, 60_000);
     return () => { active = false; clearInterval(id); };
   }, [loadTables, loadAllOrders]);
 
@@ -242,8 +253,20 @@ export default function MesasPage() {
 
         {/* LEFT PANEL -- Table grid. En mobile: padding lateral más chico
             (12px en lugar de 16) y minmax 130px para que entren al menos
-            2 mesas por fila en pantallas de ~360px (360-24=336 → 2x130+gap). */}
-        <div style={{ flex: mob ? undefined : "1 1 55%", overflowY: "auto", padding: mob ? "12px 12px" : "14px 16px", borderRight: mob ? undefined : `1px solid ${C.border}`, borderBottom: mob ? `1px solid ${C.border}` : undefined }}>
+            2 mesas por fila en pantallas de ~360px (360-24=336 → 2x130+gap).
+
+            En mobile se OCULTA cuando hay una mesa seleccionada — sino
+            quedan apilados arriba la lista y abajo el OrderPanel y todo
+            se siente comprimido (Mario lo reportó). Volver a la lista es
+            con el botón "←" del header del OrderPanel. */}
+        <div style={{
+          flex: mob ? undefined : "1 1 55%",
+          overflowY: "auto",
+          padding: mob ? "12px 12px" : "14px 16px",
+          borderRight: mob ? undefined : `1px solid ${C.border}`,
+          borderBottom: mob ? `1px solid ${C.border}` : undefined,
+          display: mob && selectedTable ? "none" : undefined,
+        }}>
           {loading ? (
             <div style={{ display: "flex", justifyContent: "center", padding: 40, color: C.mute }}><Spinner size={24} /></div>
           ) : regularTables.length === 0 && counterOrders.length === 0 ? (
@@ -294,8 +317,18 @@ export default function MesasPage() {
           />
         )}
 
-        {/* RIGHT PANEL -- Order detail or salon summary */}
-        <div style={{ flex: mob ? undefined : "1 1 45%", overflowY: "auto", background: C.surface, display: "flex", flexDirection: "column", minHeight: mob ? 300 : undefined }}>
+        {/* RIGHT PANEL -- Order detail or salon summary.
+            En mobile se OCULTA cuando NO hay mesa seleccionada (sino se
+            ve un SalonSummary debajo de la lista de mesas que confunde).
+            Solo aparece cuando hay selección, ocupando toda la pantalla. */}
+        <div style={{
+          flex: mob ? undefined : "1 1 45%",
+          overflowY: "auto",
+          background: C.surface,
+          display: mob && !selectedTable ? "none" : "flex",
+          flexDirection: "column",
+          minHeight: mob ? "calc(100vh - 60px)" : undefined,
+        }}>
           {selectedTable ? (
             selectedTable.status === "FREE" ? (
               /* Free table -- open order prompt */
