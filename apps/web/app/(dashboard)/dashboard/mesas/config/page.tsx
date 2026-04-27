@@ -25,7 +25,10 @@ function useStyles() {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { Table } from "@/components/mesas/types";
-import { FloorPlanEditor } from "@/components/mesas/FloorPlanEditor";
+// NOTE: FloorPlanEditor (vista "Distribuir mesas") existe pero no se expone en
+// producción. Es una herramienta interna nuestra para probar layouts visuales.
+// Mario y los clientes usan la vista de cards (Lista de mesas), que es más
+// simple y funciona en cualquier dispositivo.
 import { humanizeError } from "@/lib/errors";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -217,11 +220,9 @@ export default function MesasConfigPage() {
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingTable, setEditingTable] = useState<Table | undefined>(undefined);
-  const [showCreate, setShowCreate] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [err, setErr] = useState("");
-  const [configTab, setConfigTab] = useState<"list" | "layout">("list");
 
   const loadTables = useCallback(async () => {
     try {
@@ -286,27 +287,9 @@ export default function MesasConfigPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-        <button type="button" onClick={() => setConfigTab("list")} style={{
-          padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
-          background: configTab === "list" ? C.accent : C.surface, color: configTab === "list" ? "#fff" : C.mid,
-          border: configTab === "list" ? "none" : `1px solid ${C.border}`,
-        }}>Lista de mesas</button>
-        <button type="button" onClick={() => setConfigTab("layout")} style={{
-          padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
-          background: configTab === "layout" ? C.accent : C.surface, color: configTab === "layout" ? "#fff" : C.mid,
-          border: configTab === "layout" ? "none" : `1px solid ${C.border}`,
-        }}>Distribuir mesas</button>
-      </div>
-
-      {/* Layout editor */}
-      {configTab === "layout" && !loading && (
-        <FloorPlanEditor tables={tables} onRefresh={loadTables} />
-      )}
-
-      {/* Table list */}
-      {configTab === "list" && (<>
+      {/* Table list (única vista expuesta en producción — la vista de
+          "Distribuir mesas" / FloorPlanEditor queda solo en nuestro entorno
+          de pruebas). */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, boxShadow: C.sh, overflow: "hidden" }}>
        <div style={{ overflowX: "auto" }}>
         {loading ? (
@@ -423,7 +406,6 @@ export default function MesasConfigPage() {
           Las mesas inactivas no aparecen en la vista de comandas. No se puede desactivar una mesa con comanda abierta.
         </div>
       )}
-      </>)}
 
       {/* Form modal (create or edit) */}
       {showFormModal && (
