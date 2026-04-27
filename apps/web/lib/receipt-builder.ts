@@ -105,11 +105,30 @@ export function buildPreCuenta(data: PreCuentaData, paperWidth: 58 | 80 = 80): U
   }
 
   p.separator("-", cols);
-  p.bold(true).textLine("SUBTOTAL", fmtCLP(data.subtotal), cols).bold(false);
+  // Subtotal SIN propina (ganancia del local, va a la caja)
+  p.textLine("SUBTOTAL", fmtCLP(data.subtotal), cols);
+
+  // Propina sugerida 10% + total con propina. La propina es del equipo
+  // (mesero/cajero), no del local — la idea es que el cliente decida
+  // si la deja o no, y le entreguen el total con o sin propina.
+  const tipSuggested = Math.round(data.subtotal * 0.10);
+  const totalWithTip = data.subtotal + tipSuggested;
+  if (tipSuggested > 0) {
+    p.textLine("Propina (10%)", fmtCLP(tipSuggested), cols);
+    p.separator("-", cols);
+    p.bold(true).textLine("TOTAL CON PROPINA", fmtCLP(totalWithTip), cols).bold(false);
+  } else {
+    p.bold(true).textLine("TOTAL", fmtCLP(data.subtotal), cols).bold(false);
+  }
   p.doubleSeparator(cols);
 
   p.feed(1);
   p.align("center");
+  if (tipSuggested > 0) {
+    p.text("La propina es opcional").nl();
+    p.text("y va para el equipo").nl();
+    p.feed(1);
+  }
   p.text("** ESTE NO ES UN").nl();
   p.text("DOCUMENTO FISCAL **").nl();
   p.feed(3);
@@ -236,10 +255,18 @@ export function buildPreCuentaHTML(data: PreCuentaData): string {
     <div class="sep"></div>
     <div class="row info"><span>Neto</span><span>${fmtCLP(neto)}</span></div>
     <div class="row info"><span>IVA (19%)</span><span>${fmtCLP(iva)}</span></div>
-    <div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>
+    <div class="row"><span>SUBTOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>
+    ${(() => {
+      const tip = Math.round(data.subtotal * 0.10);
+      if (tip <= 0) return `<div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>`;
+      return `
+    <div class="row" style="color:#666"><span>Propina (10%)</span><span>${fmtCLP(tip)}</span></div>
+    <div class="sep"></div>
+    <div class="row total-row"><span>TOTAL CON PROPINA</span><span class="price">${fmtCLP(data.subtotal + tip)}</span></div>
+    <div class="center info" style="margin-top:6px;font-size:11px;color:#888">La propina es opcional y va para el equipo</div>`;
+    })()}
     <div class="sep-double"></div>
     <div class="disclaimer">** ESTE NO ES UN DOCUMENTO FISCAL **</div>
-    <div class="center info" style="margin-top:8px;font-size:11px;color:#888">Propina sugerida (10%): ${fmtCLP(Math.round(data.subtotal * 0.10))}</div>
   `;
 }
 

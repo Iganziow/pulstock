@@ -43,7 +43,16 @@ export function PaymentModal({
   const pending = Math.max(0, grandTotal - totalPaid);
   const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
+  // Restaurantes grandes: una mesa de 40 personas puede dividirse en muchos
+  // pagos individuales (cada persona paga su parte en el método que quiera —
+  // varios en efectivo, otros con tarjeta). Antes el botón Agregar se ocultaba
+  // a partir de 4 filas (PAY_METHODS.length), lo que hacía imposible cobrar
+  // por separado a una mesa grande. Ahora dejamos hasta 50 filas y permitimos
+  // métodos repetidos. El default va al primer método sin usar; si todos
+  // están usados, vuelve a "cash" (lo más común).
+  const MAX_PAYMENT_ROWS = 50;
   function addRow() {
+    if (rows.length >= MAX_PAYMENT_ROWS) return;
     const used = new Set(rows.map(r => r.method));
     const next = PAY_METHODS.find(m => !used.has(m.value))?.value || "cash";
     setRows(prev => [...prev, { method: next, amount: "" }]);
@@ -142,8 +151,10 @@ export function PaymentModal({
       {/* Payment rows */}
       {!isConsumoInterno && <div style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.05em" }}>Forma de pago</span>
-          {rows.length < PAY_METHODS.length && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Forma de pago {rows.length > 1 && <span style={{ color: C.mid, fontWeight: 600 }}>({rows.length})</span>}
+          </span>
+          {rows.length < MAX_PAYMENT_ROWS && (
             <button type="button" onClick={addRow} style={{
               display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: C.r,
               border: `1px dashed ${C.borderMd}`, background: "transparent", cursor: "pointer",
@@ -154,6 +165,9 @@ export function PaymentModal({
             </button>
           )}
         </div>
+        {/* Si hay muchas filas (mesa grande dividida entre varias personas)
+            limitamos altura y dejamos scroll vertical para no romper el modal. */}
+        <div style={{ maxHeight: rows.length > 6 ? 280 : "none", overflowY: rows.length > 6 ? "auto" : "visible", paddingRight: rows.length > 6 ? 4 : 0 }}>
         {rows.map((row, i) => (
           <div key={i} style={{
             display: "flex", alignItems: "center", gap: 6, marginBottom: 6,
@@ -187,6 +201,51 @@ export function PaymentModal({
             )}
           </div>
         ))}
+        </div>
+        {/* Atajo para mesas grandes: dividir el total entre N personas y
+            crear N filas en efectivo prellenadas con la parte proporcional.
+            El usuario después puede cambiar método o monto en cada fila. */}
+        {rows.length < MAX_PAYMENT_ROWS && grandTotal > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 8px", borderRadius: C.r, background: C.bg, border: `1px dashed ${C.border}` }}>
+            <span style={{ fontSize: 11, color: C.mute, fontWeight: 600 }}>Mesa grande:</span>
+            <input
+              type="number" min="2" max={MAX_PAYMENT_ROWS}
+              value={splitN}
+              onChange={e => setSplitN(e.target.value)}
+              placeholder="N"
+              style={{ width: 56, padding: "5px 8px", border: `1px solid ${C.border}`, borderRadius: C.r, fontSize: 12, fontFamily: "inherit", outline: "none" }}
+            />
+            <span style={{ fontSize: 11, color: C.mute }}>pers.</span>
+            {splitPer != null && Number(splitN) >= 2 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>≈ ${fmt(splitPer)} c/u</span>
+            )}
+            <button
+              type="button"
+              disabled={!splitN || Number(splitN) < 2 || Number(splitN) > MAX_PAYMENT_ROWS}
+              onClick={() => {
+                const n = Math.min(MAX_PAYMENT_ROWS, Math.max(2, Math.floor(Number(splitN) || 0)));
+                if (n < 2) return;
+                const per = Math.floor(grandTotal / n);
+                const remainder = grandTotal - per * n;
+                // 1ª fila absorbe el resto del redondeo así la suma cuadra
+                // exactamente con grandTotal (no quedan $1-2 sin pagar).
+                const newRows: PaymentRow[] = Array.from({ length: n }, (_, i) => ({
+                  method: "cash",
+                  amount: String(per + (i === 0 ? remainder : 0)),
+                }));
+                setRows(newRows);
+              }}
+              style={{
+                marginLeft: "auto", padding: "5px 12px", borderRadius: C.r,
+                border: `1px solid ${C.accentBd}`, background: C.accentBg, color: C.accent,
+                fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                opacity: !splitN || Number(splitN) < 2 ? 0.5 : 1,
+              }}
+            >
+              Crear {splitN ? `${splitN} ` : ""}filas
+            </button>
+          </div>
+        )}
       </div>}
 
       {/* Tip */}
@@ -225,16 +284,9 @@ export function PaymentModal({
         )}
       </div>
 
-      {/* Split */}
-      {!isConsumoInterno && (
-      <div style={{ marginBottom: 14, display: "flex", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>Dividir en:</span>
-        <input type="number" min="1" value={splitN} onChange={e => setSplitN(e.target.value)}
-          placeholder="N" style={{ width: 50, padding: "5px 8px", border: `1px solid ${C.border}`, borderRadius: C.r, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-        <span style={{ fontSize: 11, color: C.mute }}>pers.</span>
-        {splitPer != null && <span style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginLeft: "auto" }}>${fmt(splitPer)} c/u</span>}
-      </div>
-      )}
+      {/* Nota: el control "Dividir en N pers." que estaba acá se reemplazó
+          por la sección "Mesa grande" arriba (junto a Forma de pago), que
+          además de mostrar lo de cada uno, crea N filas listas para editar. */}
 
       {/* Error from checkout attempt */}
       {error && (

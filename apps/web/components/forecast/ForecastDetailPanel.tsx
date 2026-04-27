@@ -46,15 +46,34 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   if (allPts.length === 0) return null;
 
   // Math.max con array vacío retorna -Infinity. Como filtramos a 0+ con num()
-  // y agregamos 1 al final, el resultado siempre es >= 1.2. Aún así, defendemos
+  // y agregamos 1 al final, el resultado siempre es >= 1. Aún así, defendemos
   // contra el caso donde TODOS los valores son 0 (producto sin ventas ni
   // predicción) — el gráfico se ve plano pero no roto.
-  const maxV = Math.max(
+  const rawMax = Math.max(
     ...allPts.map(d => Math.max(d.actual || 0, d.upper || d.pred || 0, 0)),
     1,
-  ) * 1.2;
-  const W = mob ? 340 : 680, H = mob ? 150 : 190;
-  const pL = 36, pR = 14, pT = 28, pB = 28;
+  );
+  // "Nice" Y-axis: pasos redondos en [1, 2, 5] × 10^n para que los números
+  // del eje sean fáciles de leer (5, 10, 15, 20 — no 4, 7, 11, 14). Antes
+  // dividíamos maxV en cuartos exactos y redondeábamos cada tick → escala
+  // confusa para el dueño de la cafetería.
+  function niceStep(v: number): number {
+    const target = v / 4; // apuntamos a ~4 divisiones
+    if (target <= 0) return 1;
+    const exp = Math.floor(Math.log10(target));
+    const base = Math.pow(10, exp);
+    const m = target / base;
+    const nice = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10;
+    return Math.max(1, nice * base);
+  }
+  const step = niceStep(rawMax * 1.15);
+  const maxV = Math.ceil((rawMax * 1.15) / step) * step;
+  const tickCount = Math.max(2, Math.round(maxV / step));
+  const W = mob ? 340 : 680, H = mob ? 170 : 210;
+  // Más padding arriba (pT) para que las etiquetas "Pasado/Futuro" no
+  // queden pegadas al borde. Más pL para que números grandes (1.500, etc.)
+  // no se corten.
+  const pL = 44, pR = 14, pT = 36, pB = 28;
   const plotW = W - pL - pR, plotH = H - pT - pB;
   const n = allPts.length, dx = plotW / Math.max(n - 1, 1);
   const xp = (i: number) => pL + i * dx;
@@ -86,9 +105,22 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
     stockPts = pts.join(" ");
   }
 
-  const yTicks = [0, .25, .5, .75, 1].map(p => ({ v: Math.round(maxV * p), y: yp(maxV * p) }));
+  // Ticks Y como pasos enteros del "step" calculado (0, step, 2*step, …, maxV).
+  // Eso garantiza números limpios (5, 10, 15, 20) en vez de 4, 7, 11, 14.
+  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => {
+    const v = i * step;
+    return { v: Math.round(v), y: yp(v) };
+  });
   const lEvery = Math.max(1, Math.floor(n / (mob ? 5 : 10)));
   const sepX = fcStart >= 0 ? xp(fcStart) : null;
+  // Etiquetas "Pasado/Futuro": solo se dibujan si la sección tiene al menos
+  // ~40px de ancho (suficiente para que el texto entre sin cortarse). Antes
+  // usábamos textAnchor="end" con sepX-10 → cuando no había historia (o muy
+  // poca), "Pasado" quedaba con la P recortada por el límite del SVG.
+  const pastWidth = sepX !== null ? sepX - pL : 0;
+  const futureWidth = sepX !== null ? (W - pR) - sepX : 0;
+  const showPasado = sepX !== null && pastWidth >= 40;
+  const showFuturo = sepX !== null && futureWidth >= 40;
 
   return (
     <div style={{ padding: mob ? "14px 12px" : "18px 22px", borderBottom: `1px solid ${C.border}`, background: C.bg }}>
@@ -158,8 +190,12 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
             {sepX !== null && (
               <g>
                 <line x1={sepX} x2={sepX} y1={pT - 6} y2={pT + plotH} stroke={C.border} strokeWidth={1} strokeDasharray="4,3" />
-                <text x={sepX - 10} y={pT - 10} fontSize={10} fill={C.accent} textAnchor="end" fontWeight="700">Pasado</text>
-                <text x={sepX + 10} y={pT - 10} fontSize={10} fill={C.amber} textAnchor="start" fontWeight="700">Futuro</text>
+                {showPasado && (
+                  <text x={pL + pastWidth / 2} y={pT - 12} fontSize={11} fill={C.accent} textAnchor="middle" fontWeight="700">Pasado</text>
+                )}
+                {showFuturo && (
+                  <text x={sepX + futureWidth / 2} y={pT - 12} fontSize={11} fill={C.amber} textAnchor="middle" fontWeight="700">Futuro</text>
+                )}
               </g>
             )}
             {bandPath && <path d={bandPath} fill={C.amber} opacity={.08} />}

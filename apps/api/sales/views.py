@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.db import transaction, IntegrityError
 from django.db.models import F, Q, Sum, Count, Avg
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -353,6 +353,15 @@ class TipsSummaryView(APIView):
 
     Returns aggregate tip statistics for the tenant in the given date range.
     Defaults to the last 30 days if no params are provided.
+
+    Las propinas se tratan SIEMPRE separadas de las ganancias del local —
+    pertenecen al equipo (mesero/cajero), no al negocio. Por eso este endpoint
+    es independiente y no se mezcla con los reportes de ingresos/utilidad.
+
+    Devuelve:
+      - total_tips, count_with_tip, avg_tip  (resumen)
+      - by_day:    [{date, total, count}]    (serie temporal para gráfico)
+      - by_cashier:[{user_id, name, total, count}] (para repartir entre el equipo)
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
@@ -381,10 +390,45 @@ class TipsSummaryView(APIView):
             avg_tip=Coalesce(Avg("tip", filter=Q(tip__gt=0)), Decimal("0")),
         )
 
+        # Breakdown por día — solo días con propinas (los demás no aportan
+        # información útil en el gráfico).
+        by_day_qs = (
+            qs.filter(tip__gt=0)
+              .annotate(day=TruncDate("created_at"))
+              .values("day")
+              .annotate(total=Sum("tip"), count=Count("id"))
+              .order_by("day")
+        )
+        by_day = [
+            {"date": str(r["day"]), "total": str(r["total"].quantize(Decimal("1"))), "count": r["count"]}
+            for r in by_day_qs
+        ]
+
+        # Breakdown por cajero (created_by). Útil para que el dueño reparta
+        # las propinas entre quienes las generaron.
+        by_cashier_qs = (
+            qs.filter(tip__gt=0)
+              .values("created_by_id", "created_by__first_name", "created_by__last_name", "created_by__username")
+              .annotate(total=Sum("tip"), count=Count("id"))
+              .order_by("-total")
+        )
+        by_cashier = []
+        for r in by_cashier_qs:
+            full_name = " ".join(filter(None, [r.get("created_by__first_name"), r.get("created_by__last_name")])).strip()
+            name = full_name or r.get("created_by__username") or "Desconocido"
+            by_cashier.append({
+                "user_id": r["created_by_id"],
+                "name":    name,
+                "total":   str(r["total"].quantize(Decimal("1"))),
+                "count":   r["count"],
+            })
+
         return Response({
             "date_from":      str(date_from),
             "date_to":        str(date_to),
             "total_tips":     str(agg["total_tips"].quantize(Decimal("1"))),
             "count_with_tip": agg["count_with_tip"],
             "avg_tip":        str(agg["avg_tip"].quantize(Decimal("1"))),
+            "by_day":         by_day,
+            "by_cashier":     by_cashier,
         })
