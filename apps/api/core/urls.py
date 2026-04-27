@@ -706,11 +706,19 @@ class TenantUserDetailView(APIView):
                     updated.append("active_store_id")
 
         if updated:
-            save_fields = [f for f in updated if f != "password"]
-            if save_fields:
-                target.save(update_fields=save_fields)
-            elif "password" in updated:
-                target.save()
+            # BUG-FIX: la versión vieja filtraba "password" de update_fields y
+            # luego solo hacía save() completo si SOLO se había cambiado el
+            # password. Si Mario cambiaba nombre/email + password en el mismo
+            # request, save(update_fields=["first_name","email"]) persistía
+            # los datos pero NO el password — set_password(pw) quedaba en
+            # memoria sin guardarse. Resultado visible: aparecía "guardado
+            # OK" pero la próxima vez que entraba, el password seguía siendo
+            # el viejo.
+            #
+            # Fix: incluir TODOS los campos modificados (incluyendo password)
+            # en update_fields. set_password() actualiza el atributo .password
+            # del modelo, así que es válido pasarlo a update_fields.
+            target.save(update_fields=updated)
 
         return Response({"ok": True, "updated": updated})
 
