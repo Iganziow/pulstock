@@ -33,6 +33,8 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 ::-webkit-scrollbar-thumb{background:#D4D4D8;border-radius:99px}
 ::-webkit-scrollbar-thumb:hover{background:#A1A1AA}
 @keyframes spin{to{transform:rotate(360deg)}}
+.qty-input-no-spin::-webkit-inner-spin-button,.qty-input-no-spin::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.qty-input-no-spin{-moz-appearance:textfield}
 `;
 
 const SHARED_ID = "pulstock-shared-ds";
