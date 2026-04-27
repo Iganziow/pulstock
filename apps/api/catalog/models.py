@@ -100,6 +100,16 @@ class Product(models.Model):
          on_delete=models.PROTECT, related_name="products"
     )
 
+    # Permitir vender este producto aunque el stock esté en 0 o negativo.
+    # Útil cuando el dueño tiene unidades físicas pero no actualizó el
+    # sistema (típico: "tengo bombones en la vitrina pero el sistema dice 0").
+    # Sin esto, el toggle "Permitir vender sin stock" del catálogo era un
+    # placebo — se guardaba pero el backend lo ignoraba.
+    allow_negative_stock = models.BooleanField(
+        default=False,
+        help_text="Si está activo, se puede vender este producto aunque no haya stock.",
+    )
+
     # Override de estación de impresión a nivel producto. Si null, hereda
     # de la categoría. Útil cuando un producto no debe ir donde indica su
     # categoría (ej: "Café irlandés" en cat. "Tragos" pero sale en cocina).

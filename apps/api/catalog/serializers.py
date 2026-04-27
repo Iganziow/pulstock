@@ -161,6 +161,7 @@ class ProductReadSerializer(serializers.ModelSerializer):
             "price", "cost", "tax_rate", "min_stock",
             "brand", "image_url",
             "print_station_override", "effective_print_station_id",
+            "allow_negative_stock",
             "created_at", "updated_at",
         ]
 
@@ -268,6 +269,9 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             # Estación de impresión opcional (override). Si null, hereda de
             # la categoría. Validamos pertenencia al tenant en validate().
             "print_station_override",
+            # Permitir vender este producto aunque no haya stock. Antes el
+            # campo se mandaba pero el backend lo descartaba — placebo.
+            "allow_negative_stock",
             "brand",
             "image_url",
         ]
