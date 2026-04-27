@@ -19,18 +19,42 @@ export default function AccountTab({ me, onSave, saving, mob }: AccountTabProps)
   const [accPwConf, setAccPwConf] = useState("");
   const [localSaving, setLocalSaving] = useState(false);
   const [err, setErr] = useState("");
+  // Success feedback inline. El flash global del padre desaparece a los
+  // 4.5s y queda en otro lugar de la pantalla — Mario reportó "el botón
+  // de cambiar contraseña no funciona" porque no veía el mensaje. Este
+  // success local queda VISIBLE junto al botón, sin desaparecer hasta
+  // que el user toca otra cosa.
+  const [success, setSuccess] = useState("");
 
   const handleSave = async () => {
-    setErr("");
-    if (accPwNew && accPwNew.length < 8) { setErr("La contraseña debe tener al menos 8 caracteres"); return; }
-    if (accPwNew && accPwNew !== accPwConf) { setErr("Las contraseñas no coinciden"); return; }
+    setErr(""); setSuccess("");
+    if (accPwNew && accPwNew.length < 8) {
+      setErr("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (accPwNew && accPwNew !== accPwConf) {
+      setErr("Las contraseñas no coinciden.");
+      return;
+    }
     setLocalSaving(true);
     try {
       const body: any = { first_name: accFirst, last_name: accLast, email: accEmail };
       if (accPwNew) body.password = accPwNew;
       await onSave(body);
-      setAccPwNew(""); setAccPwConf("");
-    } finally { setLocalSaving(false); }
+      setSuccess(
+        accPwNew
+          ? "✓ Datos y contraseña actualizados. La próxima vez que entres usa la nueva."
+          : "✓ Datos actualizados."
+      );
+      setAccPwNew("");
+      setAccPwConf("");
+    } catch (e: unknown) {
+      // El padre `onSave` puede tirar — capturamos para mostrar inline en
+      // vez de solo confiar en el flash global.
+      setErr(e instanceof Error ? e.message : "Error al guardar los cambios.");
+    } finally {
+      setLocalSaving(false);
+    }
   };
 
   const isBusy = saving || localSaving;
@@ -38,7 +62,24 @@ export default function AccountTab({ me, onSave, saving, mob }: AccountTabProps)
   return (
     <Card>
       <SectionHeader icon="👤" title="Mi cuenta" desc="Tu información personal y contraseña de acceso" />
-      {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      {err && (
+        <div style={{
+          color: C.red, fontSize: 13, marginBottom: 10, padding: "8px 12px",
+          background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 6,
+          fontWeight: 500,
+        }}>
+          {err}
+        </div>
+      )}
+      {success && (
+        <div style={{
+          color: C.green, fontSize: 13, marginBottom: 10, padding: "8px 12px",
+          background: C.greenBg, border: `1px solid ${C.greenBd}`, borderRadius: 6,
+          fontWeight: 600,
+        }}>
+          {success}
+        </div>
+      )}
       <div style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div style={FL}><Label>Nombre</Label><input value={accFirst} onChange={e => setAccFirst(e.target.value)} style={iS} /></div>

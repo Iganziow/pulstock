@@ -97,11 +97,22 @@ export default function SettingsPage() {
   };
 
   const saveAccount = async (body: { first_name: string; last_name: string; email: string; password?: string }) => {
+    if (!me?.id) {
+      // Defensa: si por alguna razón me todavía no se cargó, no hacemos
+      // PATCH a /core/users/undefined/ (devolvería 404). Avisar al user.
+      flash("err", "No se pudo identificar tu cuenta. Recarga la página.");
+      throw new Error("No se pudo identificar tu cuenta. Recarga la página.");
+    }
     setSaving(true);
     try {
-      await apiFetch(`/core/users/${me?.id}/`, { method: "PATCH", body: JSON.stringify(body) });
+      await apiFetch(`/core/users/${me.id}/`, { method: "PATCH", body: JSON.stringify(body) });
       flash("ok", body.password ? "Datos y contraseña actualizados" : "Datos actualizados");
-    } catch (e: any) { flash("err", humanizeError(e, "Error guardando")); }
+    } catch (e: any) {
+      flash("err", humanizeError(e, "Error guardando"));
+      // Re-lanzamos para que AccountTab pueda mostrar el error inline
+      // (no solo el flash global que desaparece a los 4.5s).
+      throw e;
+    }
     finally { setSaving(false); }
   };
 
