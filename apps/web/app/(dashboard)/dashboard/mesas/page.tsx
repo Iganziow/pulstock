@@ -179,7 +179,7 @@ export default function MesasPage() {
     <div style={{ height: mob ? "auto" : "100vh", minHeight: "100vh", display: "flex", flexDirection: "column", fontFamily: "'DM Sans', 'Helvetica Neue', system-ui, sans-serif", background: C.bg, overflow: mob ? undefined : "hidden" }}>
 
       {/* Header */}
-      <div style={{ padding: "14px 20px 10px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
+      <div style={{ padding: mob ? "12px 12px 8px" : "14px 20px 10px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 800, color: C.text, margin: 0 }}>Mesas</h1>
@@ -232,7 +232,7 @@ export default function MesasPage() {
 
       {/* Error */}
       {openErr && (
-        <div style={{ margin: "8px 20px 0", padding: "8px 14px", borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 12, fontWeight: 500 }}>
+        <div style={{ margin: mob ? "8px 12px 0" : "8px 20px 0", padding: "8px 14px", borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 12, fontWeight: 500 }}>
           {openErr}
         </div>
       )}
@@ -240,8 +240,10 @@ export default function MesasPage() {
       {/* Split layout */}
       <div style={{ flex: 1, display: "flex", flexDirection: mob ? "column" : "row", overflow: mob ? "auto" : "hidden" }}>
 
-        {/* LEFT PANEL -- Table grid */}
-        <div style={{ flex: mob ? undefined : "1 1 55%", overflowY: "auto", padding: "14px 16px", borderRight: mob ? undefined : `1px solid ${C.border}`, borderBottom: mob ? `1px solid ${C.border}` : undefined }}>
+        {/* LEFT PANEL -- Table grid. En mobile: padding lateral más chico
+            (12px en lugar de 16) y minmax 130px para que entren al menos
+            2 mesas por fila en pantallas de ~360px (360-24=336 → 2x130+gap). */}
+        <div style={{ flex: mob ? undefined : "1 1 55%", overflowY: "auto", padding: mob ? "12px 12px" : "14px 16px", borderRight: mob ? undefined : `1px solid ${C.border}`, borderBottom: mob ? `1px solid ${C.border}` : undefined }}>
           {loading ? (
             <div style={{ display: "flex", justifyContent: "center", padding: 40, color: C.mute }}><Spinner size={24} /></div>
           ) : regularTables.length === 0 && counterOrders.length === 0 ? (
@@ -255,7 +257,7 @@ export default function MesasPage() {
             <>
               {/* Table cards */}
               {filteredTables.length > 0 ? (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(auto-fill, minmax(130px, 1fr))" : "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
                   {filteredTables.map(t => (
                     <TableCard key={t.id} table={t} selected={selectedTable?.id === t.id} onClick={() => selectTable(t)} />
                   ))}
@@ -270,7 +272,7 @@ export default function MesasPage() {
                   <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
                     Para llevar ({counterOrders.length})
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(auto-fill, minmax(130px, 1fr))" : "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
                     {counterOrders.map(t => (
                       <TableCard key={t.id} table={t} selected={selectedTable?.id === t.id} onClick={() => selectTable(t)} />
                     ))}

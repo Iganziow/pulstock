@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Btn, type Register, type Session } from "@/components/caja/CajaShared";
 import { CajaLiveSession } from "@/components/caja/CajaLiveSession";
 import { CajaHistory } from "@/components/caja/CajaHistory";
 import { AddMovementModal, CloseSessionModal } from "@/components/caja/CajaModals";
 
 export default function CajaPage() {
+  const mob = useIsMobile();
   const [registers, setRegisters] = useState<Register[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +112,7 @@ export default function CajaPage() {
   };
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: mob ? "16px 12px" : "24px 16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       <div style={{ marginBottom: 24 }}>
@@ -148,7 +150,7 @@ export default function CajaPage() {
           <CajaLiveSession session={session} busy={busy} onShowMove={() => setShowMove(true)} onShowClose={() => setShowClose(true)} />
         ) : (
           /* No open session -- open form */
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: "28px 28px", maxWidth: 480 }}>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: mob ? "18px 16px" : "28px 28px", maxWidth: 480 }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 4 }}>Abrir nuevo arqueo</div>
             <div style={{ fontSize: 13, color: C.mute, marginBottom: 20 }}>Selecciona la caja e ingresa el fondo inicial en efectivo.</div>
             <div style={{ display: "grid", gap: 14 }}>

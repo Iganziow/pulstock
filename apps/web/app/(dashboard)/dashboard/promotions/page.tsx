@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { extractErr } from "@/lib/format";
 import { formatDatetimeLocal } from "@/components/promotions/helpers";
 import { PromotionTable } from "@/components/promotions/PromotionTable";
@@ -15,6 +16,7 @@ import { EMPTY_FORM } from "@/components/promotions/types";
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PromotionsPage() {
+  const mob = useIsMobile();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -307,12 +309,13 @@ export default function PromotionsPage() {
         </div>
       )}
 
-      <div style={{ padding: "28px 32px", maxWidth: 1200, margin: "0 auto", fontFamily: C.font }}>
+      <div style={{ padding: mob ? "16px 12px" : "28px 32px", maxWidth: 1200, margin: "0 auto", fontFamily: C.font }}>
 
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        {/* Header — en mobile el botón cae abajo del título para no
+            apretar el wrap del subtítulo. */}
+        <div style={{ display: "flex", flexDirection: mob ? "column" : "row", justifyContent: "space-between", alignItems: mob ? "stretch" : "center", gap: mob ? 12 : 0, marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: 0 }}>
+            <h1 style={{ fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text, margin: 0 }}>
               Ofertas y Promociones
             </h1>
             <p style={{ fontSize: 13, color: C.mute, marginTop: 4 }}>

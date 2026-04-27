@@ -31,3 +31,34 @@ export function useIsTablet() {
   }, []);
   return t;
 }
+
+/**
+ * Hook unificado con los 3 breakpoints de la app — preferido sobre
+ * llamar useIsMobile + useIsTablet por separado (un solo listener,
+ * un solo render por resize).
+ *
+ *   isMobile   < 768px   → teléfono (Mario, dueño de cafetería)
+ *   isTablet   768-1099  → tablet o ventana chica de desktop
+ *   isDesktop  ≥ 1100px  → laptop/monitor con sidebar cómodo
+ *
+ * Uso típico:
+ *   const { isMobile, isTablet } = useBreakpoint();
+ *   const cols = isMobile ? "1fr" : isTablet ? "1fr 1fr" : "repeat(4, 1fr)";
+ */
+export function useBreakpoint() {
+  const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
+  useEffect(() => {
+    const fn = () => {
+      const w = window.innerWidth;
+      setBp({
+        isMobile: w < 768,
+        isTablet: w >= 768 && w < 1100,
+        isDesktop: w >= 1100,
+      });
+    };
+    fn();
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return bp;
+}
