@@ -62,6 +62,14 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
   const [err, setErr]                   = useState("");
   const debounce                        = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // Modal para editar cantidad (caso "93 gramos de chocolate"). Mario
+  // pidió que sea más amigable: en móvil tipear el número directo en el
+  // [- N +] abría el menú "Cortar/Copiar/Seleccionar" de Android y al
+  // tocar fuera se perdía el foco. Un modal dedicado evita ambos
+  // problemas — el usuario tiene un input grande con su propio teclado
+  // numérico, atajos de cantidades comunes, y botones OK/Cancelar.
+  const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
+
   // Cargar categorías una sola vez
   useEffect(() => {
     apiFetch("/catalog/categories/")
@@ -386,54 +394,26 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
                       >
                         −
                       </button>
-                      {/* Cantidad editable directamente con teclado para casos
-                          como "93 gramos de chocolate" — Mario lo pidió. Para
-                          que tipear gramos no requiera apretar + 93 veces. */}
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="1"
-                        step="any"
-                        value={inCart}
-                        onClick={e => e.stopPropagation()}
-                        onFocus={e => { e.stopPropagation(); e.target.select(); }}
-                        onChange={e => {
-                          e.stopPropagation();
-                          const raw = e.target.value;
-                          const n = raw === "" ? 0 : Number(raw);
-                          if (isNaN(n) || n < 0) return;
-                          // Reemplaza la cantidad del item directamente.
-                          // Si n=0, lo saca del carrito.
-                          setCart(prev => {
-                            const exists = prev.find(c => c.product.id === p.id);
-                            if (!exists) {
-                              if (n <= 0) return prev;
-                              return [...prev, { product: p, qty: n, unit_price: p.price || "0", note: "" }];
-                            }
-                            if (n <= 0) return prev.filter(c => c.product.id !== p.id);
-                            return prev.map(c => c.product.id === p.id ? { ...c, qty: n } : c);
-                          });
-                        }}
-                        onBlur={e => {
-                          // Si quedó en 0/vacío al perder foco, mantenerlo
-                          // fuera del carrito (no forzar a 1) — el usuario
-                          // ya lo había sacado intencionalmente.
-                          const n = Number(e.target.value);
-                          if (isNaN(n) || n < 0) {
-                            setCart(prev => prev.filter(c => c.product.id !== p.id));
-                          }
-                        }}
-                        className="qty-input-no-spin"
-                        aria-label={`Cantidad de ${p.name}`}
+                      {/* Cantidad: tap para abrir modal de edición con teclado
+                          numérico custom. Resuelve el problema móvil del menú
+                          de Android "Cortar/Copiar" + el click-outside que se
+                          comía el foco. */}
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setEditingProduct(p); }}
+                        aria-label={`Editar cantidad de ${p.name}`}
+                        title="Tocar para escribir la cantidad exacta"
                         style={{
-                          width: 48, textAlign: "center",
+                          minWidth: 36, height: 32, padding: "0 6px",
+                          textAlign: "center",
                           border: "none", background: "transparent",
                           fontSize: 14, fontWeight: 800, color: C.accent,
-                          fontFamily: C.font, outline: "none",
-                          padding: "0 4px",
-                          MozAppearance: "textfield",
+                          fontFamily: C.font, cursor: "pointer",
+                          borderRadius: 4,
                         }}
-                      />
+                      >
+                        {inCart}
+                      </button>
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); addToCart(p); }}
@@ -490,6 +470,239 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
           </button>
         </div>
       )}
+
+      {/* ── Modal: editar cantidad con teclado numérico custom ────────── */}
+      {editingProduct && (
+        <QtyEditModal
+          product={editingProduct}
+          currentQty={cartQtyMap.get(editingProduct.id) ?? 0}
+          onCancel={() => setEditingProduct(null)}
+          onConfirm={(newQty) => {
+            setCart(prev => {
+              const exists = prev.find(c => c.product.id === editingProduct.id);
+              if (newQty <= 0) {
+                return prev.filter(c => c.product.id !== editingProduct.id);
+              }
+              if (!exists) {
+                return [...prev, {
+                  product: editingProduct,
+                  qty: newQty,
+                  unit_price: editingProduct.price || "0",
+                  note: "",
+                }];
+              }
+              return prev.map(c =>
+                c.product.id === editingProduct.id ? { ...c, qty: newQty } : c
+              );
+            });
+            setEditingProduct(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// QtyEditModal — modal para tipear cantidades exactas con teclado custom.
+//
+// Por qué un teclado propio en vez de <input type="number"> con el del SO:
+//   1. En Android, tocar/seleccionar texto en un input chico abre el menú
+//      contextual (Cortar/Copiar/Seleccionar todo) que tapa el modal.
+//   2. El teclado del SO sube y baja con cada toque, haciendo el flujo
+//      lento. Un teclado fijo en pantalla es más rápido.
+//   3. Los atajos (50, 100, 250, 500) cubren la mayoría de casos comunes
+//      en cafetería (gramos de chocolate, café molido, etc.).
+//
+// Diseño: header con producto, display grande con la cantidad actual,
+// chips de atajos, teclado numérico, botones OK/Cancelar.
+// ─────────────────────────────────────────────────────────────────────────
+function QtyEditModal({
+  product, currentQty, onCancel, onConfirm,
+}: {
+  product: { id: number; name: string; price: string };
+  currentQty: number;
+  onCancel: () => void;
+  onConfirm: (qty: number) => void;
+}) {
+  // El "buffer" arranca con la cantidad actual; el primer dígito que
+  // tipean lo reemplaza (igual que las calculadoras). Así si está en 1
+  // y quieren tipear 93, no tienen que borrar primero.
+  const [buf, setBuf] = useState<string>(currentQty > 0 ? String(currentQty) : "");
+  const [fresh, setFresh] = useState<boolean>(true);
+
+  const press = (key: string) => {
+    if (key === "back") {
+      setBuf(prev => prev.slice(0, -1));
+      setFresh(false);
+      return;
+    }
+    if (key === "clear") {
+      setBuf("");
+      setFresh(false);
+      return;
+    }
+    if (key === ".") {
+      // Permitir decimales (ej: 0.5 kg). Solo un punto.
+      setBuf(prev => (prev.includes(".") ? prev : (prev || "0") + "."));
+      setFresh(false);
+      return;
+    }
+    // Dígito 0-9
+    if (fresh) {
+      setBuf(key);
+      setFresh(false);
+    } else {
+      setBuf(prev => (prev + key).slice(0, 8));  // máx 8 dígitos
+    }
+  };
+
+  const setShortcut = (n: number) => {
+    setBuf(String(n));
+    setFresh(false);
+  };
+
+  const parsed = Number(buf) || 0;
+  const lineTotal = Math.round(Number(product.price) * parsed);
+
+  const KeyBtn = ({ label, onClick, accent, big }: { label: string; onClick: () => void; accent?: boolean; big?: boolean }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 56, borderRadius: 10,
+        border: `1px solid ${accent ? C.accent : C.border}`,
+        background: accent ? C.accent : C.surface,
+        color: accent ? "#fff" : C.text,
+        fontSize: big ? 22 : 20, fontWeight: 700, fontFamily: C.font,
+        cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        animation: "bdIn 0.17s ease both",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 420,
+          background: C.surface,
+          borderTopLeftRadius: 16, borderTopRightRadius: 16,
+          padding: "16px 14px 18px",
+          boxShadow: "0 -10px 40px rgba(0,0,0,0.25)",
+          animation: "mIn 0.22s cubic-bezier(0.34,1.38,0.64,1) both",
+          display: "flex", flexDirection: "column", gap: 10,
+          maxHeight: "92vh", overflowY: "auto",
+        }}
+      >
+        {/* Header */}
+        <div>
+          <div style={{ fontSize: 11, color: C.mute, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Cantidad
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginTop: 2 }}>
+            {product.name}
+          </div>
+          <div style={{ fontSize: 12, color: C.mute, marginTop: 1 }}>
+            ${fmt(product.price)} c/u
+          </div>
+        </div>
+
+        {/* Display grande */}
+        <div style={{
+          padding: "16px 14px",
+          background: C.bg, borderRadius: 12,
+          border: `2px solid ${C.accent}`,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span style={{ fontSize: 32, fontWeight: 800, color: C.text, fontFamily: C.font, fontVariantNumeric: "tabular-nums" }}>
+            {buf || "0"}
+          </span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.accent, fontVariantNumeric: "tabular-nums" }}>
+            ${fmt(lineTotal)}
+          </span>
+        </div>
+
+        {/* Atajos rápidos. 1 (default), 10, 50, 100, 250, 500 — cubren los
+            casos típicos en cafetería (1 unidad, gramos comunes, etc.). */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[1, 10, 50, 100, 250, 500].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setShortcut(n)}
+              style={{
+                flex: "1 1 auto", minWidth: 56,
+                padding: "8px 10px", borderRadius: 8,
+                border: `1px solid ${parsed === n ? C.accent : C.border}`,
+                background: parsed === n ? C.accentBg : C.surface,
+                color: parsed === n ? C.accent : C.text,
+                fontSize: 13, fontWeight: 700, fontFamily: C.font,
+                cursor: "pointer",
+              }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        {/* Teclado numérico custom. 4 filas × 3 cols + columna extra
+            para Borrar/punto/limpiar. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+          {[1, 2, 3].map(n => <KeyBtn key={n} label={String(n)} onClick={() => press(String(n))} />)}
+          <KeyBtn label="⌫" onClick={() => press("back")} />
+
+          {[4, 5, 6].map(n => <KeyBtn key={n} label={String(n)} onClick={() => press(String(n))} />)}
+          <KeyBtn label="C" onClick={() => press("clear")} />
+
+          {[7, 8, 9].map(n => <KeyBtn key={n} label={String(n)} onClick={() => press(String(n))} />)}
+          <KeyBtn label="." onClick={() => press(".")} />
+
+          <div /> {/* placeholder para alinear el 0 al centro */}
+          <KeyBtn label="0" onClick={() => press("0")} big />
+          <div />
+          <div />
+        </div>
+
+        {/* Acciones */}
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1, padding: "14px 16px", borderRadius: 10,
+              border: `1px solid ${C.border}`, background: C.surface, color: C.mid,
+              fontSize: 14, fontWeight: 700, fontFamily: C.font, cursor: "pointer",
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(parsed)}
+            disabled={parsed < 0}
+            style={{
+              flex: 2, padding: "14px 16px", borderRadius: 10,
+              border: "none", background: C.accent, color: "#fff",
+              fontSize: 15, fontWeight: 800, fontFamily: C.font,
+              cursor: "pointer",
+            }}
+          >
+            {parsed === 0 ? "Quitar del carrito" : `Confirmar · ${parsed}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
