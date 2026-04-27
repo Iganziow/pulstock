@@ -167,10 +167,31 @@ def create_sale(
     )
     stock_map = {int(si.product_id): si for si in stock_items}
 
+    # Productos con allow_negative_stock=True: se permite vender aunque
+    # no haya stock o quede negativo. Caso de uso: el dueño tiene
+    # bombones físicos en la vitrina pero el sistema dice 0 (no actualizó
+    # tras compra). En vez de bloquearlo, dejamos que la venta pase y
+    # el stock baja a negativo — el dueño después corrige con una
+    # entrada manual. Solo aplica al producto "vendido directamente"
+    # (ids en `agg`), NO a sus ingredientes (ej: si un Capuccino tiene
+    # la flag, NO permitimos que su café/leche queden negativos —
+    # ingredientes son control estricto).
+    allow_neg_pids = set(
+        Product.objects.filter(
+            tenant_id=tenant_id,
+            id__in=list(agg.keys()),
+            allow_negative_stock=True,
+        ).values_list("id", flat=True)
+    )
+
     shortages = []
     for pid in expanded_ids_sorted:
         required_qty = expanded_agg[pid]["qty"]
         si = stock_map.get(pid)
+        # Si este id es un producto vendido directamente Y permite
+        # negativo → no chequeamos shortage.
+        if pid in allow_neg_pids:
+            continue
         if not si:
             shortages.append({"product_id": pid, "available": "0", "required": str(required_qty)})
             continue
@@ -261,10 +282,21 @@ def create_sale(
             continue
 
         unit_cost = (si.avg_cost or Decimal("0.000")).quantize(Decimal("0.000"))
-        line_cost_move = (qty * unit_cost).quantize(Decimal("0.000"))
+
+        # Si el producto permite stock negativo y la venta excede el
+        # disponible, "clampeamos" el descuento al stock actual (lo deja
+        # en 0). El sistema NO viola el constraint stockitem_on_hand_gte_0
+        # de la DB, y el dueño puede después corregir con una entrada
+        # manual cuando reciba mercadería. La venta se registra completa.
+        if pid in allow_neg_pids and si.on_hand < qty:
+            actual_decrement = si.on_hand
+        else:
+            actual_decrement = qty
+
+        line_cost_move = (actual_decrement * unit_cost).quantize(Decimal("0.000"))
 
         StockItem.objects.filter(id=si.id).update(
-            on_hand=F("on_hand") - qty,
+            on_hand=F("on_hand") - actual_decrement,
             stock_value=F("stock_value") - line_cost_move,
         )
 
