@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { humanizeError } from "@/lib/errors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -62,10 +63,12 @@ const PAGE_CSS = `
   .receipt-outer{padding:0!important;background:white!important;min-height:auto!important}
   .receipt-card{box-shadow:none!important;border:none!important;border-radius:0!important;max-width:100%!important;width:72mm!important;margin:0!important}
 }
+@keyframes spin { to { transform: rotate(360deg); } }
 `;
 
 export default function ReceiptPage() {
   useGlobalStyles(PAGE_CSS);
+  const mob = useIsMobile();
   const params = useParams<{ id: string }>();
   const saleId = Number(params?.id);
 
@@ -73,6 +76,12 @@ export default function ReceiptPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [err, setErr]   = useState<string | null>(null);
   const [hasThermal, setHasThermal] = useState(false);
+  // Estado del auto-print: idle (no se intentó), printing, done, error.
+  // Mostramos un mensaje arriba del recibo para que el usuario sepa qué pasó.
+  const [printStatus, setPrintStatus] = useState<"idle" | "printing" | "done" | "error">("idle");
+  const [printErr, setPrintErr] = useState<string>("");
+  // Evitar disparar el auto-print más de una vez si re-renderiza.
+  const autoPrintTriedRef = useRef(false);
 
   useEffect(() => {
     if (!saleId) { setErr("ID inválido."); return; }
@@ -113,6 +122,8 @@ export default function ReceiptPage() {
 
   async function handleThermalPrint() {
     if (!sale) return;
+    setPrintStatus("printing");
+    setPrintErr("");
     try {
       const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildReceipt, buildReceiptHTML } = await import("@/lib/receipt-builder");
@@ -134,13 +145,53 @@ export default function ReceiptPage() {
         paperWidth,
         source: "pos",
       });
-      if (!r.ok) setErr(r.error || "No se pudo imprimir");
-    } catch (e: any) { setErr(humanizeError(e, "Error al imprimir")); }
+      if (!r.ok) {
+        setPrintStatus("error");
+        setPrintErr(r.error || "No se pudo imprimir");
+      } else {
+        setPrintStatus("done");
+      }
+    } catch (e: any) {
+      setPrintStatus("error");
+      setPrintErr(humanizeError(e, "Error al imprimir"));
+    }
   }
 
+  // Auto-print al cargar el recibo: si hay impresora térmica configurada Y
+  // el cliente vuelve a una venta recién hecha, intentamos imprimir solo
+  // (sin que tenga que apretar nada). Ahorra clicks en el flujo POS típico
+  // de cafetería donde el ticket se imprime apenas termina la venta.
+  //
+  // Importante: solo dispara una vez (autoPrintTriedRef) y solo si Web
+  // Bluetooth ya tiene un device autorizado (no abre picker automático,
+  // sería invasivo). El user igual ve el botón "Térmica" prominente.
+  useEffect(() => {
+    if (!sale || !hasThermal || autoPrintTriedRef.current) return;
+    autoPrintTriedRef.current = true;
+
+    (async () => {
+      try {
+        // Solo auto-print si no es una impresora Bluetooth — para BT requiere
+        // gesto del user (click) por seguridad del browser. USB y red sí son
+        // OK porque el agente PC los maneja sin interacción.
+        const { getDefaultPrinter } = await import("@/lib/printer");
+        const def = getDefaultPrinter();
+        if (!def) return;
+        // BT requiere user gesture en el primer print → mejor que el user
+        // apriete "Térmica" la primera vez. Después el browser cachea y se
+        // puede llamar sin gesture, pero el chequeo es no-trivial. Por
+        // seguridad: solo auto-print con USB/red/system. Para BT mostramos
+        // botón prominente.
+        if (def.type === "bluetooth") return;
+        await handleThermalPrint();
+      } catch { /* falla silenciosa — el user puede apretar el botón */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sale, hasThermal]);
+
   // Botón secundario "Imprimir en este dispositivo" — abre el diálogo nativo
-  // del navegador. Útil cuando estás en el PC del dueño (no en el local) y
-  // quieres una copia PDF/local.
+  // del navegador. En mobile lo ocultamos cuando hay térmica configurada
+  // (el dueño confunde el botón "Imprimir" pensando que es la térmica).
   function handleBrowserPrint() { window.print(); }
 
   // ── Loading / Error ────────────────────────────────────────────────────────
@@ -165,7 +216,11 @@ export default function ReceiptPage() {
   return (
     <div className="receipt-outer" style={{ fontFamily: MONO, color: "#000", background: "#e8e8e8", minHeight: "100vh", padding: "24px 16px" }}>
 
-      {/* Top nav — hidden on print */}
+      {/* Top nav — hidden on print.
+          Reorganizado: cuando hay térmica configurada, "Térmica" es el
+          botón primario (color lleno) y "Imprimir" se oculta en mobile
+          para evitar confusión (el dueño apretaba "Imprimir" pensando
+          que era la térmica y le abría el dialog Android nativo). */}
       <div className="no-print" style={{ maxWidth: 360, margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <Link href="/dashboard/pos" style={{
           display: "inline-flex", alignItems: "center", gap: 5,
@@ -177,29 +232,81 @@ export default function ReceiptPage() {
         </Link>
         <div style={{ display: "flex", gap: 5 }}>
           {hasThermal && (
-            <button type="button" onClick={handleThermalPrint} style={{
+            <button
+              type="button"
+              onClick={handleThermalPrint}
+              disabled={printStatus === "printing"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                fontSize: 11, fontWeight: 700,
+                color: "#fff", padding: "6px 12px",
+                border: "none", borderRadius: 6,
+                background: printStatus === "printing" ? "#999" : C.accent,
+                cursor: printStatus === "printing" ? "default" : "pointer",
+                fontFamily: "inherit",
+                opacity: printStatus === "printing" ? 0.7 : 1,
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              {printStatus === "printing" ? "Imprimiendo…" : printStatus === "done" ? "Reimprimir" : "Térmica"}
+            </button>
+          )}
+          {/* Imprimir nativo (PDF/A4) — oculto en mobile cuando hay térmica
+              porque el dueño apretaba este pensando que era la térmica.
+              En desktop lo dejamos visible (sirve para guardar PDF). */}
+          {(!hasThermal || !mob) && (
+            <button type="button" onClick={handleBrowserPrint} style={{
               display: "inline-flex", alignItems: "center", gap: 5,
-              fontSize: 11, fontWeight: 700, color: C.accent, padding: "6px 10px",
-              border: `1.5px solid ${C.accent}`, borderRadius: 6, background: "#fff", cursor: "pointer", fontFamily: "inherit",
+              fontSize: 11, fontWeight: 700,
+              color: hasThermal ? "#666" : "#fff",
+              padding: "6px 12px",
+              border: hasThermal ? "1px solid #ccc" : "none",
+              borderRadius: 6,
+              background: hasThermal ? "#fff" : C.accent,
+              cursor: "pointer", fontFamily: "inherit",
             }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
               </svg>
-              Térmica
+              {hasThermal ? "PDF" : "Imprimir"}
             </button>
           )}
-          <button type="button" onClick={handleBrowserPrint} style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            fontSize: 11, fontWeight: 700, color: "#fff", padding: "6px 12px",
-            border: "none", borderRadius: 6, background: C.accent, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
-            </svg>
-            Imprimir
-          </button>
         </div>
       </div>
+
+      {/* Banner de estado del print — solo se muestra si hubo intento. */}
+      {hasThermal && printStatus !== "idle" && (
+        <div className="no-print" style={{ maxWidth: 360, margin: "0 auto 12px" }}>
+          {printStatus === "printing" && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              background: C.accentBg, color: C.accent, border: `1px solid ${C.accentBd}`,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", border: `2px solid ${C.accent}`, borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+              Imprimiendo el ticket…
+            </div>
+          )}
+          {printStatus === "done" && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              background: C.greenBg, color: C.green, border: `1px solid ${C.greenBd}`,
+            }}>
+              ✓ Ticket impreso
+            </div>
+          )}
+          {printStatus === "error" && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`,
+            }}>
+              ⚠ {printErr || "No se pudo imprimir"}. Probá apretar el botón otra vez.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Receipt ticket */}
       <div className="receipt-card" style={{
