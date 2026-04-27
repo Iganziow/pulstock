@@ -4,9 +4,11 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { MesaBtn as Btn } from "./MesaBtn";
 import { PaymentModal } from "./PaymentModal";
 import { AddItemPanel } from "./AddItemPanel";
+import { AddItemFullscreen } from "./AddItemFullscreen";
 import { Order, OrderLine, PaymentRow } from "./types";
 import { fmt, fmtTime, timeAgo } from "./helpers";
 
@@ -21,7 +23,14 @@ interface OrderPanelProps {
 }
 
 export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, onOrderUpdate, canConsumoInterno }: OrderPanelProps) {
+  const mob = useIsMobile();
   const [showPayment, setShowPayment] = useState(false);
+  // Pantalla full-screen para agregar items en móvil. Reemplaza al
+  // AddItemPanel inline (que en mobile competía con el botón "Cobrar"
+  // por espacio y dejaba el dropdown de búsqueda tapado). Mario reportó
+  // "no aparece nada al buscar" — este modal lo soluciona dándole toda
+  // la pantalla al search + lista.
+  const [showAddFullscreen, setShowAddFullscreen] = useState(false);
   const [deletingLine, setDeletingLine] = useState<number | null>(null);
   const [confirmDeleteLine, setConfirmDeleteLine] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState("");
@@ -433,23 +442,49 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </div>
         )}
 
-        {/* Add items — always visible */}
+        {/* Add items — embebido en desktop, botón → modal full-screen en móvil */}
         <div style={{
           marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            Agregar productos
-          </div>
-          <AddItemPanel orderId={order.id} onAdded={async () => {
-            try {
-              const updated = await apiFetch(`/tables/orders/${order.id}/`);
-              onOrderUpdate(updated);
-            } catch { /* parent refresh will cover it */ }
-            onRefresh();
-          }} />
+          {mob ? (
+            // Móvil: botón grande que abre el modal full-screen estilo Wabi.
+            // El modal le da TODA la pantalla al search + lista de productos
+            // sin compartirla con el botón "Cobrar" → resuelve el bug del
+            // dropdown tapado.
+            <button
+              type="button"
+              onClick={() => setShowAddFullscreen(true)}
+              style={{
+                width: "100%", padding: "16px 18px",
+                border: `2px dashed ${C.accentBd}`, borderRadius: 12,
+                background: C.accentBg, color: C.accent,
+                fontSize: 15, fontWeight: 700, cursor: "pointer",
+                fontFamily: C.font,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Adicionar productos
+            </button>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Agregar productos
+              </div>
+              <AddItemPanel orderId={order.id} onAdded={async () => {
+                try {
+                  const updated = await apiFetch(`/tables/orders/${order.id}/`);
+                  onOrderUpdate(updated);
+                } catch { /* parent refresh will cover it */ }
+                onRefresh();
+              }} />
+            </>
+          )}
         </div>
       </div>
 
@@ -481,6 +516,24 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
             handleCheckout(payments, tip, "partial", [quickPayLine.id]);
             setQuickPayLine(null);
           }} />
+      )}
+
+      {/* Modal full-screen para agregar productos (solo móvil). Le pasamos
+          el tableName para mostrarlo en el header del modal y los callbacks
+          para refrescar la mesa y cerrarse. */}
+      {showAddFullscreen && (
+        <AddItemFullscreen
+          orderId={order.id}
+          tableName={order.customer_name || tableName}
+          onAdded={async () => {
+            try {
+              const updated = await apiFetch(`/tables/orders/${order.id}/`);
+              onOrderUpdate(updated);
+            } catch { /* parent refresh will cover it */ }
+            onRefresh();
+          }}
+          onClose={() => setShowAddFullscreen(false)}
+        />
       )}
     </div>
   );
