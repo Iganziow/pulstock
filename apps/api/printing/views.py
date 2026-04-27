@@ -72,13 +72,13 @@ def _is_safe_network_address(addr: str) -> bool:
     return True
 
 # Whitelist de orígenes válidos para PrintJob.source (evita basura en DB)
-_VALID_JOB_SOURCES = {"pos", "mesa", "manual", "test", "web", "api", "receipt", "precuenta", ""}
+_VALID_JOB_SOURCES = {"pos", "mesa", "manual", "test", "web", "api", "receipt", "precuenta", "comanda", ""}
 
 # Límite de agentes activos por tenant (anti-abuso + UX razonable)
 MAX_AGENTS_PER_TENANT = 20
 
 from core.permissions import HasTenant, IsManager
-from .models import AgentPrinter, PrintAgent, PrintJob
+from .models import AgentPrinter, PrintAgent, PrintJob, PrintStation
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +139,9 @@ class AgentListCreateView(APIView):
                         "paper_width": p.paper_width,
                         "network_address": p.network_address,
                         "is_default": p.is_default,
+                        # station_id permite al frontend mostrar a qué estación
+                        # está asignada cada impresora sin un fetch adicional.
+                        "station_id": p.station_id,
                     }
                     for p in a.printers.all() if p.is_active
                 ],
@@ -278,6 +281,22 @@ class AutoPrintView(APIView):
         if source not in _VALID_JOB_SOURCES:
             source = "api"
 
+        # Estación opcional: si viene, rutea a impresoras de esa estación.
+        station_id = request.data.get("station_id")
+        station = None
+        if station_id not in (None, "", 0):
+            try:
+                station = PrintStation.objects.get(
+                    pk=int(station_id),
+                    tenant_id=request.user.tenant_id,
+                    is_active=True,
+                )
+            except (PrintStation.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {"detail": "station_id inválido o estación inactiva."},
+                    status=400,
+                )
+
         # Buscar agente online: prioridad por store activa del user, después
         # cualquier agente del tenant. "Online" = polleó en los últimos 2 min.
         from datetime import timedelta
@@ -289,33 +308,71 @@ class AutoPrintView(APIView):
             last_seen_at__gt=online_cutoff,
         )
 
-        active_store_id = getattr(request.user, "active_store_id", None)
-        agent = None
-        if active_store_id:
-            agent = agents_qs.filter(store_id=active_store_id).first()
-        if agent is None:
-            agent = agents_qs.first()
+        # Si se pidió estación: buscar impresora online asignada a ella.
+        # NO hacemos fallback automático a otra estación porque imprimir
+        # un ticket de cocina en la barra rompe el flujo de trabajo.
+        if station is not None:
+            station_printers = (
+                AgentPrinter.objects.filter(
+                    station=station,
+                    is_active=True,
+                    agent__is_active=True,
+                    agent__paired_at__isnull=False,
+                    agent__last_seen_at__gt=online_cutoff,
+                )
+                .select_related("agent")
+                .order_by("-is_default", "id")
+            )
+            ap = station_printers.first()
+            if ap is None:
+                any_assigned = AgentPrinter.objects.filter(
+                    station=station, is_active=True,
+                ).exists()
+                if not any_assigned:
+                    return Response({
+                        "detail": (
+                            f"La estación '{station.name}' no tiene impresoras "
+                            "asignadas. Asigna al menos una en Configuración → Impresoras."
+                        ),
+                    }, status=404)
+                return Response({
+                    "detail": (
+                        f"No hay impresoras online en la estación '{station.name}'. "
+                        "Verifica que el PC con esa impresora esté encendido y conectado."
+                    ),
+                }, status=404)
+            agent = ap.agent
+            logger.info(
+                "AutoPrint(station=%s): job will go to agent=%s printer=%s",
+                station.name, agent.name, ap.name,
+            )
+        else:
+            active_store_id = getattr(request.user, "active_store_id", None)
+            agent = None
+            if active_store_id:
+                agent = agents_qs.filter(store_id=active_store_id).first()
+            if agent is None:
+                agent = agents_qs.first()
 
-        if agent is None:
-            return Response({
-                "detail": (
-                    "No hay agentes de impresión conectados. Instala el "
-                    "Pulstock Printer Agent en el PC del local o "
-                    "configura una impresora local en este dispositivo."
-                ),
-            }, status=404)
+            if agent is None:
+                return Response({
+                    "detail": (
+                        "No hay agentes de impresión conectados. Instala el "
+                        "Pulstock Printer Agent en el PC del local o "
+                        "configura una impresora local en este dispositivo."
+                    ),
+                }, status=404)
 
-        # Elegir impresora del agente: la default (o la primera activa).
-        ap_qs = AgentPrinter.objects.filter(agent=agent, is_active=True)
-        ap = ap_qs.filter(is_default=True).first() or ap_qs.first()
-        if ap is None:
-            return Response({
-                "detail": (
-                    f"El agente '{agent.name}' no tiene impresoras "
-                    "configuradas. Verifica que el PC tenga al menos "
-                    "una impresora instalada."
-                ),
-            }, status=404)
+            ap_qs = AgentPrinter.objects.filter(agent=agent, is_active=True)
+            ap = ap_qs.filter(is_default=True).first() or ap_qs.first()
+            if ap is None:
+                return Response({
+                    "detail": (
+                        f"El agente '{agent.name}' no tiene impresoras "
+                        "configuradas. Verifica que el PC tenga al menos "
+                        "una impresora instalada."
+                    ),
+                }, status=404)
 
         job = PrintJob.objects.create(
             tenant_id=request.user.tenant_id,
@@ -701,3 +758,175 @@ class JobCompleteView(APIView):
             job.mark_failed(err)
 
         return Response({"ok": True, "status": job.status})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PRINT STATIONS (estaciones de impresión)
+# ═══════════════════════════════════════════════════════════════════
+
+_STATION_NAME_RE = re.compile(r"^[\w \-\.\(\)/áéíóúÁÉÍÓÚñÑüÜ]{1,100}$")
+
+
+def _is_safe_station_name(name: str) -> bool:
+    return bool(name) and bool(_STATION_NAME_RE.match(name))
+
+
+class PrintStationListCreateView(APIView):
+    """GET /api/printing/stations/ — lista, POST — crea."""
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def get(self, request):
+        qs = PrintStation.objects.filter(
+            tenant_id=request.user.tenant_id, is_active=True,
+        ).prefetch_related("printers__agent").order_by("sort_order", "name")
+
+        return Response([
+            {
+                "id": s.pk,
+                "name": s.name,
+                "is_default_for_receipts": s.is_default_for_receipts,
+                "sort_order": s.sort_order,
+                "printers": [
+                    {
+                        "id": p.pk, "name": p.name,
+                        "display_name": p.display_name,
+                        "agent_id": p.agent_id,
+                        "agent_name": p.agent.name if p.agent_id else "",
+                        "agent_online": p.agent.is_online if p.agent_id else False,
+                        "connection_type": p.connection_type,
+                        "paper_width": p.paper_width,
+                    }
+                    for p in s.printers.all() if p.is_active
+                ],
+            }
+            for s in qs
+        ])
+
+    def post(self, request):
+        name = (request.data.get("name") or "").strip()[:100]
+        if not _is_safe_station_name(name):
+            return Response({"detail": "Nombre inválido. Usa solo letras, números, espacios y guiones."}, status=400)
+
+        active_count = PrintStation.objects.filter(
+            tenant_id=request.user.tenant_id, is_active=True,
+        ).count()
+        if active_count >= 30:
+            return Response({"detail": "Máximo 30 estaciones por cuenta. Elimina alguna antes de crear una nueva."}, status=400)
+
+        is_default = bool(request.data.get("is_default_for_receipts"))
+        if is_default:
+            PrintStation.objects.filter(
+                tenant_id=request.user.tenant_id,
+                is_default_for_receipts=True,
+            ).update(is_default_for_receipts=False)
+
+        try:
+            station = PrintStation.objects.create(
+                tenant_id=request.user.tenant_id,
+                name=name,
+                is_default_for_receipts=is_default,
+                sort_order=int(request.data.get("sort_order") or 0),
+            )
+        except Exception:
+            return Response({"detail": f"Ya existe una estación con el nombre '{name}'."}, status=409)
+
+        return Response({
+            "id": station.pk,
+            "name": station.name,
+            "is_default_for_receipts": station.is_default_for_receipts,
+            "sort_order": station.sort_order,
+        }, status=201)
+
+
+class PrintStationDetailView(APIView):
+    """PATCH/DELETE /api/printing/stations/<id>/"""
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def patch(self, request, pk):
+        station = get_object_or_404(
+            PrintStation, pk=pk, tenant_id=request.user.tenant_id, is_active=True,
+        )
+
+        if "name" in request.data:
+            name = (request.data.get("name") or "").strip()[:100]
+            if not _is_safe_station_name(name):
+                return Response({"detail": "Nombre inválido."}, status=400)
+            if name != station.name:
+                exists = PrintStation.objects.filter(
+                    tenant_id=request.user.tenant_id, name=name, is_active=True,
+                ).exclude(pk=station.pk).exists()
+                if exists:
+                    return Response({"detail": f"Ya existe una estación con el nombre '{name}'."}, status=409)
+            station.name = name
+
+        if "sort_order" in request.data:
+            try:
+                station.sort_order = int(request.data.get("sort_order") or 0)
+            except (ValueError, TypeError):
+                return Response({"detail": "sort_order debe ser un número."}, status=400)
+
+        if "is_default_for_receipts" in request.data:
+            new_default = bool(request.data.get("is_default_for_receipts"))
+            if new_default and not station.is_default_for_receipts:
+                PrintStation.objects.filter(
+                    tenant_id=request.user.tenant_id,
+                    is_default_for_receipts=True,
+                ).exclude(pk=station.pk).update(is_default_for_receipts=False)
+            station.is_default_for_receipts = new_default
+
+        station.save()
+        return Response({
+            "id": station.pk,
+            "name": station.name,
+            "is_default_for_receipts": station.is_default_for_receipts,
+            "sort_order": station.sort_order,
+        })
+
+    def delete(self, request, pk):
+        station = get_object_or_404(
+            PrintStation, pk=pk, tenant_id=request.user.tenant_id, is_active=True,
+        )
+        station.is_active = False
+        station.is_default_for_receipts = False
+        station.save(update_fields=["is_active", "is_default_for_receipts"])
+        AgentPrinter.objects.filter(station=station).update(station=None)
+        return Response(status=204)
+
+
+class AgentPrinterStationView(APIView):
+    """PATCH /api/printing/printers/<id>/station/ — asigna/desasigna estación.
+    Body: {"station_id": 5}  o  {"station_id": null}
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def patch(self, request, pk):
+        printer = get_object_or_404(
+            AgentPrinter,
+            pk=pk,
+            agent__tenant_id=request.user.tenant_id,
+            agent__is_active=True,
+            is_active=True,
+        )
+
+        station_id = request.data.get("station_id")
+        if station_id is None or station_id == "":
+            printer.station = None
+        else:
+            try:
+                station_id_int = int(station_id)
+            except (ValueError, TypeError):
+                return Response({"detail": "station_id inválido."}, status=400)
+            station = get_object_or_404(
+                PrintStation,
+                pk=station_id_int,
+                tenant_id=request.user.tenant_id,
+                is_active=True,
+            )
+            printer.station = station
+
+        printer.save(update_fields=["station"])
+        return Response({
+            "id": printer.pk,
+            "name": printer.name,
+            "station_id": printer.station_id,
+        })

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { iS } from "@/components/ui";
@@ -8,6 +8,8 @@ import type { Category } from "./types";
 import { humanizeError } from "@/lib/errors";
 
 export { type Category } from "./types";
+
+interface StationLite { id: number; name: string; }
 
 export function CategoryTree({
   categories, onRefresh,
@@ -23,6 +25,28 @@ export function CategoryTree({
   const [editName, setEditName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Estaciones disponibles — solo se carga si el tenant tiene alguna.
+  // Si no hay, no mostramos el selector (sería ruido en la UI).
+  const [stations, setStations] = useState<StationLite[]>([]);
+  useEffect(() => {
+    apiFetch("/printing/stations/")
+      .then((d: any[]) => setStations((d || []).map(s => ({ id: s.id, name: s.name }))))
+      .catch(() => { /* sin estaciones es OK; selector queda oculto */ });
+  }, []);
+
+  const handleSetStation = async (catId: number, stationId: number | null) => {
+    setBusy(true); setError(null);
+    try {
+      await apiFetch(`/catalog/categories/${catId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ default_print_station_id: stationId }),
+      });
+      await onRefresh();
+    } catch (e: any) {
+      setError(humanizeError(e, "Error al asignar estación"));
+    } finally { setBusy(false); }
+  };
 
   const roots = categories.filter(c => !c.parent_id).sort((a, b) => a.name.localeCompare(b.name));
   const childrenOf = (pid: number) => categories.filter(c => c.parent_id === pid).sort((a, b) => a.name.localeCompare(b.name));
@@ -121,6 +145,32 @@ export function CategoryTree({
               {cat.code ? <span style={{ fontSize: 10, color: C.mute, marginLeft: 6, fontFamily: "monospace" }}>{cat.code}</span> : null}
               {kids.length > 0 && <span style={{ fontSize: 10, color: C.mute, marginLeft: 4 }}>({kids.length})</span>}
             </span>
+          )}
+
+          {/* Selector de estación (solo si el tenant tiene estaciones). */}
+          {!isEditing && stations.length > 0 && (
+            <select
+              value={cat.default_print_station_id ?? ""}
+              disabled={busy}
+              onChange={e => {
+                const v = e.target.value;
+                handleSetStation(cat.id, v === "" ? null : parseInt(v, 10));
+              }}
+              title="Estación donde sale la comanda de esta categoría"
+              style={{
+                fontSize: 11, padding: "2px 6px",
+                border: `1px solid ${cat.default_print_station_id ? C.accentBd : C.border}`,
+                background: cat.default_print_station_id ? C.accentBg : C.surface,
+                color: cat.default_print_station_id ? C.accent : C.mute,
+                borderRadius: 4, cursor: "pointer", maxWidth: 130,
+                fontFamily: "inherit", fontWeight: 600, flexShrink: 0,
+              }}
+            >
+              <option value="">— sin estación —</option>
+              {stations.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
           )}
 
           {/* Actions */}

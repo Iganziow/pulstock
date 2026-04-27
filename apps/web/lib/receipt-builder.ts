@@ -23,6 +23,20 @@ export interface PreCuentaData {
   tenant?: { name?: string; rut?: string; address?: string; receipt_header?: string };
 }
 
+export interface ComandaData {
+  /** Mesa o referencia (ej. "Mesa 5", "Para llevar #12"). */
+  reference: string;
+  /** Estación destino — solo se imprime en el header, ej. "Cocina", "Bar". */
+  stationName?: string;
+  /** Líneas que van a esta estación. */
+  lines: ReceiptLine[];
+  /** Mesero/cajero que envió la comanda. */
+  attendedBy?: string;
+  /** Notas globales (ej. "Mesa con prisa"). */
+  note?: string;
+  date: Date;
+}
+
 export interface PaymentInfo {
   method: string;
   amount: number | string;
@@ -72,6 +86,64 @@ const PAYMENT_LABELS: Record<string, string> = {
 };
 
 // ── ESC/POS Builders ─────────────────────────────────────────────────────────
+
+/**
+ * Comanda (kitchen ticket) — ticket que va a cocina/bar/despacho.
+ * NO incluye precios ni totales (al cocinero no le importa) — sólo lo que
+ * tiene que preparar y para qué mesa.
+ */
+export function buildComanda(data: ComandaData, paperWidth: 58 | 80 = 80): Uint8Array {
+  const cols = colsFor(paperWidth);
+  const p = new EscPos().init();
+
+  p.align("center").bold(true).fontSize(2, 2);
+  p.text(data.stationName ? data.stationName.toUpperCase() : "COMANDA").nl();
+  p.fontSize(1, 1).bold(false);
+  p.doubleSeparator(cols);
+
+  p.align("left");
+  p.bold(true).fontSize(1, 2).text(data.reference).nl().fontSize(1, 1).bold(false);
+  p.textLine("Hora:", fmtDate(data.date), cols);
+  if (data.attendedBy) p.textLine("Atendido por:", data.attendedBy, cols);
+  if (data.note) {
+    p.separator("-", cols);
+    p.bold(true).text("NOTA: ").bold(false).text(data.note).nl();
+  }
+  p.separator("-", cols);
+
+  for (const l of data.lines) {
+    const qty = typeof l.qty === "string" ? parseFloat(l.qty) : l.qty;
+    const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
+    p.bold(true).fontSize(1, 2);
+    p.text(`${qtyStr}x ${l.name}`).nl();
+    p.fontSize(1, 1).bold(false);
+  }
+
+  p.separator("-", cols);
+  p.feed(2);
+  p.cut();
+  return p.build();
+}
+
+/** HTML fallback para la comanda (cuando se imprime via window.print). */
+export function buildComandaHTML(data: ComandaData): string {
+  const lines = data.lines.map(l => {
+    const qty = typeof l.qty === "string" ? parseFloat(l.qty) : l.qty;
+    const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
+    return `<div class="row" style="padding:6px 0;font-size:18px;font-weight:700"><span>${qtyStr}x ${esc(l.name)}</span></div>`;
+  }).join("");
+  return `
+    <div class="title" style="font-size:24px;font-weight:900">${esc((data.stationName || "COMANDA").toUpperCase())}</div>
+    <div class="sep-double"></div>
+    <div style="font-size:18px;font-weight:800;margin-bottom:4px">${esc(data.reference)}</div>
+    <div class="row info"><span>Hora:</span><span>${fmtDate(data.date)}</span></div>
+    ${data.attendedBy ? `<div class="row info"><span>Atendido por:</span><span>${esc(data.attendedBy)}</span></div>` : ""}
+    ${data.note ? `<div class="sep"></div><div style="font-weight:700">NOTA: ${esc(data.note)}</div>` : ""}
+    <div class="sep"></div>
+    ${lines}
+    <div class="sep"></div>
+  `;
+}
 
 export function buildPreCuenta(data: PreCuentaData, paperWidth: 58 | 80 = 80): Uint8Array {
   const cols = colsFor(paperWidth);

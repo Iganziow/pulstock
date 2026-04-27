@@ -14,6 +14,7 @@ import StoresTab from "@/components/settings/StoresTab";
 import UsersTab from "@/components/settings/UsersTab";
 import AlertsTab from "@/components/settings/AlertsTab";
 import PrintersTab from "@/components/settings/PrintersTab";
+import StationsTab from "@/components/settings/StationsTab";
 import PlanTab from "@/components/settings/PlanTab";
 
 export default function SettingsPage() {
@@ -22,7 +23,7 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
       const t = p.get("tab");
-      if (t && ["cuenta","empresa","boleta","tiendas","usuarios","alertas","impresoras","plan"].includes(t)) return t as Tab;
+      if (t && ["cuenta","empresa","boleta","tiendas","usuarios","alertas","impresoras","estaciones","plan"].includes(t)) return t as Tab;
     }
     return "cuenta";
   });
@@ -114,6 +115,7 @@ export default function SettingsPage() {
     ...(isOwner ? [{ key: "usuarios" as Tab, label: "Usuarios", icon: "👥" }] : []),
     { key: "alertas",  label: "Alertas",     icon: "🔔" },
     { key: "impresoras", label: "Impresoras", icon: "🖨️" },
+    { key: "estaciones", label: "Estaciones", icon: "🏷️" },
     { key: "plan",     label: "Plan",        icon: "⭐" },
   ];
 
@@ -273,6 +275,8 @@ export default function SettingsPage() {
       )}
 
       {tab === "impresoras" && <PrintersTab mob={mob} flash={flash} />}
+
+      {tab === "estaciones" && <StationsTab mob={mob} flash={flash} />}
 
       {tab === "plan" && <PlanTab mob={mob} flash={flash} tenantCreatedAt={tenant?.created_at} />}
     </div>

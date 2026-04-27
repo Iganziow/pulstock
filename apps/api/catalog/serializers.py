@@ -33,9 +33,26 @@ class CategorySerializer(serializers.ModelSerializer):
     parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
     children_count = serializers.SerializerMethodField(read_only=True)
 
+    # default_print_station_id: la estación a la que van las comandas de
+    # esta categoría. Lo manejamos como IntegerField simple (read+write)
+    # para evitar el import circular catalog → printing en module load.
+    # La validación de pertenencia al tenant + activeness se hace en
+    # `validate_default_print_station_id`.
+    default_print_station_id = serializers.IntegerField(
+        required=False, allow_null=True,
+    )
+    default_print_station_name = serializers.CharField(
+        source="default_print_station.name", read_only=True, default=None,
+    )
+
     class Meta:
         model = Category
-        fields = ["id", "name", "code", "parent_id", "parent_name", "is_active", "children_count"]
+        fields = [
+            "id", "name", "code",
+            "parent_id", "parent_name",
+            "is_active", "children_count",
+            "default_print_station_id", "default_print_station_name",
+        ]
 
     def get_children_count(self, obj):
         # Use annotated value from queryset to avoid N+1
@@ -43,7 +60,25 @@ class CategorySerializer(serializers.ModelSerializer):
         if v is not None:
             return v
         return obj.children.count()
-    
+
+    def validate_default_print_station_id(self, value):
+        # value llega como int (id) o None. Verificamos que la estación
+        # exista, pertenezca al tenant y esté activa antes de aceptar.
+        if value is None:
+            return None
+        request = self.context.get("request")
+        t_id = _tenant_id(request)
+        if not t_id:
+            raise serializers.ValidationError("User must have a tenant.")
+        from printing.models import PrintStation
+        if not PrintStation.objects.filter(
+            pk=value, tenant_id=t_id, is_active=True,
+        ).exists():
+            raise serializers.ValidationError(
+                "Print station does not exist or does not belong to your tenant.",
+            )
+        return value
+
     def validate_parent_id(self, value):
         # validar que el parent pertenece al mismo tenant
         request = self.context.get("request")
@@ -97,6 +132,18 @@ class ProductReadSerializer(serializers.ModelSerializer):
     unit_obj_id = serializers.IntegerField(read_only=True, default=None)
     unit_obj_family = serializers.CharField(source="unit_obj.family", read_only=True, default=None)
 
+    # Estación efectiva (resuelve override > category default > null) —
+    # entrega el id que el frontend usa para agrupar líneas en comandas
+    # sin tener que hacer la lookup en el cliente.
+    effective_print_station_id = serializers.SerializerMethodField()
+
+    def get_effective_print_station_id(self, obj):
+        if obj.print_station_override_id:
+            return obj.print_station_override_id
+        if obj.category and obj.category.default_print_station_id:
+            return obj.category.default_print_station_id
+        return None
+
     class Meta:
         model = Product
         fields = [
@@ -113,6 +160,7 @@ class ProductReadSerializer(serializers.ModelSerializer):
             "unit_obj_id", "unit_obj_family",
             "price", "cost", "tax_rate", "min_stock",
             "brand", "image_url",
+            "print_station_override", "effective_print_station_id",
             "created_at", "updated_at",
         ]
 
@@ -217,6 +265,9 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             "barcode_codes",
             "min_stock",
             "cost",
+            # Estación de impresión opcional (override). Si null, hereda de
+            # la categoría. Validamos pertenencia al tenant en validate().
+            "print_station_override",
             "brand",
             "image_url",
         ]
@@ -234,6 +285,21 @@ class ProductWriteSerializer(serializers.ModelSerializer):
         if value.tenant_id != t_id:
             raise serializers.ValidationError("Category does not belong to your tenant.")
 
+        return value
+
+    def validate_print_station_override(self, value):
+        # value es una PrintStation instance o None (DRF resolvió el FK
+        # a partir del id). Verificamos pertenencia al tenant y activeness.
+        if value is None:
+            return None
+        request = self.context.get("request")
+        t_id = _tenant_id(request)
+        if not t_id:
+            raise serializers.ValidationError("User must have a tenant.")
+        if value.tenant_id != t_id:
+            raise serializers.ValidationError("Print station does not belong to your tenant.")
+        if not value.is_active:
+            raise serializers.ValidationError("La estación de impresión está inactiva.")
         return value
 
     def validate_barcode_codes(self, codes):
