@@ -319,31 +319,24 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
               <div
                 key={p.id}
                 className="add-prod-card"
-                onClick={() => addToCart(p)}
+                // Tap en card vacía → agrega 1 (UX rápida: tocar = agregar).
+                // Cuando ya hay items en el carrito, el card NO agrega
+                // — el user usa los botones +/- explícitos para controlar
+                // cantidad (sino sería muy fácil agregar de más sin querer).
+                onClick={inCart === 0 ? () => addToCart(p) : undefined}
                 style={{
                   background: C.surface,
                   border: `1px solid ${inCart > 0 ? C.accentBd : C.border}`,
                   borderRadius: 10,
                   padding: "12px 14px",
                   display: "flex", alignItems: "center", gap: 12,
-                  cursor: "pointer",
+                  cursor: inCart === 0 ? "pointer" : "default",
                   transition: "background .12s, border-color .12s",
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                      {p.name}
-                    </span>
-                    {inCart > 0 && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 700,
-                        background: C.accent, color: "#fff",
-                        borderRadius: 99, padding: "2px 8px",
-                      }}>
-                        ×{inCart}
-                      </span>
-                    )}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                    {p.name}
                   </div>
                   <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
                     {p.category?.name && <span>{p.category.name}</span>}
@@ -354,20 +347,67 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
                   <span style={{ fontSize: 14, fontWeight: 800, color: C.text, fontVariantNumeric: "tabular-nums" }}>
                     ${fmt(p.price)}
                   </span>
-                  <button
-                    type="button"
-                    onClick={e => { e.stopPropagation(); addToCart(p); }}
-                    aria-label={`Agregar ${p.name}`}
-                    style={{
-                      width: 36, height: 36, borderRadius: 8,
-                      border: "none", background: C.accent,
-                      color: "#fff", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontWeight: 800, fontSize: 18,
-                    }}
-                  >
-                    +
-                  </button>
+                  {inCart === 0 ? (
+                    // Sin items en carrito → solo botón "+" grande
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); addToCart(p); }}
+                      aria-label={`Agregar ${p.name}`}
+                      style={{
+                        width: 36, height: 36, borderRadius: 8,
+                        border: "none", background: C.accent,
+                        color: "#fff", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontWeight: 800, fontSize: 18,
+                      }}
+                    >
+                      +
+                    </button>
+                  ) : (
+                    // Con items → grupo [- N +] para controlar cantidad.
+                    // El "-" cuando llega a 0 elimina el item del carrito
+                    // (lógica en updateQty: newQty <= 0 → flatMap [] saca).
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 2,
+                      background: C.accentBg, borderRadius: 8,
+                      border: `1px solid ${C.accentBd}`, padding: 2,
+                    }}>
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); updateQty(p.id, -1); }}
+                        aria-label={`Quitar uno de ${p.name}`}
+                        style={{
+                          width: 32, height: 32, borderRadius: 6,
+                          border: "none", background: "transparent",
+                          color: C.accent, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontWeight: 800, fontSize: 18, lineHeight: 1,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span style={{
+                        minWidth: 24, textAlign: "center",
+                        fontSize: 14, fontWeight: 800, color: C.accent,
+                      }}>
+                        {inCart}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); addToCart(p); }}
+                        aria-label={`Agregar otro ${p.name}`}
+                        style={{
+                          width: 32, height: 32, borderRadius: 6,
+                          border: "none", background: C.accent,
+                          color: "#fff", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontWeight: 800, fontSize: 16, lineHeight: 1,
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
