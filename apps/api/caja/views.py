@@ -50,6 +50,29 @@ def _session_summary(session):
         s=Coalesce(Sum("tip"), zero)
     )["s"]
 
+    # Propinas POR método de pago (Mario lo pidió: "los chicos quieren ver
+    # cuánto va de propina por débito/crédito/efectivo durante el turno").
+    # Distribución proporcional cuando hay split: si pagó $5000 cash + $3000
+    # card con $1000 propina, atribuye $625 a cash y $375 a card.
+    tips_by_method = {"cash": zero, "debit": zero, "card": zero, "transfer": zero}
+    tip_count_by_method = {"cash": 0, "debit": 0, "card": 0, "transfer": 0}
+    sales_with_tips = session.sales.filter(
+        status="COMPLETED", tip__gt=0,
+    ).prefetch_related("payments")
+    for sale in sales_with_tips:
+        payments = list(sale.payments.all())
+        if not payments:
+            continue
+        total_paid = sum((p.amount for p in payments), zero)
+        if total_paid <= 0:
+            continue
+        for p in payments:
+            share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
+            if share <= 0 or p.method not in tips_by_method:
+                continue
+            tips_by_method[p.method] += share
+            tip_count_by_method[p.method] += 1
+
     # Single query for movements: GROUP BY type
     mov_totals = dict(
         session.movements.values_list("type").annotate(total=Sum("amount")).values_list("type", "total")
@@ -59,6 +82,7 @@ def _session_summary(session):
 
     # expected_cash ONLY includes physical cash (efectivo)
     expected = session.initial_amount + cash_sales + cash_tips + movements_in - movements_out
+    total_tips = sum(tips_by_method.values(), zero)
     return {
         "initial_amount":  str(session.initial_amount),
         # Desglose por método de pago
@@ -67,8 +91,15 @@ def _session_summary(session):
         "card_sales":      str(card_sales),
         "transfer_sales":  str(transfer_sales),
         "total_sales":     str(total_sales),
-        # Flujo de caja (efectivo físico)
+        # Propinas (totales y desglose por método de pago).
+        # cash_tips: TODAS las propinas de la sesión (legacy, suma todo).
+        # total_tips: igual que cash_tips, nombre más claro.
+        # tips_by_method: cuánto entró de propina en cada canal.
         "cash_tips":       str(cash_tips),
+        "total_tips":      str(total_tips),
+        "tips_by_method":  {k: str(v) for k, v in tips_by_method.items()},
+        "tip_count_by_method": tip_count_by_method,
+        # Flujo de caja (efectivo físico)
         "movements_in":    str(movements_in),
         "movements_out":   str(movements_out),
         "expected_cash":   str(expected.quantize(Decimal("0.01"))),

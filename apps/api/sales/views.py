@@ -423,12 +423,64 @@ class TipsSummaryView(APIView):
                 "count":   r["count"],
             })
 
+        # Breakdown por MÉTODO DE PAGO. Mario quiere ver "cuanto hicieron
+        # divididos en débito, crédito, efectivo, etc." porque cada método
+        # llega a la caja por canales distintos (débito/crédito al banco,
+        # efectivo a mano).
+        #
+        # Repartición proporcional cuando hay múltiples pagos en una venta:
+        # si una venta de $8.000 + $1.000 propina se pagó con $5.000 cash
+        # + $3.000 card, atribuimos al cash 1000×5/8 = $625 y al card $375.
+        # Para el caso típico de cafetería (1 método por venta) coincide
+        # con 100% al método dominante.
+        method_totals = {}  # method -> {"total": Decimal, "count": int}
+        sales_with_tips = (
+            qs.filter(tip__gt=0)
+              .prefetch_related("payments")
+              .only("id", "tip", "total")
+        )
+        for sale in sales_with_tips:
+            payments = list(sale.payments.all())
+            if not payments:
+                continue
+            total_paid = sum((p.amount for p in payments), Decimal("0"))
+            if total_paid <= 0:
+                continue
+            for p in payments:
+                share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
+                if share <= 0:
+                    continue
+                bucket = method_totals.setdefault(p.method, {"total": Decimal("0"), "count": 0})
+                bucket["total"] += share
+                bucket["count"] += 1
+
+        # Etiquetas amigables para el frontend (es-CL).
+        method_labels = {
+            "cash":     "Efectivo",
+            "card":     "Crédito",
+            "debit":    "Débito",
+            "transfer": "Transferencia",
+        }
+        by_payment_method = sorted(
+            [
+                {
+                    "method":  m,
+                    "label":   method_labels.get(m, m.title()),
+                    "total":   str(v["total"]),
+                    "count":   v["count"],
+                }
+                for m, v in method_totals.items()
+            ],
+            key=lambda x: -float(x["total"]),
+        )
+
         return Response({
-            "date_from":      str(date_from),
-            "date_to":        str(date_to),
-            "total_tips":     str(agg["total_tips"].quantize(Decimal("1"))),
-            "count_with_tip": agg["count_with_tip"],
-            "avg_tip":        str(agg["avg_tip"].quantize(Decimal("1"))),
-            "by_day":         by_day,
-            "by_cashier":     by_cashier,
+            "date_from":         str(date_from),
+            "date_to":           str(date_to),
+            "total_tips":        str(agg["total_tips"].quantize(Decimal("1"))),
+            "count_with_tip":    agg["count_with_tip"],
+            "avg_tip":           str(agg["avg_tip"].quantize(Decimal("1"))),
+            "by_day":            by_day,
+            "by_cashier":        by_cashier,
+            "by_payment_method": by_payment_method,
         })
