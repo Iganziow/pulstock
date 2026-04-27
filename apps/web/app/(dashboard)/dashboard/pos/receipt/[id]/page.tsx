@@ -146,12 +146,26 @@ export default function ReceiptPage() {
         source: "pos",
       });
       if (!r.ok) {
+        // Si el user canceló el picker (BT/USB), volver a "idle" sin
+        // mostrar error — fue su decisión consciente, no un fallo. El
+        // botón "Térmica" sigue disponible para reintentar.
+        if ((r as any).cancelled) {
+          setPrintStatus("idle");
+          return;
+        }
         setPrintStatus("error");
         setPrintErr(r.error || "No se pudo imprimir");
       } else {
         setPrintStatus("done");
       }
     } catch (e: any) {
+      // Cancelación a nivel de excepción (algunos paths tiran error en vez
+      // de retornar { ok: false, cancelled: true }) → mismo trato.
+      const { isUserCancellation } = await import("@/lib/errors");
+      if (isUserCancellation(e)) {
+        setPrintStatus("idle");
+        return;
+      }
       setPrintStatus("error");
       setPrintErr(humanizeError(e, "Error al imprimir"));
     }

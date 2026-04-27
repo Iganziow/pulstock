@@ -175,25 +175,43 @@ function getRememberedBTDeviceName(): string | null {
  * al picker normal con `pairBluetoothPrinter()`.
  */
 export async function tryReconnectBluetooth(): Promise<boolean> {
-  if (typeof navigator === "undefined" || !navigator.bluetooth) return false;
+  // Logs de diagnóstico — visibles en DevTools del browser. Útil cuando
+  // un cliente reporta "tengo que parear cada vez". Agrupados con prefijo
+  // [pulstock-bt] para filtrar fácil en consola.
+  if (typeof navigator === "undefined" || !navigator.bluetooth) {
+    console.log("[pulstock-bt] navigator.bluetooth no disponible");
+    return false;
+  }
   const bt: any = navigator.bluetooth;
-  if (typeof bt.getDevices !== "function") return false;
+  if (typeof bt.getDevices !== "function") {
+    console.log("[pulstock-bt] getDevices() no soportado en este browser — Mario tendrá que apretar el botón cada vez");
+    return false;
+  }
 
   try {
     const devices: any[] = await bt.getDevices();
-    if (!devices || devices.length === 0) return false;
+    console.log(`[pulstock-bt] getDevices() retornó ${devices?.length ?? 0} device(s) autorizado(s):`,
+      devices?.map((d) => d.name).filter(Boolean));
 
-    // Preferir el device con el nombre guardado en localStorage. Si no hay,
-    // tomar el primero (cliente con UNA impresora pareada — caso típico).
+    if (!devices || devices.length === 0) {
+      console.log("[pulstock-bt] sin devices autorizados — necesita parear primero");
+      return false;
+    }
+
     const remembered = getRememberedBTDeviceName();
+    console.log(`[pulstock-bt] device guardado en localStorage: ${remembered}`);
+
     const target = (remembered && devices.find((d) => d.name === remembered)) || devices[0];
     if (!target) return false;
 
+    console.log(`[pulstock-bt] reconectando a "${target.name || "(sin nombre)"}"...`);
     cachedBTDevice = target;
     const ch = await connectAndFindCharacteristic(target);
     cachedBTCharacteristic = ch;
+    console.log("[pulstock-bt] reconectado OK");
     return true;
-  } catch {
+  } catch (e) {
+    console.warn("[pulstock-bt] reconnect falló:", e);
     cachedBTDevice = null;
     cachedBTCharacteristic = null;
     return false;
@@ -501,7 +519,7 @@ export interface UniversalPrintInput {
  * El único caso en que abrimos el diálogo nativo es cuando se pasa
  * `forceLocalDialog: true` (ej. botón "Imprimir en este dispositivo").
  */
-export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string; printer?: string }> {
+export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string; printer?: string; cancelled?: boolean }> {
   const p = getDefaultPrinter();
   const width: 58 | 80 = input.paperWidth || p?.paperWidth || 80;
   const source = input.source || "web";
@@ -523,8 +541,22 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
       await printBytes(input.bytes, p);
       return { method: p.type, ok: true, printer: p.name };
     } catch (localErr: any) {
-      // Si la local falla, intentamos el agente del local antes de rendirnos.
       const localErrMsg = localErr?.message || String(localErr);
+
+      // Si el user CANCELÓ el picker (BT/USB), NO es un error real — es
+      // decisión consciente. No caemos al fallback (sería intentar mandar
+      // al agente PC que probablemente tampoco está). Devolvemos
+      // `cancelled: true` y el caller decide si mostrar UI o silenciar.
+      const wasCancelled = /user cancell?ed|user dismissed|user denied|user aborted|notallowederror|aborterror/i.test(localErrMsg);
+      if (wasCancelled) {
+        return {
+          method: p.type, ok: false, cancelled: true,
+          error: "Cancelaste la selección de impresora.",
+        };
+      }
+
+      // Si la local falla por otra razón, intentamos el agente del local
+      // antes de rendirnos.
       try {
         const data_b64 = input.bytes ? bytesToB64(input.bytes) : null;
         const r = await printViaLocalAgent(data_b64, input.html || null, source);
@@ -536,13 +568,9 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
         const agentErrMsg = agentErr?.message || String(agentErr);
         return {
           method: "failed", ok: false,
-          error: (
-            `No se pudo imprimir. Probé:\n` +
-            `  • Tu impresora local '${p.name}': ${localErrMsg}\n` +
-            `  • PC del local: ${agentErrMsg}\n\n` +
-            `Soluciones: revisa que la impresora esté encendida y conectada, ` +
-            `o asegúrate de que el PC del local con el agente esté encendido.`
-          ),
+          // Mensaje más corto y útil — el anterior tenía 5 líneas que no
+          // se podían leer en mobile.
+          error: `No se pudo imprimir: ${localErrMsg}. Verifica que la impresora esté encendida y reintenta.`,
         };
       }
     }

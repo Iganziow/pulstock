@@ -149,6 +149,24 @@ export function humanizeError(e: unknown, fallback = "Ocurrió un error"): strin
   return fallback;
 }
 
+/**
+ * Detecta si un error vino de que el usuario canceló el picker del browser
+ * (Web Bluetooth `requestDevice()`, WebUSB `requestDevice()`, file picker).
+ * No es un error real — es decisión del user.
+ *
+ * Uso típico:
+ *   try { await print(...) }
+ *   catch (e) {
+ *     if (isUserCancellation(e)) return; // silencio, no hacer nada
+ *     showError(humanizeError(e));
+ *   }
+ */
+export function isUserCancellation(e: unknown): boolean {
+  const raw = extractMessage(e);
+  if (!raw) return false;
+  return /user cancell?ed|user dismissed|user denied|user aborted|notallowederror|aborterror/i.test(raw);
+}
+
 function extractMessage(e: unknown): string {
   if (!e) return "";
   if (typeof e === "string") return e;
