@@ -144,7 +144,14 @@ export function SearchBar({
 
   return (
     <>
-      <div ref={wrapRef} style={{ position:"relative" }}>
+      {/* zIndex elevado cuando hay sugerencias abiertas para que el dropdown
+          quede ENCIMA del PaymentSection sticky (que tiene zIndex:30 en móvil
+          con su botón "Cobrar" pegado al bottom). Sin esto, el dropdown se
+          ve apenas como un sliver porque el botón Cobrar lo tapa visualmente. */}
+      <div ref={wrapRef} style={{
+        position:"relative",
+        zIndex: showSuggestions && suggestions.length > 0 ? 100 : "auto",
+      }}>
         <div style={{
           background:C.surface, border:`1px solid ${showSuggestions ? C.accentBd : C.border}`,
           borderRadius:showSuggestions ? `${C.rMd} ${C.rMd} 0 0` : C.rMd,
@@ -179,14 +186,24 @@ export function SearchBar({
           </Btn>
         </div>
 
-        {/* Suggestions dropdown */}
+        {/* Suggestions dropdown.
+            Mobile: zIndex muy alto (9999) y maxHeight con scroll interno
+            para que NO quede tapado por el botón "Cobrar" del PaymentSection
+            que aparece justo debajo en el layout vertical. Antes el dropdown
+            asomaba apenas un slice y Mario/Nadia pensaban "no aparece nada".
+            Ahora flota encima del botón ocupando hasta 60% de la pantalla
+            disponible (queda visible incluso con el teclado abierto). */}
         {showSuggestions && suggestions.length > 0 && (
           <div className="dd-in" style={{
-            position:"absolute", left:0, right:0, top:"100%", zIndex:40,
+            position:"absolute", left:0, right:0, top:"100%",
+            zIndex: mob ? 9999 : 40,
             background:C.surface,
             border:`1px solid ${C.accentBd}`, borderTop:`1px solid ${C.border}`,
             borderRadius:`0 0 ${C.rMd} ${C.rMd}`,
-            boxShadow:C.shMd, overflow:"hidden",
+            boxShadow: mob ? "0 12px 32px rgba(0,0,0,0.18)" : C.shMd,
+            overflow:"hidden",
+            maxHeight: mob ? "min(60vh, 380px)" : "auto",
+            overflowY: mob ? "auto" : "visible",
           }}>
             {suggestions.map((p, idx) => {
               const inCart = cart.some((l) => l.product.id === p.id);
