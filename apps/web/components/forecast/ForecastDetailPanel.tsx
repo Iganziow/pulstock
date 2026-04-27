@@ -14,30 +14,45 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   );
   if (!detail) return null;
 
+  // Helper para parseFloat seguro: si el backend manda string raro, NaN o
+  // null, devolvemos 0 en vez de propagar NaN al cálculo (que ensucia el
+  // gráfico, los KPIs y el mensaje de resumen).
+  const num = (s: any, def = 0) => {
+    const n = typeof s === "number" ? s : parseFloat(s ?? "");
+    return Number.isFinite(n) ? n : def;
+  };
+
   const history = detail.history || [];
   const forecast = detail.forecast || [];
-  const stockLevel = parseFloat(detail.stock.on_hand);
-  const avgCost = parseFloat(detail.stock.avg_cost || "0");
+  const stockLevel = num(detail.stock?.on_hand);
+  const avgCost = num(detail.stock?.avg_cost);
   const daysOut = forecast.length > 0 && forecast[0].days_to_stockout !== null ? forecast[0].days_to_stockout : null;
-  const avgDemand = forecast.length > 0 ? forecast.reduce((s, f) => s + parseFloat(f.qty_predicted), 0) / forecast.length : 0;
+  const avgDemand = forecast.length > 0 ? forecast.reduce((s, f) => s + num(f.qty_predicted), 0) / forecast.length : 0;
 
   const sug = detail.suggestion;
   const targetDays = sug?.target_days ?? 14;
-  const reorderQty = sug ? Math.max(0, Math.ceil(parseFloat(sug.suggested_qty))) : Math.max(0, Math.ceil(avgDemand * targetDays - stockLevel));
-  const reorderCost = sug ? parseFloat(sug.estimated_cost) : reorderQty * avgCost;
-  const coverageLabel = targetDays === 7 ? "1 semana" : targetDays === 10 ? "10 dias" : targetDays === 14 ? "2 semanas" : `${targetDays} dias`;
+  const reorderQty = sug ? Math.max(0, Math.ceil(num(sug.suggested_qty))) : Math.max(0, Math.ceil(avgDemand * targetDays - stockLevel));
+  const reorderCost = sug ? num(sug.estimated_cost) : reorderQty * avgCost;
+  const coverageLabel = targetDays === 7 ? "1 semana" : targetDays === 10 ? "10 días" : targetDays === 14 ? "2 semanas" : `${targetDays} días`;
 
-  const totalSold = history.reduce((s, h) => s + parseFloat(h.qty_sold), 0);
-  const totalRevenue = history.reduce((s, h) => s + parseFloat(h.revenue || "0"), 0);
+  const totalSold = history.reduce((s, h) => s + num(h.qty_sold), 0);
+  const totalRevenue = history.reduce((s, h) => s + num(h.revenue), 0);
 
   // Chart
   const allPts = [
-    ...history.map(h => ({ label: h.date.slice(5), actual: parseFloat(h.qty_sold), pred: null as number | null, upper: null as number | null, lower: null as number | null, isFc: false })),
-    ...forecast.map(f => ({ label: f.date.slice(5), actual: null as number | null, pred: parseFloat(f.qty_predicted), upper: parseFloat(f.upper_bound), lower: parseFloat(f.lower_bound), isFc: true })),
+    ...history.map(h => ({ label: h.date.slice(5), actual: num(h.qty_sold), pred: null as number | null, upper: null as number | null, lower: null as number | null, isFc: false })),
+    ...forecast.map(f => ({ label: f.date.slice(5), actual: null as number | null, pred: num(f.qty_predicted), upper: num(f.upper_bound), lower: num(f.lower_bound), isFc: true })),
   ];
   if (allPts.length === 0) return null;
 
-  const maxV = Math.max(...allPts.map(d => Math.max(d.actual || 0, d.upper || d.pred || 0)), 1) * 1.2;
+  // Math.max con array vacío retorna -Infinity. Como filtramos a 0+ con num()
+  // y agregamos 1 al final, el resultado siempre es >= 1.2. Aún así, defendemos
+  // contra el caso donde TODOS los valores son 0 (producto sin ventas ni
+  // predicción) — el gráfico se ve plano pero no roto.
+  const maxV = Math.max(
+    ...allPts.map(d => Math.max(d.actual || 0, d.upper || d.pred || 0, 0)),
+    1,
+  ) * 1.2;
   const W = mob ? 340 : 680, H = mob ? 150 : 190;
   const pL = 36, pR = 14, pT = 28, pB = 28;
   const plotW = W - pL - pR, plotH = H - pT - pB;
@@ -62,7 +77,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
     let cur = stockLevel;
     const pts: string[] = [`${xp(fcStart)},${yp(Math.min(cur, maxV))}`];
     for (let i = 0; i < forecast.length; i++) {
-      cur -= parseFloat(forecast[i].qty_predicted);
+      cur -= num(forecast[i].qty_predicted);
       const sv = Math.max(0, cur);
       const xi = fcStart + i + (i < forecast.length - 1 ? 1 : 0);
       pts.push(`${xp(xi)},${yp(Math.min(sv, maxV))}`);
@@ -86,19 +101,19 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
         fontSize: 13, lineHeight: 1.7,
       }}>
         {daysOut === null && (
-          <><b style={{ color: C.green }}>✓ Sin riesgo.</b> Tienes <b>{fmt(stockLevel)}</b> unidades en bodega. Se venden en promedio <b>{fmtDec(avgDemand)}</b> al dia. Con eso te alcanza para mas de {coverageLabel}, asi que no necesitas hacer nada por ahora.</>
+          <><b style={{ color: C.green }}>✓ Tranqui, hay stock.</b> Tenés <b>{fmt(stockLevel)}</b> unidades. Vendés en promedio <b>{fmtDec(avgDemand)}</b> al día. Con eso te alcanza para más de {coverageLabel}.</>
         )}
         {daysOut !== null && daysOut === 0 && (
-          <><b style={{ color: C.red }}>⚠ ¡Se agoto!</b> Este producto ya no tiene stock. Se vendian <b>{fmtDec(avgDemand)}</b> unidades por dia. <b>Necesitas pedir al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo estimado: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
+          <><b style={{ color: C.red }}>⚠ ¡Se agotó!</b> Ya no queda stock. Vendías <b>{fmtDec(avgDemand)}</b> por día. <b>Pedí al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
         )}
         {daysOut !== null && daysOut > 0 && daysOut <= 3 && (
-          <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan solo <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. <b>En {daysOut} dia{daysOut > 1 ? "s" : ""} se acaba</b> si no repones. Te recomendamos pedir <b>{reorderQty}</b> unidades para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmt(stockLevel)}</b> unidades y vendés <b>{fmtDec(avgDemand)}</b> al día. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{reorderQty}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
         )}
         {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
-          <><b style={{ color: C.amber }}>⏰ Ojo:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Se venden <b>{fmtDec(avgDemand)}</b> al dia, asi que te alcanzan para unos <b>{daysOut} dias</b>. Conviene hacer un pedido esta semana. Sugerimos pedir <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          <><b style={{ color: C.amber }}>⏰ Ojo:</b> Tenés <b>{fmt(stockLevel)}</b> unidades. Vendés <b>{fmtDec(avgDemand)}</b> al día, te alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
         )}
         {daysOut !== null && daysOut > 7 && (
-          <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y se venden <b>{fmtDec(avgDemand)}</b> al dia. Te alcanza para unos <b>{daysOut} dias</b>. No es urgente, pero tenlo en cuenta para tu proximo pedido.</>
+          <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tenés <b>{fmt(stockLevel)}</b> unidades y vendés <b>{fmtDec(avgDemand)}</b> al día. Te alcanza para <b>{daysOut} días</b>. No es urgente, pero tenelo en cuenta para tu próximo pedido.</>
         )}
       </div>
 
@@ -110,24 +125,27 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           {avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Valor: {fmtMoney(stockLevel * avgCost)}</div>}
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
-          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>VENDISTE (ULTIMO MES)</div>
+          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>VENDISTE (ÚLTIMO MES)</div>
           <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>{fmt(totalSold)} <span style={{ fontSize: 12, fontWeight: 500, color: C.mute }}>unidades</span></div>
           {totalRevenue > 0 && <div style={{ fontSize: 11, color: C.mute }}>Ingreso: {fmtMoney(totalRevenue)}</div>}
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", gridColumn: mob ? "1 / -1" : "auto" }}>
-          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>CUANTO PEDIR</div>
+          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>CUÁNTO PEDIR</div>
           <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }}>
-            {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "No necesitas"}
+            {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "Nada por ahora"}
           </div>
-          {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · Para 2 semanas</div>}
-          {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
+          {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · para {coverageLabel}</div>}
+          {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tenés stock suficiente</div>}
         </div>
       </div>
 
-      {/* GRAFICO */}
+      {/* GRÁFICO */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "10px 6px" : "14px 12px", marginBottom: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.mid, marginBottom: 8, paddingLeft: mob ? 4 : 8 }}>
-          📈 Tus ventas y lo que el sistema predice
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.mid, marginBottom: 4, paddingLeft: mob ? 4 : 8 }}>
+          📈 Cuánto vendiste y cuánto vas a vender
+        </div>
+        <div style={{ fontSize: 11, color: C.mute, marginBottom: 8, paddingLeft: mob ? 4 : 8 }}>
+          La línea continua azul es lo que ya vendiste. La línea cortada naranja es la predicción.
         </div>
         <div style={{ overflowX: "auto" }}>
           <svg width={W} height={H} style={{ display: "block" }}>
@@ -140,8 +158,8 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
             {sepX !== null && (
               <g>
                 <line x1={sepX} x2={sepX} y1={pT - 6} y2={pT + plotH} stroke={C.border} strokeWidth={1} strokeDasharray="4,3" />
-                <text x={sepX - 10} y={pT - 10} fontSize={10} fill={C.accent} textAnchor="end" fontWeight="700">Lo que vendiste</text>
-                <text x={sepX + 10} y={pT - 10} fontSize={10} fill={C.amber} textAnchor="start" fontWeight="700">Lo que vas a vender</text>
+                <text x={sepX - 10} y={pT - 10} fontSize={10} fill={C.accent} textAnchor="end" fontWeight="700">Pasado</text>
+                <text x={sepX + 10} y={pT - 10} fontSize={10} fill={C.amber} textAnchor="start" fontWeight="700">Futuro</text>
               </g>
             )}
             {bandPath && <path d={bandPath} fill={C.amber} opacity={.08} />}
@@ -150,7 +168,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
               <g>
                 <line x1={soX} x2={soX} y1={pT} y2={pT + plotH} stroke={C.red} strokeWidth={1.5} strokeDasharray="3,3" opacity={.3} />
                 <rect x={soX - 40} y={pT - 2} width={80} height={16} rx={4} fill={C.red} opacity={.9} />
-                <text x={soX} y={pT + 10} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">¡SE ACABA!</text>
+                <text x={soX} y={pT + 10} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">SE ACABA</text>
                 <circle cx={soX} cy={yp(0)} r={5} fill={C.red} />
                 <circle cx={soX} cy={yp(0)} r={9} fill="none" stroke={C.red} strokeWidth={1.5} opacity={.3} />
               </g>
@@ -165,17 +183,17 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
 
         <div style={{ display: "flex", gap: mob ? 10 : 16, marginTop: 6, fontSize: 11, color: C.mid, flexWrap: "wrap", paddingLeft: mob ? 4 : 8 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 14, height: 3, background: C.accent, borderRadius: 2, display: "inline-block" }} /> Lo que vendiste
+            <span style={{ width: 14, height: 3, background: C.accent, borderRadius: 2, display: "inline-block" }} /> Ya vendido
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.amber}`, display: "inline-block" }} /> Lo que vas a vender
+            <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.amber}`, display: "inline-block" }} /> Predicción
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.red}`, display: "inline-block" }} /> Tu stock bajando
+            <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.red}`, display: "inline-block" }} /> Stock disponible
           </span>
           {bandPath && (
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 14, height: 8, background: C.amber + "20", border: `1px solid ${C.amberBd}`, borderRadius: 2, display: "inline-block" }} /> Rango posible
+            <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.mute }} title="Rango con margen de error de la predicción">
+              <span style={{ width: 14, height: 8, background: C.amber + "20", border: `1px solid ${C.amberBd}`, borderRadius: 2, display: "inline-block" }} /> Margen de error
             </span>
           )}
         </div>

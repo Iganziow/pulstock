@@ -17,9 +17,9 @@ export function Pill({ color, children }: { color: "red" | "amber" | "green" | "
 export function ForecastStatusBadge({ days }: { days: number | null }) {
   if (days === null) return <Pill color="green">Bien</Pill>;
   if (days === 0) return <Pill color="red">Sin stock</Pill>;
-  if (days <= 3) return <Pill color="red">{days} dia{days > 1 ? "s" : ""}</Pill>;
-  if (days <= 7) return <Pill color="amber">{days} dias</Pill>;
-  if (days <= 14) return <Pill color="accent">{days} dias</Pill>;
+  if (days <= 3) return <Pill color="red">{days} día{days > 1 ? "s" : ""}</Pill>;
+  if (days <= 7) return <Pill color="amber">{days} días</Pill>;
+  if (days <= 14) return <Pill color="accent">{days} días</Pill>;
   return <Pill color="green">Bien</Pill>;
 }
 

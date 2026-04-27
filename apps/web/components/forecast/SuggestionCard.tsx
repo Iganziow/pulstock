@@ -25,8 +25,8 @@ function dtoColor(dto: number | null): string {
 function dtoLabel(dto: number | null): string {
   if (dto === null) return "Estable";
   if (dto === 0) return "Sin stock";
-  if (dto === 1) return "1 dia";
-  return `${dto} dias`;
+  if (dto === 1) return "1 día";
+  return `${dto} días`;
 }
 
 export function priorityIcon(p: string) { return p === "CRITICAL" ? "🔴" : p === "HIGH" ? "🟠" : "🔵"; }

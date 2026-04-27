@@ -146,7 +146,7 @@ export default function ForecastPage() {
               <span style={{ fontSize: 13, color: C.mute }}>de {kpis.products_with_forecast + kpis.products_without_forecast}</span>
             </div>
             <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
-              {kpis.avg_mape > 0 ? `Precision: ${kpis.avg_mape < 25 ? "alta" : kpis.avg_mape < 40 ? "buena" : "mejorando"} (${Math.round(100 - kpis.avg_mape)}%)` : "Acumulando datos…"}
+              {kpis.avg_mape > 0 ? `Acierto: ${kpis.avg_mape < 25 ? "muy bueno" : kpis.avg_mape < 40 ? "bueno" : "aprendiendo"} (${Math.max(0, Math.min(100, Math.round(100 - kpis.avg_mape)))}%)` : "Acumulando datos…"}
             </div>
           </div>
         </div>
@@ -171,9 +171,9 @@ export default function ForecastPage() {
       {!loading && meta.count === 0 && !search && !category && !risk && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.r, padding: "48px 24px", textAlign: "center", boxShadow: C.sh }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>&#x1F4CA;</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Todavia no hay predicciones</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Todavía no hay predicciones</div>
           <div style={{ fontSize: 13, color: C.mute, maxWidth: 400, margin: "0 auto", lineHeight: 1.7 }}>
-            El sistema necesita al menos 2 semanas de ventas registradas para empezar a predecir. Sigue vendiendo normalmente y las predicciones apareceran automaticamente.
+            Necesitamos al menos 2 semanas de ventas registradas para empezar a predecir. Seguí vendiendo normalmente y las predicciones aparecerán automáticamente.
           </div>
         </div>
       )}
@@ -194,7 +194,7 @@ export default function ForecastPage() {
           {meta.categories.length > 0 && (
             <select value={category} onChange={e => { setCategory(e.target.value); setPage(1); }}
               style={{ ...iS, width: "auto", minWidth: 140, color: category ? C.text : C.mute, cursor: "pointer" }}>
-              <option value="">Todas las categorias</option>
+              <option value="">Todas las categorías</option>
               {meta.categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
