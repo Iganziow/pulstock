@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { MesaModal } from "./MesaModal";
@@ -29,6 +29,25 @@ export function PaymentModal({
   const [selLines, setSelLines] = useState<Set<number>>(new Set(unpaidLines.map(l => l.id)));
   const [isConsumoInterno, setIsConsumoInterno] = useState(false);
 
+  // Mario reportó: "tuve que sacar la calculadora para sumar el total con
+  // la propina y poder agregarlo en el pago".
+  //
+  // Caso típico cafetería/restaurante: 1 sola forma de pago (cash o tarjeta).
+  // Antes el cajero tenía que escribir el subtotal en el campo "Pagado",
+  // luego agregar propina, y MENTALMENTE recalcular el total con propina
+  // y reescribirlo. Engorroso y propenso a errores.
+  //
+  // Solución: autoSync. Cuando hay UNA SOLA fila de pago, el monto se
+  // mantiene sincronizado con el grandTotal (subtotal + propina) en todo
+  // momento. El cajero ve el campo prellenado con el total a cobrar.
+  //
+  // Si el cajero edita el monto manualmente a un valor distinto del
+  // total (ej: pone $20.000 para vuelto, o un pago parcial), autoSync
+  // se desactiva y deja respetar el valor del usuario.
+  // Si agrega una segunda fila (split), también se desactiva — split
+  // implica que el cajero está manejando los montos a mano.
+  const [autoSync, setAutoSync] = useState(true);
+
   const toggleLine = (id: number) => {
     setSelLines(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   };
@@ -43,6 +62,19 @@ export function PaymentModal({
   const pending = Math.max(0, grandTotal - totalPaid);
   const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
+  // autoSync: mantener el monto del único pago = grandTotal cuando el
+  // usuario no está manejando split manualmente. Ver comentario en
+  // declaración de autoSync arriba.
+  useEffect(() => {
+    if (!autoSync) return;
+    if (isConsumoInterno) return;
+    if (rows.length !== 1) return;
+    const expected = grandTotal > 0 ? String(grandTotal) : "";
+    if (rows[0].amount !== expected) {
+      setRows([{ method: rows[0].method, amount: expected }]);
+    }
+  }, [grandTotal, autoSync, rows, isConsumoInterno]);
+
   // Restaurantes grandes: una mesa de 40 personas puede dividirse en muchos
   // pagos individuales (cada persona paga su parte en el método que quiera —
   // varios en efectivo, otros con tarjeta). Antes el botón Agregar se ocultaba
@@ -53,6 +85,8 @@ export function PaymentModal({
   const MAX_PAYMENT_ROWS = 50;
   function addRow() {
     if (rows.length >= MAX_PAYMENT_ROWS) return;
+    // Split manual: el cajero toma control de los montos.
+    setAutoSync(false);
     const used = new Set(rows.map(r => r.method));
     const next = PAY_METHODS.find(m => !used.has(m.value))?.value || "cash";
     setRows(prev => [...prev, { method: next, amount: "" }]);
@@ -60,6 +94,12 @@ export function PaymentModal({
   function removeRow(i: number) { setRows(prev => prev.filter((_, j) => j !== i)); }
   function updateRow(i: number, field: keyof PaymentRow, val: string) {
     if (field === "amount" && val !== "" && Number(val) < 0) return;
+    // Si el cajero edita el monto a un valor distinto del grandTotal
+    // (ej: $20.000 cuando el total es $17.787, para tener vuelto),
+    // desactivar autoSync y respetar el valor manual.
+    if (field === "amount" && rows.length === 1 && val !== String(grandTotal)) {
+      setAutoSync(false);
+    }
     setRows(prev => prev.map((r, j) => j === i ? { ...r, [field]: val } : r));
   }
   function quickFill(i: number) {
@@ -233,6 +273,9 @@ export function PaymentModal({
                   method: "cash",
                   amount: String(per + (i === 0 ? remainder : 0)),
                 }));
+                // Split N personas: cajero maneja los montos a mano de
+                // ahí en adelante.
+                setAutoSync(false);
                 setRows(newRows);
               }}
               style={{
@@ -248,11 +291,57 @@ export function PaymentModal({
         )}
       </div>}
 
-      {/* Tip */}
+      {/* Tip — con botones rápidos de %.
+          Mario lo pidió: "de última sería buena idea que se genere el
+          total y el subtotal y si no quiere agregar la propina se borra
+          nomás o se agrega lo que quiera dejar el cliente". El monto del
+          pago ya se sincroniza automáticamente vía autoSync; estos
+          botones evitan calcular el % a mano. Si el cliente quiere otro
+          monto, lo escribe directo en el input. */}
       {!isConsumoInterno && (
       <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.amberBd}`, background: C.amberBg }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 6 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.amber }}>Propina (opcional)</span>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[5, 10, 15].map(pct => {
+              const amount = Math.round(lineSubtotal * pct / 100);
+              const active = tip === amount && tipStr !== "";
+              return (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => setTipStr(amount > 0 ? String(amount) : "")}
+                  style={{
+                    padding: "3px 8px", borderRadius: 99,
+                    border: `1px solid ${active ? C.amber : C.amberBd}`,
+                    background: active ? C.amber : "#fff",
+                    color: active ? "#fff" : C.amber,
+                    fontSize: 10, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                  title={`$${fmt(amount)}`}
+                >
+                  {pct}%
+                </button>
+              );
+            })}
+            {tipStr !== "" && (
+              <button
+                type="button"
+                onClick={() => setTipStr("")}
+                style={{
+                  padding: "3px 8px", borderRadius: 99,
+                  border: `1px solid ${C.border}`,
+                  background: "transparent", color: C.mute,
+                  fontSize: 10, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+                title="Sin propina"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
         </div>
         <input type="number" min="0" value={tipStr} onChange={e => setTipStr(e.target.value)}
           placeholder="$0" style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.amberBd}`, borderRadius: C.r, fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff" }} />
