@@ -92,7 +92,19 @@ export function SearchBar({
       onSelect(product);
       setTerm("");
       requestAnimationFrame(() => inputRef.current?.focus());
-    } catch (e: any) { setErr(e?.message ?? "No se pudo buscar el producto."); }
+    } catch (e: any) {
+      // El backend devuelve 404 cuando no hay match. Antes mostrábamos el
+      // mensaje crudo del backend ("Not found" en inglés) → confuso para el
+      // cajero. Ahora detectamos el 404 y damos un mensaje útil con el
+      // término buscado para que el user pueda corregir.
+      const status = e?.status;
+      const msg = e?.message || "";
+      if (status === 404 || /not found/i.test(msg)) {
+        setErr(`No se encontró ningún producto con "${cleaned}". Verifica el código de barra o el nombre.`);
+      } else {
+        setErr(msg || "No se pudo buscar el producto.");
+      }
+    }
   }, [onSelect, inputRef]);
 
   // Pick from dropdown

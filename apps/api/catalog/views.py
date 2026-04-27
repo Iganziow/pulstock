@@ -289,8 +289,14 @@ class ProductLookup(APIView):
         if p:
             return Response(ProductReadSerializer(p).data)
 
-        return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
-    
+        # Mensaje en español para que el cajero entienda qué pasó. El frontend
+        # del POS muestra este string directo si la respuesta es 404, y antes
+        # decía "Not found" en inglés — confuso para usuarios chilenos.
+        return Response(
+            {"detail": "No se encontró ningún producto con ese código o SKU."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
 
 class ProductImport(APIView):
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
