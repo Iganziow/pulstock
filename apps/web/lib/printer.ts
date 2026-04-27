@@ -278,12 +278,53 @@ export async function tryReconnectBluetooth(): Promise<boolean> {
   return false;
 }
 
-export async function pairBluetoothPrinter(): Promise<any> {
+/**
+ * Filtros para el picker de Bluetooth: solo muestra impresoras térmicas.
+ *
+ * Mario reportó: el picker mostraba MAHAVEER-1 + varios "Dispositivo
+ * desconocido o no compatible" — confuso, siempre tenía que adivinar
+ * cuál era la suya. Con estos filtros, el picker solo lista devices
+ * que matchean por nombre o por service UUID de impresora térmica.
+ *
+ * Lista de prefijos por nombre cubre los modelos más comunes en Chile:
+ *   - XP-      → Xprinter (XP-N160II, XP-58 etc.)
+ *   - POS-     → POS-prefix común
+ *   - MTP-     → Munbyn, ChuangXin, etc.
+ *   - MAHAVEER → marca específica, vista en el setup de Mario (XP-N160II
+ *     a veces se anuncia como "MAHAVEER-1" según firmware)
+ *   - BT-/Printer-/BlueTooth- → genéricos
+ *
+ * Si una impresora no matchea ningún filtro, NO aparece. Para esos casos
+ * raros, usamos `acceptAllDevices: true` como fallback opcional.
+ */
+const BT_PRINTER_FILTERS: any[] = [
+  { namePrefix: "MAHAVEER" },
+  { namePrefix: "XP-" },
+  { namePrefix: "Xprinter" },
+  { namePrefix: "POS" },
+  { namePrefix: "MTP" },
+  { namePrefix: "MPT" },
+  { namePrefix: "BT-" },
+  { namePrefix: "Printer" },
+  { namePrefix: "BlueTooth" },
+  { namePrefix: "TP-" },
+  { namePrefix: "Thermal" },
+  // Por service UUID — captura impresoras que advertise el service estándar
+  // aunque su nombre sea raro o esté vacío
+  { services: ["000018f0-0000-1000-8000-00805f9b34fb"] },
+  { services: ["e7810a71-73ae-499d-8c15-faa9aef0c3f2"] },
+  { services: ["0000fff0-0000-1000-8000-00805f9b34fb"] },
+];
+
+export async function pairBluetoothPrinter(opts?: { showAll?: boolean }): Promise<any> {
   if (!navigator.bluetooth) throw new Error("Web Bluetooth no disponible en este navegador");
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: BT_SERVICES,
-  });
+  // Por defecto filtramos a impresoras térmicas. Si el user pide explícitamente
+  // "ver todos los dispositivos" (showAll=true), abrimos picker sin filtro
+  // como fallback para impresoras raras que no matchean ningún prefijo.
+  const requestParams: any = opts?.showAll
+    ? { acceptAllDevices: true, optionalServices: BT_SERVICES }
+    : { filters: BT_PRINTER_FILTERS, optionalServices: BT_SERVICES };
+  const device = await navigator.bluetooth.requestDevice(requestParams);
   cachedBTDevice = device;
   cachedBTCharacteristic = null;
   rememberBTDevice(device);
@@ -330,11 +371,30 @@ async function sendBluetooth(data: Uint8Array): Promise<void> {
     }
   }
 
-  // 3. Request new device (shows browser picker)
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: BT_SERVICES,
-  });
+  // 3. Request new device (shows browser picker).
+  //    Usamos los filtros estrictos por defecto — solo aparecen impresoras
+  //    térmicas en el picker (MAHAVEER, XP-, POS, MTP, etc.). Eso evita
+  //    que Mario tenga que adivinar entre 6 "Dispositivos desconocidos".
+  let device: any;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: BT_PRINTER_FILTERS,
+      optionalServices: BT_SERVICES,
+    });
+  } catch (e: any) {
+    // Si la impresora no matchea ningún filtro (raro), reintentamos con
+    // acceptAllDevices como fallback. Solo cuando NotFoundError (= no
+    // device matched) — si fue cancellation del usuario, propagar.
+    if (e?.name === "NotFoundError") {
+      console.warn("[pulstock-bt] ningún device matcheó filtros, reintentando con acceptAllDevices");
+      device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: BT_SERVICES,
+      });
+    } else {
+      throw e;
+    }
+  }
 
   cachedBTDevice = device;
   rememberBTDevice(device);  // persistir para próximas sesiones
