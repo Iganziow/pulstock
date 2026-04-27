@@ -91,14 +91,29 @@ export function PaymentModal({
     const next = PAY_METHODS.find(m => !used.has(m.value))?.value || "cash";
     setRows(prev => [...prev, { method: next, amount: "" }]);
   }
-  function removeRow(i: number) { setRows(prev => prev.filter((_, j) => j !== i)); }
+  function removeRow(i: number) {
+    setRows(prev => {
+      const next = prev.filter((_, j) => j !== i);
+      // Si después de eliminar volvemos a 1 sola fila, re-activar
+      // autoSync para retomar el comportamiento "campo = total".
+      if (next.length === 1) setAutoSync(true);
+      return next;
+    });
+  }
   function updateRow(i: number, field: keyof PaymentRow, val: string) {
     if (field === "amount" && val !== "" && Number(val) < 0) return;
-    // Si el cajero edita el monto a un valor distinto del grandTotal
-    // (ej: $20.000 cuando el total es $17.787, para tener vuelto),
-    // desactivar autoSync y respetar el valor manual.
-    if (field === "amount" && rows.length === 1 && val !== String(grandTotal)) {
-      setAutoSync(false);
+    if (field === "amount" && rows.length === 1) {
+      // Si el cajero edita el monto a un valor distinto del grandTotal
+      // (ej: $20.000 cuando el total es $17.787, para tener vuelto),
+      // desactivar autoSync y respetar el valor manual.
+      // Si el valor coincide con grandTotal (incluyendo cuando borra el
+      // campo y grandTotal también pasa a 0), RE-activar autoSync —
+      // antes quedaba "trabado" sin forma de recuperarse.
+      if (val === String(grandTotal) || (val === "" && grandTotal === 0)) {
+        setAutoSync(true);
+      } else {
+        setAutoSync(false);
+      }
     }
     setRows(prev => prev.map((r, j) => j === i ? { ...r, [field]: val } : r));
   }
