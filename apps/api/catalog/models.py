@@ -49,7 +49,19 @@ class Category(models.Model):
         blank=True,
         related_name="children",)
     is_active = models.BooleanField(default=True)  # ← NUEVO
-    
+
+    # Estación de impresión por defecto para todos los productos de esta
+    # categoría. Las comandas se rutean por categoría → estación → impresora(s)
+    # asignadas a esa estación. Productos individuales pueden override con
+    # `Product.print_station_override`. Si está null, los productos caen
+    # al fallback (estación marcada is_default_for_receipts).
+    default_print_station = models.ForeignKey(
+        "printing.PrintStation", on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="default_categories",
+        help_text="Estación de impresión donde sale la comanda por defecto (cocina, bar, etc.)",
+    )
+
     class Meta:
         unique_together = [("tenant", "name")]
         indexes = [models.Index(fields=["tenant", "name"]),
@@ -86,6 +98,16 @@ class Product(models.Model):
     unit_obj = models.ForeignKey(
         "catalog.Unit", null=True, blank=True,
          on_delete=models.PROTECT, related_name="products"
+    )
+
+    # Override de estación de impresión a nivel producto. Si null, hereda
+    # de la categoría. Útil cuando un producto no debe ir donde indica su
+    # categoría (ej: "Café irlandés" en cat. "Tragos" pero sale en cocina).
+    print_station_override = models.ForeignKey(
+        "printing.PrintStation", on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="override_products",
+        help_text="Override estación de impresión para este producto (deja null para heredar de la categoría)",
     )
 
     class Meta:

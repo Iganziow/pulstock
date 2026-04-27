@@ -151,6 +151,60 @@ class PrintAgent(models.Model):
         self.save(update_fields=["last_seen_at"])
 
 
+class PrintStation(models.Model):
+    """Estación de impresión — dónde se imprime cada cosa.
+
+    Permite que un negocio rutee sus comandas a distintas impresoras según
+    el tipo de producto. Ejemplos típicos:
+      - "Cocina caliente"  (parrilla, freidora) → impresora cocina
+      - "Cocina fría"      (sandwiches, postres) → impresora cocina fría
+      - "Bar"              (bebidas, tragos)     → impresora barra
+      - "Despacho"         (para llevar)         → impresora despacho
+      - "Caja"             (boletas, pre-cuenta) → impresora caja
+
+    Una estación puede tener 1+ impresoras asignadas (vía AgentPrinter.station).
+    Una de las estaciones se marca como `is_default_for_receipts=True` y es
+    a donde van las boletas/pre-cuentas (típicamente "Caja").
+
+    Las comandas se rutean por:
+      1. product.print_station_override  (si existe)
+      2. category.default_print_station  (default por categoría)
+      3. estación marcada is_default_for_receipts (último fallback)
+
+    Para clientes simples con UNA impresora, no hace falta crear estaciones —
+    todo cae al fallback.
+    """
+
+    tenant = models.ForeignKey(
+        "core.Tenant", on_delete=models.CASCADE,
+        related_name="print_stations",
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Ej: 'Cocina', 'Bar', 'Despacho', 'Caja'",
+    )
+    is_default_for_receipts = models.BooleanField(
+        default=False,
+        help_text="Esta estación recibe boletas y pre-cuentas (típicamente 'Caja'). Solo una por tenant.",
+    )
+    is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "printing_printstation"
+        unique_together = [("tenant", "name")]
+        ordering = ["sort_order", "name"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (tenant={self.tenant_id})"
+
+
 class AgentPrinter(models.Model):
     """A printer that the agent has detected and reported back to the server."""
 
@@ -185,6 +239,17 @@ class AgentPrinter(models.Model):
         help_text="Solo para connection_type=network: '192.168.1.11:9100'",
     )
 
+    # Estación a la que pertenece esta impresora. Una estación puede tener
+    # varias impresoras (redundancia). Si no se asigna, la impresora queda
+    # "sin estación" y solo se usa cuando es la default del agente o se
+    # pide explícitamente.
+    station = models.ForeignKey(
+        PrintStation, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="printers",
+        help_text="Estación a la que pertenece esta impresora (cocina, bar, caja…)",
+    )
+
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
@@ -196,6 +261,7 @@ class AgentPrinter(models.Model):
         unique_together = [("agent", "name")]
         indexes = [
             models.Index(fields=["agent", "is_active"]),
+            models.Index(fields=["station", "is_active"]),
         ]
 
     def __str__(self) -> str:

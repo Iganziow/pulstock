@@ -23,7 +23,7 @@ export type User = {
   date_joined: string; last_login: string | null;
 };
 
-export type Tab = "cuenta" | "empresa" | "boleta" | "tiendas" | "usuarios" | "alertas" | "impresoras" | "plan";
+export type Tab = "cuenta" | "empresa" | "boleta" | "tiendas" | "usuarios" | "alertas" | "impresoras" | "estaciones" | "plan";
 
 export const ROLES = [
   { value: "owner", label: "Dueño/Gerente", desc: "Acceso total al sistema", color: C.accent, bg: C.accentBg, bd: C.accentBd },

@@ -50,6 +50,81 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
   const [quickPayLine, setQuickPayLine] = useState<OrderLine | null>(null);
 
+  async function handleSendComanda() {
+    // Comanda: ticket sin precios para cocina/bar/despacho. Se splittea
+    // automáticamente por estación según el `print_station_id` que viene
+    // resuelto en cada línea desde el backend.
+    if (!unpaidLines.length) {
+      setPayErr("No hay items pendientes para enviar a comanda.");
+      return;
+    }
+    try {
+      const { printUniversal, splitLinesByStation } = await import("@/lib/printer");
+      const { buildComanda, buildComandaHTML } = await import("@/lib/receipt-builder");
+      const { isUserCancellation } = await import("@/lib/errors");
+
+      // Cargar nombres de estaciones para el header del ticket
+      let stationsByName: Record<number, string> = {};
+      try {
+        const sList: any[] = await apiFetch("/printing/stations/");
+        for (const s of sList || []) stationsByName[s.id] = s.name;
+      } catch { /* ok seguir sin nombres */ }
+
+      const groups = splitLinesByStation(
+        unpaidLines.map(l => ({
+          id: l.id,
+          product_name: l.product_name,
+          qty: parseFloat(l.qty),
+          line_total: parseFloat(l.line_total),
+          print_station_id: (l as any).print_station_id ?? null,
+        }))
+      );
+
+      const ref = order.customer_name || tableName;
+      const errors: string[] = [];
+      let printed = 0;
+
+      for (const g of groups) {
+        const stationName = g.stationId ? stationsByName[g.stationId] : "";
+        const data = {
+          reference: ref,
+          stationName: stationName || (g.stationId ? `Estación #${g.stationId}` : "Comanda"),
+          lines: g.lines.map(l => ({ name: l.product_name, qty: l.qty, total: l.line_total })),
+          attendedBy: order.opened_by,
+          date: new Date(),
+        };
+        const r = await printUniversal({
+          bytes: buildComanda(data, 80),
+          html: buildComandaHTML(data),
+          paperWidth: 80,
+          source: "comanda",
+          stationId: g.stationId,
+        });
+        if (r.ok) printed += 1;
+        else if (!(r as any).cancelled) errors.push(`${data.stationName}: ${r.error || "error"}`);
+      }
+
+      if (errors.length > 0 && printed === 0) {
+        setPayErr(`No se imprimió ninguna comanda:\n${errors.join("\n")}`);
+      } else if (errors.length > 0) {
+        setPayErr(`Algunas estaciones fallaron:\n${errors.join("\n")}`);
+        setSuccessMsg(`Se imprimieron ${printed} de ${groups.length} comandas`);
+        setTimeout(() => setSuccessMsg(""), 5000);
+      } else if (printed > 0) {
+        setSuccessMsg(
+          groups.length === 1
+            ? "Comanda enviada"
+            : `Comandas enviadas a ${groups.length} estaciones`
+        );
+        setTimeout(() => setSuccessMsg(""), 4000);
+      }
+    } catch (e: unknown) {
+      const { isUserCancellation } = await import("@/lib/errors");
+      if (isUserCancellation(e)) return;
+      setPayErr(e instanceof Error ? e.message : "Error al enviar comanda");
+    }
+  }
+
   async function handlePrintPreCuenta() {
     if (!unpaidLines.length) {
       setPayErr("No hay items pendientes para imprimir en la pre-cuenta.");
@@ -210,13 +285,22 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </div>
         </div>
         {unpaidLines.length > 0 && (
-          <button type="button" onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
-            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
-            </svg>
-            Pre-cuenta
-          </button>
+          <>
+            <button type="button" onClick={handleSendComanda} title="Enviar comanda a cocina/bar"
+              style={{ background: C.accentBg, border: `1px solid ${C.accentBd}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.accent, fontSize: 11, fontWeight: 700 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M3 12h3l3-9 6 18 3-9h3"/>
+              </svg>
+              Comanda
+            </button>
+            <button type="button" onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
+              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              Pre-cuenta
+            </button>
+          </>
         )}
       </div>
 

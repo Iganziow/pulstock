@@ -459,12 +459,15 @@ async function printViaLocalAgent(
   data_b64: string | null,
   html: string | null,
   source: string,
+  stationId?: number | null,
 ): Promise<{ job_id: number; agent_name: string; printer_name: string }> {
   const { apiFetch, ApiError } = await import("@/lib/api");
   try {
     const body: Record<string, unknown> = { source };
     if (data_b64) body.data_b64 = data_b64;
     if (html) body.html = html;
+    // Si viene stationId, el backend rutea a una impresora de esa estación.
+    if (stationId != null) body.station_id = stationId;
     return await apiFetch("/printing/print/", {
       method: "POST",
       body: JSON.stringify(body),
@@ -504,6 +507,11 @@ export interface UniversalPrintInput {
    * dejar esto false (o no pasarlo).
    */
   forceLocalDialog?: boolean;
+  /**
+   * Estación de impresión donde debe salir este ticket. Si se pasa, el
+   * backend rutea a una impresora online asignada a esa estación.
+   */
+  stationId?: number | null;
 }
 
 /**
@@ -576,18 +584,61 @@ export async function printUniversal(input: UniversalPrintInput): Promise<{ meth
   }
 
   // (c) Flujo por defecto del modelo Fudo: ir directo al PC del local.
+  //     Si viene stationId, el backend rutea a una impresora de esa estación.
   try {
     const data_b64 = input.bytes ? bytesToB64(input.bytes) : null;
-    const r = await printViaLocalAgent(data_b64, input.html || null, source);
+    const r = await printViaLocalAgent(data_b64, input.html || null, source, input.stationId ?? null);
     return { method: "agent-auto", ok: true, printer: r.printer_name };
   } catch (e: any) {
-    // NO caemos al diálogo nativo. El usuario ve un error claro y sabe
-    // qué hacer (prender el PC, llamar al admin, etc.).
     return {
       method: "failed", ok: false,
       error: e?.message || "No se pudo imprimir.",
     };
   }
+}
+
+// ── Split de comanda por estación ────────────────────────────────────────────
+
+export interface CommandLine {
+  id?: number;
+  product_name: string;
+  qty: number | string;
+  unit_price?: number | string;
+  line_total: number | string;
+  /** Estación a la que va esta línea. null = al fallback (caja). */
+  print_station_id?: number | null;
+  note?: string;
+}
+
+/**
+ * Agrupa las líneas de una comanda por estación. Cada entrada del array
+ * resultante es { stationId, lines } y se imprime como un ticket separado.
+ *
+ * Líneas con `print_station_id` null/undefined van al grupo `stationId=null`
+ * (caen al fallback de impresión = la estación marcada is_default_for_receipts,
+ * o el flujo auto-print sin station si no hay default).
+ *
+ * Orden estable: stationIds numéricos ASC, null al final.
+ */
+export function splitLinesByStation<T extends CommandLine>(lines: T[]): {
+  stationId: number | null; lines: T[];
+}[] {
+  const groups = new Map<number | null, T[]>();
+  for (const l of lines) {
+    const key = l.print_station_id ?? null;
+    const arr = groups.get(key);
+    if (arr) arr.push(l);
+    else groups.set(key, [l]);
+  }
+  const out: { stationId: number | null; lines: T[] }[] = [];
+  const keys = Array.from(groups.keys());
+  keys.sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a - b;
+  });
+  for (const k of keys) out.push({ stationId: k, lines: groups.get(k)! });
+  return out;
 }
 
 function bytesToB64(data: Uint8Array): string {

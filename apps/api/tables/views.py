@@ -67,10 +67,20 @@ def _table_data(table):
 
 
 def _line_data(line):
+    # Estación efectiva donde se imprime esta línea: override del producto
+    # > default de la categoría > None (cae al fallback de impresión).
+    p = line.product
+    if p.print_station_override_id:
+        station_id = p.print_station_override_id
+    elif p.category_id and p.category and p.category.default_print_station_id:
+        station_id = p.category.default_print_station_id
+    else:
+        station_id = None
+
     return {
         "id":          line.id,
         "product_id":  line.product_id,
-        "product_name": line.product.name,
+        "product_name": p.name,
         "qty":         str(line.qty),
         "unit_price":  str(line.unit_price),
         "line_total":  str((line.qty * line.unit_price).quantize(Decimal("0.01"))),
@@ -80,6 +90,7 @@ def _line_data(line):
         "is_paid":     line.is_paid,
         "is_cancelled": line.is_cancelled,
         "cancel_reason": line.cancel_reason or "",
+        "print_station_id": station_id,
     }
 
 
@@ -97,7 +108,13 @@ def _order_data(order, include_lines=False):
         "warehouse_id": order.warehouse_id,
     }
     if include_lines:
-        lines = list(order.lines.select_related("product", "added_by").order_by("added_at"))
+        # select_related en product__category para que _line_data() no haga
+        # un query extra por cada línea al resolver la estación efectiva.
+        lines = list(
+            order.lines
+            .select_related("product", "product__category", "added_by")
+            .order_by("added_at")
+        )
         d["lines"] = [_line_data(l) for l in lines]
         unpaid = [l for l in lines if not l.is_paid and not l.is_cancelled]
         d["subtotal_unpaid"] = str(
