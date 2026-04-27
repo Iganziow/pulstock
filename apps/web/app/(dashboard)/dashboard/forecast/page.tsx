@@ -146,7 +146,7 @@ export default function ForecastPage() {
               <span style={{ fontSize: 13, color: C.mute }}>de {kpis.products_with_forecast + kpis.products_without_forecast}</span>
             </div>
             <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
-              {kpis.avg_mape > 0 ? `Acierto: ${kpis.avg_mape < 25 ? "muy bueno" : kpis.avg_mape < 40 ? "bueno" : "aprendiendo"} (${Math.max(0, Math.min(100, Math.round(100 - kpis.avg_mape)))}%)` : "Acumulando datos…"}
+              {kpis.products_with_forecast > 0 ? "Predicciones actualizadas" : "Acumulando datos…"}
             </div>
           </div>
         </div>
