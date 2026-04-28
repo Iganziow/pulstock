@@ -359,3 +359,94 @@ class TestCheckoutAdversarial:
             "payments": [{"method": "cash", "amount": "5990"}],
         }, format="json")
         assert r.status_code == 400
+
+
+# ══════════════════════════════════════════════════════════════
+# RECIPE UNIT VALIDATION (blindaje 27/04/26)
+# Mario lo pidió: bloquear recetas con unidades incoherentes
+# (ej. Leche cargada como UN cuando la receta dice 0,15 L)
+# ══════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def units(tenant):
+    """Unidades comunes: KG/GR (masa), L/ML (volumen), UN (conteo)."""
+    from catalog.models import Unit
+    kg = Unit.objects.create(tenant=tenant, code="KG", name="Kilogramo", family="MASS", is_base=True, conversion_factor=Decimal("1"))
+    gr = Unit.objects.create(tenant=tenant, code="GR", name="Gramo", family="MASS", base_unit=kg, conversion_factor=Decimal("0.001"))
+    ml = Unit.objects.create(tenant=tenant, code="ML", name="Mililitro", family="VOLUME", is_base=False, conversion_factor=Decimal("0.001"))
+    lt = Unit.objects.create(tenant=tenant, code="L", name="Litro", family="VOLUME", is_base=True, conversion_factor=Decimal("1"))
+    un = Unit.objects.create(tenant=tenant, code="UN", name="Unidad", family="COUNT", is_base=True, conversion_factor=Decimal("1"))
+    return {"KG": kg, "GR": gr, "ML": ml, "L": lt, "UN": un}
+
+
+class TestRecipeUnitValidation:
+    """Bloquea recetas con desalineación de unidades — Mario blindaje."""
+
+    def test_ingredient_without_unit_obj_blocked(self, client, tenant, product_a, units):
+        """Producto Leche sin unit_obj configurado → no se puede usar
+        en receta con unit_id de volumen. Mensaje accionable."""
+        leche = Product.objects.create(tenant=tenant, name="Leche", price=Decimal("1500"))
+        # NO le seteamos unit_obj. Simula el caso típico de un producto
+        # cargado con `unit="UN"` (string) sin asociar Unit.
+        r = client.post(f"/api/catalog/products/{product_a.id}/recipe/", {
+            "is_active": True,
+            "lines": [{"ingredient_id": leche.id, "qty": "0.150", "unit_id": units["L"].id}],
+        }, format="json")
+        assert r.status_code == 400
+        # El error debe mencionar el ingrediente y pedir configurar unidad
+        msg = str(r.data)
+        assert "Leche" in msg
+        assert "unidad" in msg.lower()
+
+    def test_mismatched_family_blocked(self, client, tenant, product_a, units):
+        """Producto cargado en COUNT, receta dice volumen → bloqueado."""
+        leche = Product.objects.create(
+            tenant=tenant, name="Leche", price=Decimal("1500"),
+            unit_obj=units["UN"],  # ← cargada como unidad de conteo
+        )
+        r = client.post(f"/api/catalog/products/{product_a.id}/recipe/", {
+            "is_active": True,
+            "lines": [{"ingredient_id": leche.id, "qty": "0.150", "unit_id": units["L"].id}],
+        }, format="json")
+        assert r.status_code == 400
+        msg = str(r.data)
+        assert "Leche" in msg
+        # Debe mencionar las dos familias para que el usuario entienda
+        assert "volumen" in msg.lower() or "L" in msg
+        assert "conteo" in msg.lower() or "UN" in msg
+
+    def test_same_family_different_unit_ok(self, client, tenant, product_a, units):
+        """L vs ML (ambos volumen) → OK, se convierte automáticamente."""
+        leche = Product.objects.create(
+            tenant=tenant, name="Leche", price=Decimal("1500"),
+            unit_obj=units["L"],
+        )
+        r = client.post(f"/api/catalog/products/{product_a.id}/recipe/", {
+            "is_active": True,
+            "lines": [{"ingredient_id": leche.id, "qty": "150", "unit_id": units["ML"].id}],
+        }, format="json")
+        assert r.status_code == 200, r.data
+
+    def test_no_unit_id_uses_ingredient_unit_ok(self, client, tenant, product_a, units):
+        """Sin unit_id explícito → asume unidad del ingrediente. OK."""
+        leche = Product.objects.create(
+            tenant=tenant, name="Leche", price=Decimal("1500"),
+            unit_obj=units["L"],
+        )
+        r = client.post(f"/api/catalog/products/{product_a.id}/recipe/", {
+            "is_active": True,
+            "lines": [{"ingredient_id": leche.id, "qty": "0.150"}],  # sin unit_id
+        }, format="json")
+        assert r.status_code == 200, r.data
+
+    def test_kg_to_gr_ok(self, client, tenant, product_a, units):
+        """Café cargado en KG, receta en GR → OK (misma familia masa)."""
+        cafe = Product.objects.create(
+            tenant=tenant, name="Café molido", price=Decimal("8000"),
+            unit_obj=units["KG"],
+        )
+        r = client.post(f"/api/catalog/products/{product_a.id}/recipe/", {
+            "is_active": True,
+            "lines": [{"ingredient_id": cafe.id, "qty": "7", "unit_id": units["GR"].id}],
+        }, format="json")
+        assert r.status_code == 200, r.data
