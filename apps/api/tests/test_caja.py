@@ -533,3 +533,90 @@ class TestTipsCashFlowReconciliation:
         assert Decimal(live["card_sales"]) == Decimal("3000")
         # expected_cash = fondo $10000 + cash físico $5625 = $15625
         assert Decimal(live["expected_cash"]) == Decimal("15625.00")
+
+    def test_consumo_interno_with_tip_does_not_leak_to_session_summary(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Defensa: si por algún bug llegara una venta CONSUMO_INTERNO con
+        tip > 0, NO debe aparecer en tips_by_method ni en total_tips de
+        la sesión activa. CONSUMO_INTERNO no es ingreso del local y no
+        genera propinas para el equipo (no hubo cliente que pagara).
+        """
+        from sales.models import Sale, SalePayment
+        from decimal import Decimal as D
+        session = CashSession.objects.get(id=open_session["id"])
+        # Sale CONSUMO_INTERNO con tip 500 (estado inválido pero defensivo).
+        Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse, created_by=owner,
+            cash_session=session,
+            status="COMPLETED", sale_type=Sale.SALE_TYPE_CONSUMO,
+            subtotal=D("3000"), total=D("3000"),
+            tip=D("500"),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        # Y una venta normal VENTA con tip 200 para confirmar que sí cuenta.
+        sale_v = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse, created_by=owner,
+            cash_session=session,
+            status="COMPLETED", sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D("2000"), total=D("2000"),
+            tip=D("200"),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        SalePayment.objects.create(tenant=tenant, sale=sale_v, method="cash", amount=D("2200"))
+
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        # Solo la propina de la VENTA debe aparecer (200), no la del CONSUMO (500).
+        assert Decimal(live["total_tips"]) == Decimal("200")
+        assert Decimal(live["tips_by_method"]["cash"]) == Decimal("200")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VOID — la propina debe limpiarse al anular venta (regresión 27/04/26)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestVoidClearsTip:
+
+    def test_void_zeros_sale_tip(self, api_client, owner, tenant, store, warehouse):
+        """Cuando se anula una venta con tip > 0, sale.tip debe quedar
+        en 0 para que no aparezca en reportes de propinas. El tip
+        original queda registrado en el audit log."""
+        from sales.models import Sale, SalePayment, SaleLine
+        from catalog.models import Product
+        from decimal import Decimal as D
+        from inventory.models import StockItem
+        from core.models import Warehouse as W
+
+        # Producto + stock para que el void pueda revertir
+        product = Product.objects.create(
+            tenant=tenant, name="Café", sku="CAF1", price=D("2000"),
+            cost=D("500"), is_active=True,
+        )
+        StockItem.objects.create(
+            tenant=tenant, warehouse=warehouse, product=product,
+            on_hand=D("10"), avg_cost=D("500"),
+        )
+
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse, created_by=owner,
+            status="COMPLETED", sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D("2000"), total=D("2000"),
+            tip=D("200"),
+            total_cost=D("500"), gross_profit=D("1500"),
+        )
+        SaleLine.objects.create(
+            tenant=tenant, sale=sale, product=product,
+            qty=D("1"), unit_price=D("2000"), line_total=D("2000"),
+            unit_cost_snapshot=D("500"), line_cost=D("500"),
+        )
+        SalePayment.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("2200"))
+
+        resp = api_client.post(f"/api/sales/sales/{sale.id}/void/")
+        assert resp.status_code == 200, resp.data
+
+        sale.refresh_from_db()
+        assert sale.status == "VOID"
+        assert sale.tip == Decimal("0.00"), \
+            f"Tip debería quedar en 0 al anular, pero quedó en {sale.tip}"

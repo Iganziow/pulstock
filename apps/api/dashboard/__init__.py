@@ -63,10 +63,15 @@ class DashboardSummaryView(APIView):
         # ──────────────────────────────────────────────
         # 1) KPI: Ventas de hoy (COMPLETED)
         # ──────────────────────────────────────────────
+        # CONSUMO_INTERNO no es ingreso del local — se excluye del KPI
+        # de "ventas de hoy" para que el monto refleje sólo facturación
+        # real al cliente. Antes los consumos internos inflaban el KPI
+        # y confundían al dueño.
         sales_today_qs = Sale.objects.filter(
             tenant_id=t_id,
             store_id=s_id,
             status=Sale.STATUS_COMPLETED,
+            sale_type=Sale.SALE_TYPE_VENTA,
             created_at__date=today,
         )
         sales_today_agg = sales_today_qs.aggregate(
@@ -158,6 +163,7 @@ class DashboardSummaryView(APIView):
                 tenant_id=t_id,
                 store_id=s_id,
                 status=Sale.STATUS_COMPLETED,
+                sale_type=Sale.SALE_TYPE_VENTA,
                 created_at__date__gte=week_ago,
                 created_at__date__lte=today,
             )

@@ -470,7 +470,23 @@ class CheckoutView(APIView):
         except (ValueError, ArithmeticError, TypeError):
             tip = Decimal("0")
 
-        # Validate payment amounts sum >= order total (for non-consumo)
+        # CONSUMO_INTERNO no debe tener propina ni payments — es un
+        # registro de uso interno (cortesía/staff), nadie cobra nada.
+        # Defensa server-side por si un cliente con bug envía esos
+        # campos. Sin esto:
+        # - tip > 0 → equipo "debía" propina fantasma que nunca cobró.
+        # - payments > 0 → la caja esperaba efectivo que nunca entró
+        #   (el cliente no pagó nada por ser consumo interno).
+        if sale_type == "CONSUMO_INTERNO":
+            tip = Decimal("0")
+            payments_in = []
+
+        # Validate payment amounts sum >= order total + tip (for non-consumo).
+        # Antes solo validaba contra order_total, lo que dejaba un agujero:
+        # un cliente con bug podía mandar propina $1.000 con payments que
+        # solo cubrían el subtotal, y el sistema creaba la venta con
+        # tip=$1.000 que el cajero NUNCA cobró → equipo "debía" propina
+        # fantasma.
         if payments_in and sale_type != "CONSUMO_INTERNO":
             try:
                 pay_total = sum(Decimal(str(p.get("amount") or 0)) for p in payments_in)
@@ -490,9 +506,10 @@ class CheckoutView(APIView):
                     order_total = sum(
                         (l.qty * l.unit_price).quantize(Decimal("0.01")) for l in partial_lines
                     )
-                if pay_total < order_total:
+                required = order_total + tip
+                if pay_total < required:
                     return Response(
-                        {"detail": f"Pago insuficiente: {pay_total} < {order_total}"},
+                        {"detail": f"Pago insuficiente: {pay_total} < {required} (cuenta {order_total} + propina {tip})"},
                         status=400,
                     )
             except OpenOrder.DoesNotExist:

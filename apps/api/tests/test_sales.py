@@ -210,3 +210,165 @@ def test_sale_void_is_idempotent(api_client, tenant, warehouse, product):
     si = StockItem.objects.get(tenant=tenant, warehouse=warehouse, product=product)
     assert si.on_hand == Decimal("10.000")  # stock original restaurado, no duplicado
     assert StockMove.objects.filter(ref_type="SALE_VOID").count() == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TIP FLOW HARDENING (auditoría 27/04/26)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestIdempotencyTipResponse:
+    """La respuesta del early-exit por idempotency_key debe incluir `tip`
+    para que el frontend pueda imprimir la boleta correcta tras retry."""
+
+    def test_idempotent_response_includes_tip(self, api_client, tenant, warehouse, product):
+        _seed_stock(tenant, warehouse, product, qty=Decimal("10"), avg_cost=Decimal("500"))
+        payload = _sale_payload(
+            warehouse.id, product.id, qty=1, unit_price=2000,
+            idempotency_key="key-tip-test-001",
+        )
+        payload["payments"] = [{"method": "cash", "amount": 2200}]
+        payload["tip"] = "200"
+
+        # 1ª request: crea
+        r1 = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r1.status_code == 201
+        assert "tip" in r1.data, f"Got: {r1.data}"
+        assert Decimal(r1.data["tip"]) == Decimal("200")
+
+        # 2ª request con MISMA key (retry): debe devolver la misma venta
+        # CON el campo tip incluido
+        r2 = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r2.status_code == 201
+        assert r2.data["id"] == r1.data["id"]
+        assert r2.data["idempotent"] is True
+        assert "tip" in r2.data, "Idempotent response debe incluir 'tip'"
+        assert Decimal(r2.data["tip"]) == Decimal("200")
+
+    def test_idempotent_response_when_tip_zero(self, api_client, tenant, warehouse, product):
+        """Respuesta idempotente sin tip: debe seguir funcionando."""
+        _seed_stock(tenant, warehouse, product, qty=Decimal("10"), avg_cost=Decimal("500"))
+        payload = _sale_payload(
+            warehouse.id, product.id, qty=1, unit_price=2000,
+            idempotency_key="key-no-tip-002",
+        )
+        payload["payments"] = [{"method": "cash", "amount": 2000}]
+        # sin tip
+
+        r1 = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r1.status_code == 201
+        r2 = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r2.status_code == 201
+        assert r2.data["idempotent"] is True
+        assert Decimal(r2.data["tip"]) == Decimal("0")
+
+
+@pytest.mark.django_db
+class TestVoidClearsTipSale:
+    """Anular venta con tip > 0 → sale.tip vuelve a 0 para que no
+    aparezca en reportes de propinas. (Regresión 27/04/26)."""
+
+    def test_void_zeros_tip(self, api_client, tenant, warehouse, product):
+        _seed_stock(tenant, warehouse, product, qty=Decimal("10"), avg_cost=Decimal("500"))
+        payload = _sale_payload(warehouse.id, product.id, qty=1, unit_price=2000)
+        payload["payments"] = [{"method": "cash", "amount": 2300}]
+        payload["tip"] = "300"
+
+        r = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r.status_code == 201
+        sale_id = r.data["id"]
+        assert Decimal(r.data["tip"]) == Decimal("300")
+
+        # Anular
+        rv = api_client.post(f"/api/sales/sales/{sale_id}/void/")
+        assert rv.status_code == 200
+
+        sale = Sale.objects.get(pk=sale_id)
+        assert sale.status == "VOID"
+        assert sale.tip == Decimal("0.00"), \
+            f"Tip debe quedar en 0 al anular, pero quedó en {sale.tip}"
+
+
+@pytest.mark.django_db
+class TestTipPaymentValidation:
+    """El backend debe validar que pay_total >= order_total + tip al
+    cobrar una mesa. Sin esto, un cliente con bug podía registrar tip
+    sin que se hubiera cobrado físicamente al cliente."""
+
+    def _make_order(self, tenant, store, warehouse, product, table_name, qty, unit_price, owner=None):
+        from tables.models import Table, OpenOrder, OpenOrderLine
+        from decimal import Decimal as D
+        from inventory.models import StockItem
+        from core.models import User
+        StockItem.objects.get_or_create(
+            tenant=tenant, warehouse=warehouse, product=product,
+            defaults={"on_hand": D("10"), "avg_cost": D("500")},
+        )
+        table = Table.objects.create(tenant=tenant, store=store, name=table_name)
+        opened_by = owner or User.objects.filter(tenant=tenant).first()
+        order = OpenOrder.objects.create(
+            tenant=tenant, table=table, store=store, warehouse=warehouse,
+            status="OPEN", opened_by=opened_by,
+        )
+        OpenOrderLine.objects.create(
+            tenant=tenant, order=order, product=product,
+            qty=D(str(qty)), unit_price=D(str(unit_price)),
+            added_by=opened_by,
+        )
+        return order
+
+    def test_tables_checkout_rejects_underpayment_with_tip(
+        self, api_client, tenant, store, warehouse, product,
+    ):
+        """Reproduce el agujero: order $2000, tip $500, pago solo $2000.
+        Debe rechazarse con 400."""
+        order = self._make_order(tenant, store, warehouse, product, "Mesa 1", 1, 2000)
+
+        payload = {
+            "mode": "all",
+            "payments": [{"method": "cash", "amount": 2000}],  # cubre solo subtotal
+            "tip": 500,  # pero pretende propina
+            "sale_type": "VENTA",
+        }
+        r = api_client.post(f"/api/tables/orders/{order.id}/checkout/", payload, format="json")
+        assert r.status_code == 400
+        assert "insuficiente" in r.data.get("detail", "").lower()
+
+    def test_tables_checkout_accepts_with_tip_covered(
+        self, api_client, tenant, store, warehouse, product,
+    ):
+        """Caso opuesto: pago cubre subtotal + tip → OK."""
+        order = self._make_order(tenant, store, warehouse, product, "Mesa 2", 1, 2000)
+
+        payload = {
+            "mode": "all",
+            "payments": [{"method": "cash", "amount": 2500}],  # cubre todo
+            "tip": 500,
+            "sale_type": "VENTA",
+        }
+        r = api_client.post(f"/api/tables/orders/{order.id}/checkout/", payload, format="json")
+        assert r.status_code in (200, 201), r.data
+
+    def test_consumo_interno_zeroes_tip_server_side(
+        self, api_client, tenant, store, warehouse, product, owner,
+    ):
+        """Defensa server-side: si llega CONSUMO_INTERNO con tip, el
+        backend lo zeroiza independientemente del frontend.
+        Solo manager puede CONSUMO_INTERNO → owner es manager."""
+        order = self._make_order(tenant, store, warehouse, product, "Mesa 3", 1, 2000)
+
+        payload = {
+            "mode": "all",
+            "payments": [],  # consumo no requiere payments
+            "tip": 500,  # pretende propina (debería ser ignorado)
+            "sale_type": "CONSUMO_INTERNO",
+        }
+        r = api_client.post(f"/api/tables/orders/{order.id}/checkout/", payload, format="json")
+        assert r.status_code in (200, 201), r.data
+
+        # La venta resultante NO debe tener tip
+        sale_id = r.data.get("sale_id") or r.data.get("id")
+        if sale_id:
+            sale = Sale.objects.get(pk=sale_id)
+            assert sale.tip == Decimal("0.00"), \
+                f"CONSUMO_INTERNO debería zeroizar tip, quedó {sale.tip}"

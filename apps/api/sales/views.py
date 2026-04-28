@@ -42,6 +42,15 @@ def _model_has_field(model_cls, field_name: str) -> bool:
 
 
 class SaleCreate(APIView):
+    """POS direct sale endpoint.
+
+    NOTA: este endpoint NO acepta `sale_type` desde el cliente — siempre
+    crea ventas tipo VENTA (default en `create_sale`). El flow de
+    CONSUMO_INTERNO existe solo en `tables/views.py::CheckoutView`
+    (mesas), que tiene defensa server-side para tip=0 y payments=[].
+    Si en el futuro se permite CONSUMO_INTERNO desde POS directo, hay
+    que portar esa misma lógica defensiva aquí.
+    """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def post(self, request):
@@ -55,11 +64,20 @@ class SaleCreate(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Idempotencia: si el cliente envía una clave, respondemos con la venta existente
+        # Idempotencia: si el cliente envía una clave, respondemos con la
+        # venta existente. El filtro debe matchear el UNIQUE constraint
+        # del DB (tenant + store + idempotency_key) — antes se filtraba
+        # por `created_by=user`, lo que dejaba un agujero: dos cajeros
+        # del mismo store reintentando con la misma key entraban a
+        # create_sale en vez de hacer early-exit, y la 2ª caía en
+        # IntegrityError catch en services.py:242. Funcionaba pero
+        # generaba doble query y log ruidoso. Lo más importante: el
+        # response anterior NO incluía `tip`, así que el frontend al
+        # imprimir la boleta del retry no podía mostrar la propina.
         idempotency_key = (request.data.get("idempotency_key") or "").strip()[:64]
         if idempotency_key:
             existing = Sale.objects.filter(
-                tenant_id=t_id, idempotency_key=idempotency_key, created_by=user
+                tenant_id=t_id, store_id=store_id, idempotency_key=idempotency_key,
             ).first()
             if existing:
                 return Response(
@@ -69,6 +87,7 @@ class SaleCreate(APIView):
                         "store_id": existing.store_id,
                         "warehouse_id": existing.warehouse_id,
                         "total": str(existing.total),
+                        "tip": str(existing.tip),
                         "total_cost": str(existing.total_cost),
                         "gross_profit": str(existing.gross_profit),
                         "lines_count": existing.lines.count(),
@@ -327,20 +346,29 @@ class SaleVoid(APIView):
             StockMove.objects.bulk_create(moves)
 
         sale.status = "VOID"
-        # dejamos trazabilidad: al anular, costo y profit a 0 (o puedes mantenerlos y sólo marcar VOID)
+        # Trazabilidad: al anular, costo y profit a 0 (la línea no afecta
+        # margen). Guardamos el tip ORIGINAL en el audit para que Mario
+        # pueda saber cuánto era si necesita reconstruir, y lo limpiamos
+        # a 0 para que no aparezca en reportes de propinas / desglose
+        # por método. Sin esto, una venta anulada seguía contando su
+        # propina en queries que filtraran por `tip__gt=0` sin status.
+        original_tip = sale.tip
         sale.total_cost = Decimal("0.000")
         sale.gross_profit = Decimal("0.000")
+        sale.tip = Decimal("0.00")
+        update_fields = ["status", "total_cost", "gross_profit", "tip"]
         if _model_has_field(Sale, "unit_cost_snapshot"):
             sale.unit_cost_snapshot = Decimal("0.000")
-
-            sale.save(update_fields=["status", "total_cost", "gross_profit", "unit_cost_snapshot"])
-        else:
-            sale.save(update_fields=["status", "total_cost", "gross_profit"])
+            update_fields.append("unit_cost_snapshot")
+        sale.save(update_fields=update_fields)
 
         # Audit
         from core.models import log_audit
-        log_audit(request, "sale_void", "sale", sale.id,
-                  {"lines": len(lines), "reversed_cost": str(total_cost_reversed)})
+        log_audit(request, "sale_void", "sale", sale.id, {
+            "lines": len(lines),
+            "reversed_cost": str(total_cost_reversed),
+            "original_tip": str(original_tip),
+        })
 
         return Response(
             {"id": sale.id, "status": sale.status, "lines_count": len(lines), "reversed_cost": str(total_cost_reversed)},

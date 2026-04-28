@@ -81,7 +81,8 @@ function colsFor(paperWidth: 58 | 80): number {
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Efectivo",
-  card: "Tarjeta",
+  debit: "Débito",
+  card: "Crédito",
   transfer: "Transferencia",
 };
 
@@ -180,15 +181,19 @@ export function buildPreCuenta(data: PreCuentaData, paperWidth: 58 | 80 = 80): U
   // Subtotal SIN propina (ganancia del local, va a la caja)
   p.textLine("SUBTOTAL", fmtCLP(data.subtotal), cols);
 
-  // Propina sugerida 10% + total con propina. La propina es del equipo
-  // (mesero/cajero), no del local — la idea es que el cliente decida
-  // si la deja o no, y le entreguen el total con o sin propina.
+  // Propina sugerida 10% + total con propina sugerido. La propina es
+  // del equipo (mesero/cajero), no del local — la idea es que el
+  // cliente decida si la deja o no.
+  // IMPORTANTE: este es un MONTO SUGERIDO, no el total a pagar. Si
+  // antes decía "TOTAL CON PROPINA" en bold, el cliente podía
+  // confundirlo con la cuenta final. Cambiamos el wording a
+  // "SUGERIDO C/PROPINA" para dejar claro que es una sugerencia.
   const tipSuggested = Math.round(data.subtotal * 0.10);
   const totalWithTip = data.subtotal + tipSuggested;
   if (tipSuggested > 0) {
-    p.textLine("Propina (10%)", fmtCLP(tipSuggested), cols);
+    p.textLine("Propina sugerida (10%)", fmtCLP(tipSuggested), cols);
     p.separator("-", cols);
-    p.bold(true).textLine("TOTAL CON PROPINA", fmtCLP(totalWithTip), cols).bold(false);
+    p.bold(true).textLine("SUGERIDO C/PROPINA", fmtCLP(totalWithTip), cols).bold(false);
   } else {
     p.bold(true).textLine("TOTAL", fmtCLP(data.subtotal), cols).bold(false);
   }
@@ -341,9 +346,9 @@ export function buildPreCuentaHTML(data: PreCuentaData): string {
       const tip = Math.round(data.subtotal * 0.10);
       if (tip <= 0) return `<div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>`;
       return `
-    <div class="row" style="color:#666"><span>Propina (10%)</span><span>${fmtCLP(tip)}</span></div>
+    <div class="row" style="color:#666"><span>Propina sugerida (10%)</span><span>${fmtCLP(tip)}</span></div>
     <div class="sep"></div>
-    <div class="row total-row"><span>TOTAL CON PROPINA</span><span class="price">${fmtCLP(data.subtotal + tip)}</span></div>
+    <div class="row total-row"><span>SUGERIDO C/PROPINA</span><span class="price">${fmtCLP(data.subtotal + tip)}</span></div>
     <div class="center info" style="margin-top:6px;font-size:11px;color:#888">La propina es opcional y va para el equipo</div>`;
     })()}
     <div class="sep-double"></div>
