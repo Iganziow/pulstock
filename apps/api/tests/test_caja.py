@@ -403,3 +403,133 @@ class TestMultiRegister:
         open_flags = {r["name"]: r["has_open_session"] for r in resp.data}
         assert open_flags["Caja A"] is True
         assert open_flags["Caja B"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TIPS PER METHOD vs CASH FLOW (regression test for cash-tip bug 27/04/26)
+# ═══════════════════════════════════════════════════════════════════════════
+# Mario reportó: la caja no cuadraba al cierre porque las propinas pagadas
+# por DÉBITO/CRÉDITO se estaban sumando al efectivo esperado en caja
+# (cash_tips antes era SUM de TODAS las propinas, sin filtrar método).
+# Si una venta se pagó por tarjeta + propina, la caja esperaba esa
+# propina en efectivo físico que nunca entró → diferencia falsa al cierre.
+
+@pytest.mark.django_db
+class TestTipsCashFlowReconciliation:
+
+    def _create_sale_with_payment(self, owner, tenant, store, warehouse, session, total, tip, method):
+        """Helper: crea venta COMPLETED con tip y un único pago en `method`."""
+        from sales.models import Sale, SalePayment
+        from decimal import Decimal as D
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            cash_session=session,
+            status="COMPLETED",
+            sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D(total), total=D(total) + D(tip),
+            tip=D(tip),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        SalePayment.objects.create(
+            tenant=tenant, sale=sale,
+            method=method, amount=D(total) + D(tip),
+        )
+        return sale
+
+    def test_tip_paid_by_debit_does_not_inflate_cash(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Reproduce el bug exacto que reportó Mario:
+        venta de $36.500 + $2.137 propina pagada TODA con DÉBITO.
+        SalePayment.amount = $38.637 (subtotal + propina).
+        Antes del fix: expected_cash sumaba $2.137 al efectivo.
+        Después del fix: expected_cash queda igual al fondo inicial
+        (no entró nada de efectivo físico).
+        """
+        session = CashSession.objects.get(id=open_session["id"])
+        self._create_sale_with_payment(
+            owner, tenant, store, warehouse, session,
+            total="36500", tip="2137", method="debit",
+        )
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        # cash_tips debe ser 0 — la propina fue por débito, no efectivo.
+        assert Decimal(live["cash_tips"]) == Decimal("0")
+        # total_tips sigue mostrando los $2.137 (informativo).
+        assert Decimal(live["total_tips"]) == Decimal("2137")
+        # tips_by_method["debit"] debe tener los $2.137.
+        assert Decimal(live["tips_by_method"]["debit"]) == Decimal("2137")
+        assert Decimal(live["tips_by_method"]["cash"]) == Decimal("0")
+        # debit_sales (display) = pago bruto $38.637 − propina $2.137 = $36.500
+        assert Decimal(live["debit_sales"]) == Decimal("36500")
+        # cash_sales = 0 (no hubo nada en efectivo).
+        assert Decimal(live["cash_sales"]) == Decimal("0")
+        # expected_cash = solo fondo inicial (no entró efectivo).
+        assert Decimal(live["expected_cash"]) == Decimal("10000.00")
+
+    def test_tip_paid_by_cash_inflates_cash(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Caso complementario: venta $5000 + propina $500 toda en EFECTIVO.
+        SalePayment.amount = $5500 (cliente entregó eso en efectivo físico).
+        - cash_sales display = $5000 (sin propina)
+        - cash_tips display = $500
+        - expected_cash = fondo + $5500 (todo el cash físico que entró)
+        """
+        session = CashSession.objects.get(id=open_session["id"])
+        self._create_sale_with_payment(
+            owner, tenant, store, warehouse, session,
+            total="5000", tip="500", method="cash",
+        )
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        assert Decimal(live["cash_tips"]) == Decimal("500")
+        assert Decimal(live["total_tips"]) == Decimal("500")
+        # cash_sales (display) = pago bruto $5500 − propina $500 = $5000
+        assert Decimal(live["cash_sales"]) == Decimal("5000")
+        # expected_cash = fondo $10000 + total cash físico $5500 = $15500
+        assert Decimal(live["expected_cash"]) == Decimal("15500.00")
+
+    def test_split_payment_tip_attribution(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Venta $8000 + propina $1000 split: $5625 cash + $3375 card
+        (ambos cubren proporcionalmente subtotal+propina = $9000).
+        Reparto proporcional propina: 1000 × 5625/9000 = 625 a cash,
+        1000 × 3375/9000 = 375 a card.
+        - cash_sales display = $5625 - $625 = $5000
+        - card_sales display = $3375 - $375 = $3000
+        - expected_cash = fondo + $5625 (todo cash físico)
+        """
+        from sales.models import Sale, SalePayment
+        from decimal import Decimal as D
+        session = CashSession.objects.get(id=open_session["id"])
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            cash_session=session,
+            status="COMPLETED",
+            sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D("8000"), total=D("9000"),
+            tip=D("1000"),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        SalePayment.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("5625"))
+        SalePayment.objects.create(tenant=tenant, sale=sale, method="card", amount=D("3375"))
+
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        # cash_tips = 1000 × 5625/9000 = 625
+        assert Decimal(live["cash_tips"]) == Decimal("625")
+        # tips_by_method["card"] absorbe el resto del redondeo = 375
+        assert Decimal(live["tips_by_method"]["card"]) == Decimal("375")
+        # Suma debe ser exacta 1000 (no 999 por redondeo)
+        total_breakdown = sum(Decimal(v) for v in live["tips_by_method"].values())
+        assert total_breakdown == Decimal("1000")
+        # cash_sales = $5625 - $625 = $5000
+        assert Decimal(live["cash_sales"]) == Decimal("5000")
+        # card_sales = $3375 - $375 = $3000
+        assert Decimal(live["card_sales"]) == Decimal("3000")
+        # expected_cash = fondo $10000 + cash físico $5625 = $15625
+        assert Decimal(live["expected_cash"]) == Decimal("15625.00")

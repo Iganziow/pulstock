@@ -32,7 +32,11 @@ def _session_summary(session):
     """Compute live expected_cash and payment breakdown for an open session."""
     from sales.models import SalePayment
 
-    # Single query: GROUP BY method → {method: total}
+    # Single query: GROUP BY method → {method: total}.
+    # NOTA: SalePayment.amount cubre el TOTAL pagado (subtotal + propina),
+    # porque en el flujo del PaymentModal el cajero pone el monto que
+    # cobra al cliente, que ya incluye la propina si la hubo. Por lo
+    # tanto method_totals[method] incluye las propinas.
     method_totals = dict(
         SalePayment.objects.filter(
             sale__cash_session=session,
@@ -40,15 +44,13 @@ def _session_summary(session):
         ).values_list("method").annotate(total=Sum("amount")).values_list("method", "total")
     )
     zero = Decimal("0")
-    cash_sales     = method_totals.get("cash", zero) or zero
-    debit_sales    = method_totals.get("debit", zero) or zero
-    card_sales     = method_totals.get("card", zero) or zero
-    transfer_sales = method_totals.get("transfer", zero) or zero
-    total_sales    = cash_sales + debit_sales + card_sales + transfer_sales
-
-    cash_tips = session.sales.filter(status="COMPLETED").aggregate(
-        s=Coalesce(Sum("tip"), zero)
-    )["s"]
+    # Pagos brutos por método (incluyen propinas). Usados para
+    # expected_cash. Los display _sales se calculan más abajo restando
+    # las propinas para no duplicar números en el frontend.
+    cash_payments_total     = method_totals.get("cash", zero) or zero
+    debit_payments_total    = method_totals.get("debit", zero) or zero
+    card_payments_total     = method_totals.get("card", zero) or zero
+    transfer_payments_total = method_totals.get("transfer", zero) or zero
 
     # Propinas POR método de pago (Mario lo pidió: "los chicos quieren ver
     # cuánto va de propina por débito/crédito/efectivo durante el turno").
@@ -108,21 +110,53 @@ def _session_summary(session):
     movements_in  = mov_totals.get("IN", zero) or zero
     movements_out = mov_totals.get("OUT", zero) or zero
 
-    # expected_cash ONLY includes physical cash (efectivo)
-    expected = session.initial_amount + cash_sales + cash_tips + movements_in - movements_out
-    total_tips = sum(tips_by_method.values(), zero)
+    # BUG FIX (Mario reportó 27/04/26): la caja no cuadraba al cierre
+    # porque cash_tips se sumaba a expected_cash, pero las propinas YA
+    # estaban incluidas en cash_payments_total (porque SalePayment.amount
+    # cubre subtotal + propina). Doble suma → caja esperaba $2.137 más
+    # de los que había → al cerrar faltaban esos $2.137.
+    #
+    # Y un segundo problema relacionado: cash_tips sumaba propinas de
+    # TODOS los métodos (incluso débito/crédito), no solo cash. Si la
+    # propina iba por tarjeta, igual aparecía como "propina en efectivo".
+    #
+    # Fix completo:
+    # - cash_tips = solo las propinas pagadas en efectivo.
+    # - Display _sales = pagos brutos − propinas → "ventas netas" sin
+    #   duplicar lo que ya está en el widget de propinas.
+    # - expected_cash usa cash_payments_total (que ya incluye todo el
+    #   efectivo físico que entró: ventas + propinas en cash).
+    #   Eso es matemáticamente equivalente a fondo + cash_sales_neto +
+    #   cash_tips + movs, pero evita el riesgo de doble suma.
+    cash_tips     = tips_by_method.get("cash", zero)
+    debit_tips    = tips_by_method.get("debit", zero)
+    card_tips     = tips_by_method.get("card", zero)
+    transfer_tips = tips_by_method.get("transfer", zero)
+    total_tips    = sum(tips_by_method.values(), zero)
+
+    # Display: ventas NETAS (sin propinas) por método. La propina se
+    # muestra aparte en el widget "Propinas del turno".
+    cash_sales     = cash_payments_total     - cash_tips
+    debit_sales    = debit_payments_total    - debit_tips
+    card_sales     = card_payments_total     - card_tips
+    transfer_sales = transfer_payments_total - transfer_tips
+    total_sales    = cash_sales + debit_sales + card_sales + transfer_sales
+
+    # expected_cash usa el total pagado en efectivo directo (ya incluye
+    # propinas en cash). Esto evita la doble suma del bug original.
+    expected = session.initial_amount + cash_payments_total + movements_in - movements_out
     return {
         "initial_amount":  str(session.initial_amount),
-        # Desglose por método de pago
+        # Desglose por método de pago (ventas netas, sin propinas)
         "cash_sales":      str(cash_sales),
         "debit_sales":     str(debit_sales),
         "card_sales":      str(card_sales),
         "transfer_sales":  str(transfer_sales),
         "total_sales":     str(total_sales),
-        # Propinas (totales y desglose por método de pago).
-        # cash_tips: TODAS las propinas de la sesión (legacy, suma todo).
-        # total_tips: igual que cash_tips, nombre más claro.
-        # tips_by_method: cuánto entró de propina en cada canal.
+        # Propinas: cash_tips = SOLO las pagadas en efectivo (informativo
+        # para el flujo de caja). total_tips = todas las propinas.
+        # tips_by_method = desglose para que los chicos vean cuánto les
+        # llegó por cada canal.
         "cash_tips":       str(cash_tips),
         "total_tips":      str(total_tips),
         "tips_by_method":  {k: str(v) for k, v in tips_by_method.items()},
