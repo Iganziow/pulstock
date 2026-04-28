@@ -221,11 +221,22 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={onSubmit} style={{ display: "grid", gap: 18 }}>
+          {/* Form. method="post" + action="#" + name/id en inputs son
+              señales que iOS Safari (y Chrome Android) usan para
+              detectar el form de login y ofrecer "Guardar contraseña"
+              en el password manager nativo. Daniel lo reportó: Mario
+              en iPhone no veía el prompt de guardar.
+
+              Cómo verifica iOS que es un login real:
+              1) <form> con method="post" (no solo onSubmit JS).
+              2) Inputs con name/id explícitos.
+              3) type="text" o "email" en username, "password" en pass.
+              4) autoComplete con valores estándar.
+              5) Submit que produce navegación (router.push o reload). */}
+          <form onSubmit={onSubmit} method="post" action="#" style={{ display: "grid", gap: 18 }}>
 
             <div className="login-field">
-              <label style={{
+              <label htmlFor="username" style={{
                 display: "block", fontSize: 12, fontWeight: 600,
                 color: C.mid, marginBottom: 7, letterSpacing: "0.02em",
               }}>
@@ -239,19 +250,24 @@ export default function LoginPage() {
                   <UserIcon />
                 </div>
                 <input
+                  id="username"
+                  name="username"
+                  type="text"
                   className="login-input"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Tu nombre de usuario"
                   autoComplete="username"
-                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                 />
               </div>
             </div>
 
             <div className="login-field">
-              <label style={{
+              <label htmlFor="password" style={{
                 display: "block", fontSize: 12, fontWeight: 600,
                 color: C.mid, marginBottom: 7, letterSpacing: "0.02em",
               }}>
@@ -265,6 +281,8 @@ export default function LoginPage() {
                   <LockIcon />
                 </div>
                 <input
+                  id="password"
+                  name="password"
                   className="login-input"
                   style={{ paddingRight: 46 }}
                   value={password}
@@ -272,6 +290,9 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   type={showPw ? "text" : "password"}
                   autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                 />
                 <button
