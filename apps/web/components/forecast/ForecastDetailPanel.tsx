@@ -29,6 +29,17 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   const daysOut = forecast.length > 0 && forecast[0].days_to_stockout !== null ? forecast[0].days_to_stockout : null;
   const avgDemand = forecast.length > 0 ? forecast.reduce((s, f) => s + num(f.qty_predicted), 0) / forecast.length : 0;
 
+  // Gate "datos insuficientes" — Mario lo pidió: "deja que recopile
+  // unos días de información y entrega una predicción más acertada".
+  // Con menos de 7 días de ventas reales el modelo no puede producir
+  // una predicción confiable: muestra ventas "en patrón aleatorio" o
+  // se cae en category_prior con muy poca seguridad. En lugar de
+  // mostrar números engañosos, mostramos un banner claro indicando
+  // cuántos días faltan para tener una predicción útil.
+  const dataPoints = detail.model?.data_points ?? 0;
+  const MIN_DAYS_FOR_FORECAST = 7;
+  const isInsufficientData = dataPoints < MIN_DAYS_FOR_FORECAST;
+
   const sug = detail.suggestion;
   const targetDays = sug?.target_days ?? 14;
   const reorderQty = sug ? Math.max(0, Math.ceil(num(sug.suggested_qty))) : Math.max(0, Math.ceil(avgDemand * targetDays - stockLevel));
@@ -194,28 +205,54 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
     <div style={{ padding: mob ? "14px 12px" : "18px 22px", borderBottom: `1px solid ${C.border}`, background: C.bg }}>
 
       {/* RESUMEN */}
-      <div style={{
-        marginBottom: 14, padding: mob ? "12px" : "12px 16px", borderRadius: 8,
-        background: daysOut !== null && daysOut <= 7 ? C.redBg : C.surface,
-        border: `1px solid ${daysOut !== null && daysOut <= 7 ? C.redBd : C.border}`,
-        fontSize: 13, lineHeight: 1.7,
-      }}>
-        {daysOut === null && (
-          <><b style={{ color: C.green }}>✓ Hay stock suficiente.</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes en promedio <b>{fmtDec(avgDemand)}</b> al día. Con eso alcanza para más de {coverageLabel}.</>
-        )}
-        {daysOut !== null && daysOut === 0 && (
-          <><b style={{ color: C.red }}>⚠ ¡Se agotó!</b> Ya no queda stock. Vendías <b>{fmtDec(avgDemand)}</b> por día. <b>Pide al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
-        )}
-        {daysOut !== null && daysOut > 0 && daysOut <= 3 && (
-          <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{reorderQty}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
-        )}
-        {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
-          <><b style={{ color: C.amber }}>⏰ Atención:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes <b>{fmtDec(avgDemand)}</b> al día, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
-        )}
-        {daysOut !== null && daysOut > 7 && (
-          <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
-        )}
-      </div>
+      {isInsufficientData ? (
+        <div style={{
+          marginBottom: 14, padding: mob ? "14px" : "16px 20px", borderRadius: 8,
+          background: C.amberBg, border: `1px solid ${C.amberBd}`,
+          fontSize: 13, lineHeight: 1.6,
+        }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <span style={{ fontSize: 20, lineHeight: 1 }}>⏳</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: C.amber, marginBottom: 4 }}>
+                Estamos recopilando datos
+              </div>
+              <div style={{ color: C.text }}>
+                Tenemos <b>{dataPoints} día{dataPoints !== 1 ? "s" : ""}</b> de venta de este producto.
+                {" "}Necesitamos al menos <b>{MIN_DAYS_FOR_FORECAST} días</b> para entregar una predicción confiable.
+                {" "}Faltan <b>{Math.max(0, MIN_DAYS_FOR_FORECAST - dataPoints)} día{(MIN_DAYS_FOR_FORECAST - dataPoints) !== 1 ? "s" : ""}</b>.
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: C.mute }}>
+                Mientras tanto, abajo verás tu stock actual y las ventas registradas.
+                {" "}No mostramos predicción para no orientarte con datos poco fiables.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          marginBottom: 14, padding: mob ? "12px" : "12px 16px", borderRadius: 8,
+          background: daysOut !== null && daysOut <= 7 ? C.redBg : C.surface,
+          border: `1px solid ${daysOut !== null && daysOut <= 7 ? C.redBd : C.border}`,
+          fontSize: 13, lineHeight: 1.7,
+        }}>
+          {daysOut === null && (
+            <><b style={{ color: C.green }}>✓ Hay stock suficiente.</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes en promedio <b>{fmtDec(avgDemand)}</b> al día. Con eso alcanza para más de {coverageLabel}.</>
+          )}
+          {daysOut !== null && daysOut === 0 && (
+            <><b style={{ color: C.red }}>⚠ ¡Se agotó!</b> Ya no queda stock. Vendías <b>{fmtDec(avgDemand)}</b> por día. <b>Pide al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
+          )}
+          {daysOut !== null && daysOut > 0 && daysOut <= 3 && (
+            <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{reorderQty}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          )}
+          {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
+            <><b style={{ color: C.amber }}>⏰ Atención:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes <b>{fmtDec(avgDemand)}</b> al día, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+          )}
+          {daysOut !== null && daysOut > 7 && (
+            <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
+          )}
+        </div>
+      )}
 
       {/* TARJETAS DE RESUMEN */}
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
@@ -231,11 +268,24 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", gridColumn: mob ? "1 / -1" : "auto" }}>
           <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>CUÁNTO PEDIR</div>
-          <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }}>
-            {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "Nada por ahora"}
-          </div>
-          {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · para {coverageLabel}</div>}
-          {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
+          {isInsufficientData ? (
+            <>
+              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2, color: C.mute }}>
+                — sin datos
+              </div>
+              <div style={{ fontSize: 11, color: C.mute }}>
+                Recopilando información de ventas
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }}>
+                {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "Nada por ahora"}
+              </div>
+              {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · para {coverageLabel}</div>}
+              {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
+            </>
+          )}
         </div>
       </div>
 
