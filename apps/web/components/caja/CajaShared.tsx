@@ -9,8 +9,13 @@ export { Btn };
 export type Register = { id: number; name: string; is_active: boolean; has_open_session: boolean };
 export type Movement = { id: number; type: "IN" | "OUT"; amount: string; description: string; created_by: string; created_at: string };
 export type LiveSummary = {
-  initial_amount: string; cash_sales: string; debit_sales: string; card_sales: string; transfer_sales: string; total_sales: string;
-  cash_tips: string; movements_in: string; movements_out: string; expected_cash: string;
+  initial_amount: string;
+  cash_sales: string; debit_sales: string; card_sales: string; transfer_sales: string; total_sales: string;
+  cash_tips: string;
+  total_tips?: string;
+  tips_by_method?: { cash: string; debit: string; card: string; transfer: string; [k: string]: string };
+  tip_count_by_method?: { cash: number; debit: number; card: number; transfer: number; [k: string]: number };
+  movements_in: string; movements_out: string; expected_cash: string;
 };
 export type Session = {
   id: number; register_id: number; register_name: string; status: "OPEN" | "CLOSED";
