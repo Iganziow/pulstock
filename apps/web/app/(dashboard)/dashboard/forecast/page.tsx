@@ -237,6 +237,12 @@ export default function ForecastPage() {
             const isW = dto !== null && dto <= 7 && dto > 3;
             const bL = isU ? `3px solid ${C.red}` : isW ? `3px solid ${C.amber}` : "3px solid transparent";
 
+            // Gate "datos insuficientes" en la lista (Mario lo pidió):
+            // si el modelo tiene <7 días de data, no mostramos avg_daily
+            // (puede ser "1.5/día" basado en 1 sola muestra y engañar al
+            // dueño). Mostramos badge "Recopilando" en su lugar.
+            const insufficient = (p.data_points ?? 0) < 7;
+
             if (mob) return (
               <div key={p.product_id}>
                 <div onClick={() => setSelId(sel ? null : p.product_id)} style={{ padding: "11px 12px", cursor: "pointer", borderBottom: i < products.length - 1 ? `1px solid ${C.border}` : "none", borderLeft: bL, background: sel ? C.accentBg : "transparent" }}>
@@ -244,12 +250,21 @@ export default function ForecastPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.product_name}</div>
                       <div style={{ fontSize: 11, color: C.mute, marginTop: 2 }}>
-                        Quedan <b style={{ color: C.text }}>{fmt(stock)}</b> · Se venden <b style={{ color: C.text }}>{fmtDec(p.avg_daily_demand)}</b> al dia
+                        Quedan <b style={{ color: C.text }}>{fmt(stock)}</b>
+                        {insufficient ? (
+                          <> · <span style={{ color: C.amber, fontWeight: 600 }}>Recopilando datos ({p.data_points ?? 0}/7 días)</span></>
+                        ) : (
+                          <> · Se venden <b style={{ color: C.text }}>{fmtDec(p.avg_daily_demand)}</b> al día</>
+                        )}
                       </div>
                     </div>
-                    <ForecastStatusBadge days={dto} />
+                    {insufficient ? (
+                      <span style={{ padding:"3px 8px", borderRadius:99, background:C.amberBg, color:C.amber, fontSize:10, fontWeight:700, border:`1px solid ${C.amberBd}`, whiteSpace:"nowrap" }}>⏳ Sin datos</span>
+                    ) : (
+                      <ForecastStatusBadge days={dto} />
+                    )}
                   </div>
-                  <UrgencyBar days={dto} style={{ marginTop: 8 }} />
+                  {!insufficient && <UrgencyBar days={dto} style={{ marginTop: 8 }} />}
                 </div>
                 {sel && <ForecastDetailPanel detail={detail} loading={detLoad} mob />}
               </div>
@@ -271,9 +286,17 @@ export default function ForecastPage() {
                     </div>
                   </div>
                   <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{fmt(stock)}</div>
-                  <div style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", color: C.mid }}>{fmtDec(p.avg_daily_demand)}</div>
-                  <div style={{ textAlign: "center" }}><ForecastStatusBadge days={dto} /></div>
-                  <UrgencyBar days={dto} />
+                  <div style={{ textAlign: "right", fontSize: 13, fontVariantNumeric: "tabular-nums", color: C.mid }}>
+                    {insufficient ? <span style={{ color: C.amber, fontSize:11 }}>Recopilando</span> : fmtDec(p.avg_daily_demand)}
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    {insufficient ? (
+                      <span style={{ padding:"2px 8px", borderRadius:99, background:C.amberBg, color:C.amber, fontSize:10, fontWeight:700, border:`1px solid ${C.amberBd}` }}>⏳ Sin datos</span>
+                    ) : (
+                      <ForecastStatusBadge days={dto} />
+                    )}
+                  </div>
+                  {!insufficient ? <UrgencyBar days={dto} /> : <span />}
                 </div>
                 {sel && <ForecastDetailPanel detail={detail} loading={detLoad} mob={false} />}
               </div>
