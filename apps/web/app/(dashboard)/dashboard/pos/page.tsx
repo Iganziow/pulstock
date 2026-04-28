@@ -203,6 +203,20 @@ export default function PosPage() {
     setCart((p) => p.map((l) => l.product.id === id ? {...l, discountType:type, discountValue:value} : l));
   }, []);
 
+  // Idempotency key estable mientras dura el carrito actual. Sin esto,
+  // si el cajero hacía doble-click rápido en "Confirmar venta" y la
+  // primera request quedaba volando (4G lento), la segunda llamada
+  // generaba un UUID NUEVO → backend creaba 2 ventas → el cliente
+  // pagaba 1 vez pero el sistema cobraba 2. Mario no se podía
+  // permitir ese riesgo en producción.
+  // Se regenera al limpiar el carrito (después de venta exitosa o
+  // botón "Limpiar"). Mismo carrito = misma intención = misma key.
+  const idemKeyRef = useRef<string | null>(null);
+  function ensureIdemKey(): string {
+    if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
+    return idemKeyRef.current;
+  }
+
   const clearCart = useCallback(() => {
     setCart([]);
     setGlobalDiscountType("none");
@@ -211,6 +225,8 @@ export default function PosPage() {
     setPayRows([{ method: "cash", amount: "" }]);
     setTipAmount("");
     clearCartDraft();
+    // Carrito vacío = nueva venta = nueva idem key.
+    idemKeyRef.current = null;
   }, []);
 
   // ── Promo merge callback ───────────────────────────────────────────────────
@@ -234,7 +250,7 @@ export default function PosPage() {
         .map(r => ({ method: r.method, amount: Number(r.amount) }));
 
       const payload: any = {
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: ensureIdemKey(),
         warehouse_id: warehouseId,
         lines: validCart.map((l) => ({
           product_id: l.product.id,

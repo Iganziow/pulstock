@@ -37,10 +37,13 @@ def _session_summary(session):
     # porque en el flujo del PaymentModal el cajero pone el monto que
     # cobra al cliente, que ya incluye la propina si la hubo. Por lo
     # tanto method_totals[method] incluye las propinas.
+    # Filtramos sale_type=VENTA para excluir CONSUMO_INTERNO del flujo
+    # de caja — los consumos no son ingresos del local.
     method_totals = dict(
         SalePayment.objects.filter(
             sale__cash_session=session,
             sale__status="COMPLETED",
+            sale__sale_type="VENTA",
         ).values_list("method").annotate(total=Sum("amount")).values_list("method", "total")
     )
     zero = Decimal("0")
@@ -72,8 +75,12 @@ def _session_summary(session):
             tip_count_by_method[method] = 0
         return method
 
+    # Filtramos también por sale_type=VENTA. CONSUMO_INTERNO con tip > 0
+    # es un estado inválido (defensivo: el backend ahora zeroiza el tip
+    # de consumos en checkout, pero datos legacy o un cliente con bug
+    # podrían tener filas raras).
     sales_with_tips = session.sales.filter(
-        status="COMPLETED", tip__gt=0,
+        status="COMPLETED", sale_type="VENTA", tip__gt=0,
     ).prefetch_related("payments")
     for sale in sales_with_tips:
         payments = list(sale.payments.all())

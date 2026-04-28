@@ -369,6 +369,9 @@ def create_sale(
         "store_id": store_id,
         "warehouse_id": warehouse_id,
         "total": str(sale.total),
+        # tip explícito en la respuesta para que el frontend pueda
+        # imprimir la boleta con la propina correcta (sin re-fetch).
+        "tip": str(getattr(sale, "tip", Decimal("0.00"))),
         "total_cost": str(sale.total_cost),
         "gross_profit": str(sale.gross_profit),
         "lines_count": len(sale_lines),
@@ -379,12 +382,16 @@ def create_sale(
 
 
 def _idempotent_response(existing: Sale) -> dict:
+    # tip incluido para que el frontend pueda imprimir la boleta correcta
+    # en caso de retry — si no, mostraba el TOTAL sin propina y se
+    # confundía al cliente que ya había pagado el total con propina.
     return {
         "id": existing.id,
         "sale_number": existing.sale_number,
         "store_id": existing.store_id,
         "warehouse_id": existing.warehouse_id,
         "total": str(existing.total),
+        "tip": str(getattr(existing, "tip", Decimal("0.00"))),
         "total_cost": str(existing.total_cost),
         "gross_profit": str(existing.gross_profit),
         "lines_count": existing.lines.count(),
