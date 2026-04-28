@@ -203,7 +203,13 @@ def _session_data(session, include_movements=False, include_summary=False):
     }
     if include_movements:
         d["movements"] = [_movement_data(m) for m in session.movements.select_related("created_by").order_by("created_at")]
-    if include_summary and session.status == CashSession.STATUS_OPEN:
+    # Summary se computa para CUALQUIER estado (abierta o cerrada).
+    # Mario lo pidió en el historial: quiere ver el desglose por método
+    # de pago de un arqueo ya cerrado para reconciliar — antes la
+    # condición STATUS_OPEN dejaba las cerradas sin detalle. Las queries
+    # de _session_summary funcionan igual con sesiones cerradas porque
+    # session.sales mantiene el FK.
+    if include_summary:
         d["live"] = _session_summary(session)
     return d
 
