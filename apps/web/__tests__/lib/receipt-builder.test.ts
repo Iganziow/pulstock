@@ -177,10 +177,12 @@ describe("buildPreCuenta — propina 10%", () => {
     expect(text).toContain("1.000");
   });
 
-  it("includes TOTAL CON PROPINA when tip > 0", () => {
+  it("includes suggested total with tip when tip > 0", () => {
     const result = buildPreCuenta(data);
     const text = decode(result);
-    expect(text).toContain("TOTAL CON PROPINA");
+    // Wording cambiado de "TOTAL CON PROPINA" a "SUGERIDO C/PROPINA"
+    // para que el cliente entienda que es sugerencia, no factura final.
+    expect(text).toContain("SUGERIDO C/PROPINA");
     // 10000 + 1000 tip = 11000
     expect(text).toContain("11.000");
   });
@@ -190,7 +192,7 @@ describe("buildPreCuenta — propina 10%", () => {
     const result = buildPreCuenta(noTipData);
     const text = decode(result);
     expect(text).toContain("TOTAL");
-    expect(text).not.toContain("CON PROPINA");
+    expect(text).not.toContain("SUGERIDO");
   });
 
   it("includes 'opcional' wording for tip", () => {
@@ -211,7 +213,7 @@ describe("buildPreCuentaHTML — propina 10%", () => {
   it("includes propina suggestion in HTML", () => {
     const html = buildPreCuentaHTML(data);
     expect(html).toContain("Propina");
-    expect(html).toContain("TOTAL CON PROPINA");
+    expect(html).toContain("SUGERIDO C/PROPINA");
   });
 
   it("shows correct tip amount (10% of subtotal)", () => {

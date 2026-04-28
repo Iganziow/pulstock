@@ -682,7 +682,37 @@ export interface UniversalPrintInput {
  * El único caso en que abrimos el diálogo nativo es cuando se pasa
  * `forceLocalDialog: true` (ej. botón "Imprimir en este dispositivo").
  */
+// Lock global para serializar llamadas a printUniversal. Mario reportó:
+// "cuando estabamos probando la impresora si apretaba muchas veces el
+// boton de imprimir tiraba error". Causa: la impresora BT no soporta
+// llamadas concurrentes — cada writeValueWithoutResponse() necesita
+// completarse antes del próximo. Si el usuario aprieta el botón 3
+// veces rápido, se disparan 3 awaits a printUniversal en paralelo y
+// la 2ª/3ª chocan con la GATT operation pendiente.
+//
+// Solución: mutex simple. Si ya hay una impresión en curso, las
+// llamadas siguientes esperan a que termine la actual antes de empezar
+// (no se ejecutan en paralelo). Si el usuario realmente quiere
+// reintentar, lo hace después de que la primera termine.
+let _printInFlight: Promise<unknown> | null = null;
+
 export async function printUniversal(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string; printer?: string; cancelled?: boolean }> {
+  // Si ya hay una impresión en curso, esperamos que termine. Esto
+  // evita el caso "spam-click" donde 3 toques disparan 3 imprimir
+  // simultáneos y la BT da error de GATT busy.
+  if (_printInFlight) {
+    try { await _printInFlight; } catch { /* la anterior puede haber fallado, seguimos */ }
+  }
+  const job = _printUniversalImpl(input);
+  _printInFlight = job;
+  try {
+    return await job;
+  } finally {
+    if (_printInFlight === job) _printInFlight = null;
+  }
+}
+
+async function _printUniversalImpl(input: UniversalPrintInput): Promise<{ method: string; ok: boolean; error?: string; printer?: string; cancelled?: boolean }> {
   const p = getDefaultPrinter();
   const width: 58 | 80 = input.paperWidth || p?.paperWidth || 80;
   const source = input.source || "web";

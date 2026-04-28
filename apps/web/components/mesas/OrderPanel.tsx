@@ -37,6 +37,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [payLoading, setPayLoading] = useState(false);
   const [payErr, setPayErr] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  // Lock por botón para evitar doble-click. Mario reportó: si apreta
+  // muchas veces el botón de imprimir, salía error (la BT no soporta
+  // operaciones concurrentes). Hay un lock global en printer.ts pero
+  // queremos también deshabilitar el botón para que el feedback sea
+  // visual y el usuario no piense que "no pasa nada".
+  const [printing, setPrinting] = useState<null | "comanda" | "precuenta" | "boleta">(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelErr, setCancelErr] = useState("");
 
@@ -67,6 +73,9 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       setPayErr("No hay items pendientes para enviar a comanda.");
       return;
     }
+    // Guard contra doble-click: si ya hay impresión en curso, ignorar.
+    if (printing) return;
+    setPrinting("comanda");
     try {
       const { printUniversal, splitLinesByStation } = await import("@/lib/printer");
       const { buildComanda, buildComandaHTML } = await import("@/lib/receipt-builder");
@@ -131,6 +140,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       const { isUserCancellation } = await import("@/lib/errors");
       if (isUserCancellation(e)) return;
       setPayErr(e instanceof Error ? e.message : "Error al enviar comanda");
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -139,6 +150,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       setPayErr("No hay items pendientes para imprimir en la pre-cuenta.");
       return;
     }
+    if (printing) return;  // anti doble-click
+    setPrinting("precuenta");
     try {
       const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildPreCuenta, buildPreCuentaHTML } = await import("@/lib/receipt-builder");
@@ -171,6 +184,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       if (isUserCancellation(e)) return;
       const msg = e instanceof Error ? e.message : "Error al imprimir pre-cuenta";
       setPayErr(msg);
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -230,6 +245,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   }
 
   async function handlePrintReceipt(saleId: number) {
+    if (printing) return;  // anti doble-click
+    setPrinting("boleta");
     try {
       const { getDefaultPrinter, printUniversal } = await import("@/lib/printer");
       const { buildReceipt, buildReceiptHTML } = await import("@/lib/receipt-builder");
@@ -273,6 +290,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       if (isUserCancellation(e)) return;
       const msg = e instanceof Error ? e.message : "Error al imprimir boleta";
       setPayErr(msg);
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -295,19 +314,23 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         </div>
         {unpaidLines.length > 0 && (
           <>
-            <button type="button" onClick={handleSendComanda} title="Enviar comanda a cocina/bar"
-              style={{ background: C.accentBg, border: `1px solid ${C.accentBd}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.accent, fontSize: 11, fontWeight: 700 }}>
+            <button type="button" onClick={handleSendComanda}
+              disabled={!!printing}
+              title={printing ? "Imprimiendo..." : "Enviar comanda a cocina/bar"}
+              style={{ background: C.accentBg, border: `1px solid ${C.accentBd}`, borderRadius: 6, cursor: printing ? "wait" : "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.accent, fontSize: 11, fontWeight: 700, opacity: printing ? 0.5 : 1 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M3 12h3l3-9 6 18 3-9h3"/>
               </svg>
-              Comanda
+              {printing === "comanda" ? "Enviando..." : "Comanda"}
             </button>
-            <button type="button" onClick={handlePrintPreCuenta} title="Imprimir pre-cuenta"
-              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600 }}>
+            <button type="button" onClick={handlePrintPreCuenta}
+              disabled={!!printing}
+              title={printing ? "Imprimiendo..." : "Imprimir pre-cuenta"}
+              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: printing ? "wait" : "pointer", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, color: C.mid, fontSize: 11, fontWeight: 600, opacity: printing ? 0.5 : 1 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
               </svg>
-              Pre-cuenta
+              {printing === "precuenta" ? "Imprimiendo..." : "Pre-cuenta"}
             </button>
           </>
         )}
@@ -318,11 +341,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           <span style={{ flex: 1 }}>{successMsg}</span>
           {lastSaleId && (
             <button type="button" onClick={() => handlePrintReceipt(lastSaleId)}
-              style={{ background: C.green, color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              disabled={!!printing}
+              style={{ background: C.green, color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: printing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap", opacity: printing ? 0.6 : 1 }}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
               </svg>
-              Imprimir
+              {printing === "boleta" ? "Imprimiendo..." : "Imprimir"}
             </button>
           )}
         </div>
