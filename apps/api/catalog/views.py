@@ -102,6 +102,23 @@ class ProductListCreate(generics.ListCreateAPIView):
                 )
             )
 
+        # Filtros adicionales — Mario lo pidió: "en el apartado de
+        # categorías poder filtrar por distintos motivos que ya usemos
+        # como por ejemplo categoría sku etc". El search por SKU/nombre
+        # ya está cubierto por `q` arriba; estos son los que faltaban.
+
+        # Filtro por categoría exacta. ?category=N
+        cat_id = (self.request.query_params.get("category") or "").strip()
+        if cat_id.isdigit():
+            qs = qs.filter(category_id=int(cat_id))
+
+        # Filtro por estado activo/inactivo. ?is_active=true|false|1|0
+        is_active_raw = (self.request.query_params.get("is_active") or "").strip().lower()
+        if is_active_raw in ("true", "1", "yes"):
+            qs = qs.filter(is_active=True)
+        elif is_active_raw in ("false", "0", "no"):
+            qs = qs.filter(is_active=False)
+
         return qs.order_by("name")
 
     def get_serializer_class(self):

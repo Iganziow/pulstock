@@ -39,6 +39,10 @@ export type SaleDetail = {
   total: string;
   total_cost: string;
   gross_profit: string;
+  /** Propina (puede ser "0" o ausente). Se muestra en el detalle como
+      apartado separado para que Mario y los chicos puedan cuadrar el
+      cobro vs. lo que entró al banco/caja. */
+  tip?: string | null;
   status: string;
   payments: SalePayment[];
   lines: SaleLine[];
