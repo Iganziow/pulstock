@@ -133,7 +133,10 @@ export default function RecetasPage() {
     ingDebounceRef.current = setTimeout(async () => {
       setIngSearching(true);
       try {
-        const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(q)}&page_size=10`);
+        // page_size=100 para que la búsqueda de ingredientes muestre
+        // todos los productos que matcheen, no solo 10. Daniel reportó:
+        // "solo llegan hasta los Ch" — eran los primeros 10 alfabéticos.
+        const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(q)}&page_size=100`);
         const list: Product[] = Array.isArray(data) ? data : (data?.results ?? []);
         setIngResults(list.filter(x => x.id !== selectedId));
       } catch (e) { console.error("Recetas: error buscando ingredientes:", e); setIngResults([]); }
