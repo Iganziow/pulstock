@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { Btn, type Register, type Session } from "@/components/caja/CajaShared";
 import { CajaLiveSession } from "@/components/caja/CajaLiveSession";
 import { CajaHistory } from "@/components/caja/CajaHistory";
+import { CajaTipsTab } from "@/components/caja/CajaTipsTab";
 import { AddMovementModal, CloseSessionModal } from "@/components/caja/CajaModals";
 
 export default function CajaPage() {
@@ -17,7 +18,7 @@ export default function CajaPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"live" | "history">("live");
+  const [tab, setTab] = useState<"live" | "history" | "tips">("live");
   const [history, setHistory] = useState<Session[]>([]);
   const [histLoad, setHistLoad] = useState(false);
 
@@ -168,18 +169,22 @@ export default function CajaPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0 }}>
-        {(["live", "history"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-            background: "none", border: "none",
-            color: tab === t ? C.accent : C.mid,
-            borderBottom: tab === t ? `2px solid ${C.accent}` : "2px solid transparent",
-            marginBottom: -1,
-          }}>
-            {t === "live" ? "Arqueo activo" : "Historial"}
-          </button>
-        ))}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0, overflowX: "auto" }}>
+        {(["live", "history", "tips"] as const).map(t => {
+          const labels = { live: "Arqueo activo", history: "Historial", tips: "Propinas" };
+          return (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              background: "none", border: "none", whiteSpace: "nowrap",
+              color: tab === t ? C.accent : C.mid,
+              borderBottom: tab === t ? `2px solid ${C.accent}` : "2px solid transparent",
+              marginBottom: -1,
+              fontFamily: "inherit",
+            }}>
+              {labels[t]}
+            </button>
+          );
+        })}
       </div>
 
       {err && (
@@ -243,6 +248,11 @@ export default function CajaPage() {
       {tab === "history" && (
         <CajaHistory history={history} histLoad={histLoad} histPage={histPage} histTotal={histTotal} onPageChange={(p) => { setHistPage(p); loadHistory(p); }} />
       )}
+
+      {/* TIPS TAB — Mario lo pidió: visualizar propinas histórico
+          (hoy, semana, mes, año, custom) embebido en Caja para que
+          pueda reconciliar al cerrar sin salir a otra página. */}
+      {tab === "tips" && <CajaTipsTab />}
 
       {/* MODALS */}
       {showMove && <AddMovementModal moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
