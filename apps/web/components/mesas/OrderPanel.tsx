@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
@@ -54,6 +54,36 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [pendingItems, setPendingItems] = useState<PendingLineDraft[]>([]);
   const [confirmingPending, setConfirmingPending] = useState(false);
   const [pendingErr, setPendingErr] = useState("");
+  // UUID estable durante el carrito de pendientes actual. Se regenera
+  // al limpiar (Cancelar/Vaciar/confirm exitoso). Si el confirm falla
+  // por timeout y el cajero reintenta, se manda la MISMA key → backend
+  // detecta el retry y NO duplica líneas.
+  const idemKeyRef = useRef<string | null>(null);
+  function ensurePendingKey(): string {
+    if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
+    return idemKeyRef.current;
+  }
+
+  // Polling: refrescar la mesa cada 15s para mitigar el caso de
+  // concurrencia entre dispositivos (cajero A agrega items, cajero B
+  // ve los cambios sin tener que cerrar y reabrir la mesa).
+  // Se PAUSA si hay modal de pago abierto (no querer refrescar mientras
+  // el cajero está cobrando), o si está confirmando pendientes.
+  useEffect(() => {
+    if (showPayment || confirmingPending || cancelling) return;
+    const interval = setInterval(async () => {
+      // No refrescar si la pestaña está oculta — ahorra requests si
+      // el cajero dejó la mesa abierta en una pestaña secundaria.
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const updated = await apiFetch(`/tables/orders/${order.id}/`);
+        onOrderUpdate(updated);
+      } catch {
+        // 404/network: el parent maneja el error en el próximo render
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [order.id, showPayment, confirmingPending, cancelling, onOrderUpdate]);
 
   // Acumula items del AddItemFullscreen en pendingItems. Si el mismo
   // producto ya está, suma cantidades.
@@ -94,6 +124,10 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       await apiFetch(`/tables/orders/${order.id}/add-lines/`, {
         method: "POST",
         body: JSON.stringify({
+          // Idempotency: si el confirm falla por timeout y el cajero
+          // reintenta, mandamos la MISMA key. El backend detecta y no
+          // duplica líneas (cubre el caso WiFi inestable).
+          idempotency_key: ensurePendingKey(),
           lines: pendingItems.map(p => ({
             product_id: p.product_id,
             qty: p.qty,
@@ -103,6 +137,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         }),
       });
       setPendingItems([]);  // limpiar después del éxito
+      idemKeyRef.current = null;  // próximo carrito = nueva key
       // Refrescar mesa
       try {
         const updated = await apiFetch(`/tables/orders/${order.id}/`);
@@ -484,7 +519,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
               </div>
               <button
                 type="button"
-                onClick={() => setPendingItems([])}
+                onClick={() => { setPendingItems([]); idemKeyRef.current = null; }}
                 disabled={confirmingPending}
                 style={{
                   background: "transparent", border: "none",
@@ -597,7 +632,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   type="button"
-                  onClick={() => setPendingItems([])}
+                  onClick={() => { setPendingItems([]); idemKeyRef.current = null; }}
                   disabled={confirmingPending}
                   style={{
                     flex: 1, padding: "10px", borderRadius: 8,

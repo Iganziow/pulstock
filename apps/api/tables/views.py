@@ -357,7 +357,14 @@ class OrderDetail(APIView):
 
 
 class AddLinesView(APIView):
-    """POST /tables/orders/<id>/add-lines/ — add items to an open order."""
+    """POST /tables/orders/<id>/add-lines/ — add items to an open order.
+
+    Soporta `idempotency_key` opcional en el body: el frontend manda un
+    UUID estable por intento de confirm. Si el backend ya recibió ese
+    key (líneas con `add_lines_batch_key` igual ya existen para esta
+    order), devuelve la order tal como está SIN insertar de nuevo.
+    Cubre el caso WiFi inestable: response perdida → retry sin duplicar.
+    """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def post(self, request, pk):
@@ -368,6 +375,19 @@ class AddLinesView(APIView):
             )
         except OpenOrder.DoesNotExist:
             return Response({"detail": "Open order not found"}, status=404)
+
+        # Idempotency: si ya hay líneas con esta batch_key para este
+        # order, devolver el estado actual sin insertar nada nuevo.
+        idempotency_key = (request.data.get("idempotency_key") or "").strip()[:64]
+        if idempotency_key:
+            existing_count = OpenOrderLine.objects.filter(
+                order=order,
+                add_lines_batch_key=idempotency_key,
+            ).count()
+            if existing_count > 0:
+                # Ya procesamos este batch antes — no duplicar.
+                order.refresh_from_db()
+                return Response(_order_data(order, include_lines=True), status=200)
 
         items = request.data.get("lines") or []
         if not items:
@@ -410,6 +430,7 @@ class AddLinesView(APIView):
                     unit_price=unit_price,
                     note=note,
                     added_by=request.user,
+                    add_lines_batch_key=idempotency_key,  # vacío si no se envió
                 )
             )
 

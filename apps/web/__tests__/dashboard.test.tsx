@@ -20,6 +20,7 @@ vi.mock("@/lib/useGlobalStyles", () => ({
 
 vi.mock("@/hooks/useIsMobile", () => ({
   useIsMobile: () => false,
+  useIsTablet: () => false,
 }));
 
 const { default: DashboardPage } = await import(
