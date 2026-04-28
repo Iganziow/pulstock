@@ -38,15 +38,35 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None):
             w_sum = sum(raw_weights)
             avg = sum(float(item[1]) * raw_weights[i] / w_sum for i, item in enumerate(recent))
 
-            # DOW factors
+            # DOW factors. Si un día de la semana NO tuvo ventas en
+            # TODO el rango (con >= 4 ocurrencias), asumimos que el
+            # local no abre ese día → factor=0 (forecast=0 ese día).
+            # Mario reportó: forecast predecía ventas en domingos
+            # cuando la cafetería no abre ese día.
+            import datetime as _dt
             dow_totals = {}
+            train_dates = [item[0] for item in train]
             for item in train:
                 dow_totals.setdefault(item[0].weekday(), []).append(float(item[1]))
+            if train_dates:
+                min_d, max_d = min(train_dates), max(train_dates)
+                total_days = (max_d - min_d).days + 1
+                dow_occ = {dow: 0 for dow in range(7)}
+                for i in range(total_days):
+                    dd = min_d + _dt.timedelta(days=i)
+                    dow_occ[dd.weekday()] += 1
+            else:
+                dow_occ = {dow: 0 for dow in range(7)}
             overall = avg if avg > 0 else 1.0
-            dow_factors = {
-                dow: round(sum(vals) / len(vals) / overall, 3) if vals else 1.0
-                for dow, vals in [(d, dow_totals.get(d, [])) for d in range(7)]
-            }
+            dow_factors = {}
+            for d in range(7):
+                vals = dow_totals.get(d, [])
+                if vals:
+                    dow_factors[d] = round(sum(vals) / len(vals) / overall, 3)
+                elif dow_occ.get(d, 0) >= 4:
+                    dow_factors[d] = 0.0  # día cerrado
+                else:
+                    dow_factors[d] = 1.0  # poca data, neutro
 
             # Test
             preds = [avg * dow_factors.get(item[0].weekday(), 1.0) for item in test]

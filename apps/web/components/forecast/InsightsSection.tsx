@@ -75,7 +75,13 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
     insights.push({ icon: trend.direction === "up" ? "📈" : "📉", text: txt });
   }
 
-  // 5. Monthly seasonality — efecto del día de pago
+  // 5. Monthly seasonality — efecto del día de pago Y/O cíclico anual.
+  // Backend puede mandar 2 formatos:
+  //   - bimodal/payday: keys "early"/"mid_early"/"mid"/"mid_late"/"late"
+  //     (compute_bimodal_seasonality + compute_month_position_factors).
+  //   - cíclico anual: keys 1-12 (mes del año, compute_monthly_seasonality).
+  // Antes solo manejábamos el primero → si llegaba "3" lo mostraba raw
+  // como "Vendes 30% más 3" (Mario lo reportó: "Vendes 30% más 1").
   const ms = p.monthly_seasonality;
   if (ms && typeof ms === "object") {
     const values = Object.values(ms) as number[];
@@ -90,7 +96,22 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
         mid_late: "antes de fin de mes",
         late: "a fin de mes",
       };
-      const peakLabel = peakKey ? bucketLabels[peakKey] || peakKey : "";
+      const monthNames = [
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+      ];
+      let peakLabel = "";
+      if (peakKey) {
+        if (bucketLabels[peakKey]) {
+          peakLabel = bucketLabels[peakKey];
+        } else if (/^\d+$/.test(peakKey)) {
+          // Mes del año (1-12) — formato cíclico anual
+          const monthIdx = parseInt(peakKey, 10);
+          if (monthIdx >= 1 && monthIdx <= 12) {
+            peakLabel = `en ${monthNames[monthIdx - 1]}`;
+          }
+        }
+      }
       const boost = Math.round((max - 1) * 100);
       if (boost > 0 && peakLabel) {
         insights.push({ icon: "💰", text: `Vendes ${boost}% más ${peakLabel}` });
@@ -98,21 +119,36 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
     }
   }
 
-  // 6. Day of week — mejor y peor día
+  // 6. Day of week — mejor y peor día.
+  // Filtramos días con factor 0 (= local cerrado) para no decir "tu
+  // peor día es Domingo (-100%)". También solo mostramos si el "mejor"
+  // tiene al menos +5% sobre el promedio — sino el insight era inútil
+  // ("Tu mejor día es el Dom (0% sobre el promedio)").
   const dow = p.dow_factors;
   if (dow && typeof dow === "object") {
     const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
     const entries = Object.entries(dow)
       .map(([k, v]) => ({ day: parseInt(k), factor: v as number }))
       .filter((e) => Number.isFinite(e.factor) && e.factor > 0);
+    // Días cerrados (factor 0): los listamos aparte como info útil.
+    const closedDays = Object.entries(dow)
+      .map(([k, v]) => ({ day: parseInt(k), factor: v as number }))
+      .filter((e) => Number.isFinite(e.factor) && e.factor === 0)
+      .map(e => dayNames[e.day] || String(e.day));
+    if (closedDays.length > 0) {
+      insights.push({
+        icon: "🚪",
+        text: `No se trabaja los ${closedDays.join(", ")}.`,
+      });
+    }
     if (entries.length >= 5) {
       const best = entries.reduce((a, b) => (b.factor > a.factor ? b : a));
       const worst = entries.reduce((a, b) => (b.factor < a.factor ? b : a));
-      if (best.factor / Math.max(worst.factor, 0.01) > 1.3) {
-        const bestPct = Math.round((best.factor - 1) * 100);
+      const bestPct = Math.round((best.factor - 1) * 100);
+      if (best.factor / Math.max(worst.factor, 0.01) > 1.3 && bestPct >= 5) {
         insights.push({
           icon: "📅",
-          text: `Tu mejor día es el ${dayNames[best.day] || best.day} (${bestPct > 0 ? "+" : ""}${bestPct}% sobre el promedio). El más flojo: ${dayNames[worst.day] || worst.day}.`,
+          text: `Tu mejor día es el ${dayNames[best.day] || best.day} (+${bestPct}% sobre el promedio). El más flojo: ${dayNames[worst.day] || worst.day}.`,
         });
       }
     }

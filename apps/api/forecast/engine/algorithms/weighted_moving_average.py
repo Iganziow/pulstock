@@ -49,6 +49,23 @@ def _weighted_moving_average(daily_series, window=21):
         d, qty = item[0], float(item[1])
         dow_totals.setdefault(d.weekday(), []).append(qty)
 
+    # Detectar "días cerrados": si el dataset cubre un rango de fechas
+    # con al menos 4 ocurrencias de un DOW (~1 mes) pero NO hay ningún
+    # registro de venta de ese DOW, asumimos que el local no abre ese
+    # día y forzamos factor=0. Mario reportó: "no se trabajan los
+    # domingos" pero el modelo predecía 3.0 unidades para domingos.
+    import datetime as _dt
+    dates = [item[0] for item in daily_series]
+    if dates:
+        min_d, max_d = min(dates), max(dates)
+        total_days_in_range = (max_d - min_d).days + 1
+        dow_occurrences_in_range = {dow: 0 for dow in range(7)}
+        for i in range(total_days_in_range):
+            d = min_d + _dt.timedelta(days=i)
+            dow_occurrences_in_range[d.weekday()] += 1
+    else:
+        dow_occurrences_in_range = {dow: 0 for dow in range(7)}
+
     overall_avg = float(avg_daily) if avg_daily > 0 else 1.0
     dow_factors = {}
     for dow in range(7):
@@ -56,7 +73,11 @@ def _weighted_moving_average(daily_series, window=21):
         if values:
             dow_avg = sum(values) / len(values)
             dow_factors[dow] = round(dow_avg / overall_avg, 3) if overall_avg > 0 else 1.0
+        elif dow_occurrences_in_range.get(dow, 0) >= 4:
+            # Cerrado los días con al menos 4 oportunidades sin ventas
+            dow_factors[dow] = 0.0
         else:
+            # Poca data del DOW (1-3 ocurrencias) — neutral
             dow_factors[dow] = 1.0
 
     return {
