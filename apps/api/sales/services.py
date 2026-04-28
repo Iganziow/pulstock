@@ -171,15 +171,21 @@ def create_sale(
     # no haya stock o quede negativo. Caso de uso: el dueño tiene
     # bombones físicos en la vitrina pero el sistema dice 0 (no actualizó
     # tras compra). En vez de bloquearlo, dejamos que la venta pase y
-    # el stock baja a negativo — el dueño después corrige con una
-    # entrada manual. Solo aplica al producto "vendido directamente"
-    # (ids en `agg`), NO a sus ingredientes (ej: si un Capuccino tiene
-    # la flag, NO permitimos que su café/leche queden negativos —
-    # ingredientes son control estricto).
+    # el stock baja a 0 (clampeado por constraint DB) — el dueño después
+    # corrige con una entrada manual.
+    #
+    # Reportado por Marbrava 28/04/26: las mesas con Cappuccino no
+    # cerraban porque la leche estaba en 53 ML y la receta requería
+    # 150 ML. Antes la query filtraba solo `agg.keys()` (productos
+    # directos) → marcar la leche con la flag NO servía (no estaba en
+    # agg), marcar el Cappuccino TAMPOCO servía (después de
+    # expand_recipes el Capuccino ya no está en expanded_agg). Ahora
+    # incluimos también los ingredientes expandidos: marcar la leche
+    # ahora deja pasar la venta y su stock se clampea a 0.
     allow_neg_pids = set(
         Product.objects.filter(
             tenant_id=tenant_id,
-            id__in=list(agg.keys()),
+            id__in=list(set(list(agg.keys()) + list(expanded_agg.keys()))),
             allow_negative_stock=True,
         ).values_list("id", flat=True)
     )
@@ -188,8 +194,8 @@ def create_sale(
     for pid in expanded_ids_sorted:
         required_qty = expanded_agg[pid]["qty"]
         si = stock_map.get(pid)
-        # Si este id es un producto vendido directamente Y permite
-        # negativo → no chequeamos shortage.
+        # Si este id (producto directo o ingrediente expandido) tiene la
+        # flag allow_negative_stock=True → no chequeamos shortage.
         if pid in allow_neg_pids:
             continue
         if not si:
