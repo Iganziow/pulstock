@@ -226,6 +226,87 @@ class RecipeWriteSerializer(serializers.Serializer):
         ids = [l["ingredient_id"] for l in lines]
         if len(ids) != len(set(ids)):
             raise serializers.ValidationError("No puede repetir el mismo ingrediente.")
+
+        # ── BLINDAJE de coherencia de unidades ─────────────────────────
+        # Mario lo pidió: "que pasa si el usuario sube leche pero como 1
+        # unidad en vez de en litros o ml?". Escenarios riesgosos:
+        #
+        #   1. Ingrediente con unit_obj de COUNT (ej. UN) y receta dice
+        #      0.15 L → al vender, se descuentan 0.15 UN (15% de un
+        #      cartón) en vez de 1 L del cartón. Stock y costo erróneos.
+        #
+        #   2. Ingrediente sin unit_obj (solo string "UN") y receta con
+        #      unit_id de VOLUME → la conversión no corre y se descuenta
+        #      qty raw.
+        #
+        # Validamos:
+        #   - Si la línea NO tiene unit_id, asumimos que la qty está en
+        #     la unidad del ingrediente. OK.
+        #   - Si la línea tiene unit_id, exigimos que la familia matchee
+        #     con la unit_obj del ingrediente (o que el ingrediente
+        #     tenga unit_obj).
+        request = self.context.get("request")
+        tenant_id = (
+            getattr(request.user, "tenant_id", None) if request else None
+        )
+        if not tenant_id:
+            return lines  # sin tenant no podemos validar — caso fixture/test
+
+        from .models import Product, Unit
+        ingredient_ids = [l["ingredient_id"] for l in lines]
+        ingredients = {
+            p.id: p
+            for p in Product.objects.filter(
+                tenant_id=tenant_id, id__in=ingredient_ids,
+            ).select_related("unit_obj")
+        }
+        unit_ids = [l["unit_id"] for l in lines if l.get("unit_id")]
+        units = {u.id: u for u in Unit.objects.filter(tenant_id=tenant_id, id__in=unit_ids)} if unit_ids else {}
+
+        FAMILY_LABEL = {
+            "MASS": "masa (KG/GR)",
+            "VOLUME": "volumen (L/ML)",
+            "LENGTH": "longitud",
+            "COUNT": "conteo (unidades)",
+        }
+        errors = []
+        for line in lines:
+            ing = ingredients.get(line["ingredient_id"])
+            if not ing:
+                # validación más arriba lo cubre (404 al guardar)
+                continue
+            unit_id = line.get("unit_id")
+            if not unit_id:
+                # Línea sin unit_id explícito = se asume unidad del
+                # ingrediente. Sin desalineación posible.
+                continue
+            line_unit = units.get(unit_id)
+            if not line_unit:
+                errors.append(f"{ing.name}: la unidad seleccionada (id={unit_id}) no existe en este negocio.")
+                continue
+            ing_unit_obj = ing.unit_obj
+            if not ing_unit_obj:
+                # El producto NO tiene unit_obj configurado (solo el
+                # string `unit`). No podemos validar familia. Bloqueamos
+                # con mensaje accionable.
+                errors.append(
+                    f"{ing.name}: el producto no tiene unidad de medida configurada. "
+                    f"Edita el producto y asigna una unidad (KG, GR, L, ML, UN...) "
+                    f"antes de usarlo en una receta."
+                )
+                continue
+            if line_unit.family != ing_unit_obj.family:
+                ing_fam = FAMILY_LABEL.get(ing_unit_obj.family, ing_unit_obj.family)
+                line_fam = FAMILY_LABEL.get(line_unit.family, line_unit.family)
+                errors.append(
+                    f"{ing.name}: la receta dice {line_unit.code} ({line_fam}) "
+                    f"pero el producto está en {ing_unit_obj.code} ({ing_fam}). "
+                    f"Convierte el producto a {line_fam} o cambia la unidad de la receta."
+                )
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
         return lines
 
 

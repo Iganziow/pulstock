@@ -1160,7 +1160,10 @@ class ProductRecipeView(APIView):
         if not product:
             return Response({"detail": "Producto no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
-        ser = RecipeWriteSerializer(data=request.data)
+        # context={"request": request} es necesario para que el
+        # validate_lines del serializer pueda chequear coherencia de
+        # unidades (necesita acceso a tenant_id del request).
+        ser = RecipeWriteSerializer(data=request.data, context={"request": request})
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
 

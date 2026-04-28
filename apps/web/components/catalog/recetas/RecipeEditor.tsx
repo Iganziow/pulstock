@@ -47,6 +47,13 @@ export function RecipeEditor({
   const hasRecipe = !!recipe;
   const editorVisible = showEditor && (hasRecipe || creatingNew);
 
+  // Bloqueo: si algún ingrediente no tiene unit_obj, NO se puede
+  // guardar la receta (riesgo de descuento de stock incorrecto). El
+  // backend también rechaza, pero es mejor avisar antes de tipear.
+  const hasIngredientWithoutUnit = recipeLines.some(
+    l => l.ingredient_unit_obj_id == null || l.ingredient_unit_obj_id <= 0
+  );
+
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, boxShadow: C.sh, minHeight: 460 }}>
 
@@ -187,11 +194,25 @@ export function RecipeEditor({
                       const familyUnits = l.ingredient_unit_family
                         ? units.filter(u => u.family === l.ingredient_unit_family)
                         : [];
+                      // Warnings de blindaje (Mario lo pidió):
+                      //   Riesgo 1: ingrediente sin unit_obj configurada
+                      //     → no se puede convertir, el sistema asume
+                      //     unidad raw. Si la receta dice 0,15 y el
+                      //     ingrediente es "1 unidad", se descuenta
+                      //     0,15 unidades en vez de 0,15 L.
+                      //   Riesgo 2: ingrediente con unit_obj de COUNT
+                      //     (UN/conteo) en una receta donde claramente
+                      //     debería ser MASS o VOLUME (leche, café...).
+                      const hasUnitObj = l.ingredient_unit_obj_id != null && l.ingredient_unit_obj_id > 0;
+                      const isCountFamily = l.ingredient_unit_family === "COUNT";
+                      const showWarning = !hasUnitObj || (isCountFamily && Number(l.qty) > 0 && Number(l.qty) < 1);
                       return (
                       <div key={l.ingredient_id} style={{
+                        borderBottom: i < recipeLines.length - 1 ? `1px solid ${C.border}` : "none",
+                      }}>
+                      <div style={{
                         display: "grid", gridTemplateColumns: "1fr 100px 90px 36px",
                         gap: 8, padding: "9px 12px", alignItems: "center",
-                        borderBottom: i < recipeLines.length - 1 ? `1px solid ${C.border}` : "none",
                       }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{l.ingredient_name}</div>
@@ -237,6 +258,36 @@ export function RecipeEditor({
                           style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 18, padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
                           &#x2715;
                         </button>
+                      </div>
+                      {showWarning && (
+                        <div style={{
+                          margin: "0 12px 9px", padding: "8px 10px",
+                          background: !hasUnitObj ? "#FEF2F2" : "#FFFBEB",
+                          border: `1px solid ${!hasUnitObj ? "#FCA5A5" : "#F59E0B"}`,
+                          borderRadius: 6,
+                          fontSize: 11,
+                          color: !hasUnitObj ? "#991B1B" : "#92400E",
+                          display: "flex", alignItems: "flex-start", gap: 6,
+                        }}>
+                          <span style={{ fontSize: 13, flexShrink: 0 }}>{!hasUnitObj ? "🛑" : "⚠️"}</span>
+                          <span>
+                            {!hasUnitObj ? (
+                              <><b>Sin unidad de medida.</b>{" "}
+                                Edita el producto <b>{l.ingredient_name}</b> y asigna una unidad
+                                (KG, GR, L, ML, UN…) antes de usarlo en recetas. Sin esto,
+                                el stock se descuenta de forma incorrecta.
+                              </>
+                            ) : (
+                              <><b>Cantidad fraccionaria en producto contable.</b>{" "}
+                                Estás indicando <b>{l.qty}</b> de <b>{l.ingredient_name}</b>{" "}
+                                (cargado como <b>{l.ingredient_unit ?? "UN"}</b>).{" "}
+                                Si querías por ejemplo gramos o litros, edita el producto y
+                                cambia su unidad a una de masa (KG/GR) o volumen (L/ML).
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       </div>
                       );
                     })}
@@ -301,13 +352,19 @@ export function RecipeEditor({
                     </Btn>
                   )}
                 </div>
-                <Btn
-                  variant="primary"
-                  onClick={saveRecipe}
-                  disabled={recipeSaving || recipeLines.filter(l => Number(l.qty) > 0).length === 0}
-                >
-                  {recipeSaving ? <><Spinner/>Guardando…</> : (hasRecipe ? "Guardar cambios" : "Crear receta")}
-                </Btn>
+                <span title={hasIngredientWithoutUnit ? "Hay ingredientes sin unidad configurada. Editalos antes de guardar." : undefined}>
+                  <Btn
+                    variant="primary"
+                    onClick={saveRecipe}
+                    disabled={
+                      recipeSaving
+                      || recipeLines.filter(l => Number(l.qty) > 0).length === 0
+                      || hasIngredientWithoutUnit
+                    }
+                  >
+                    {recipeSaving ? <><Spinner/>Guardando…</> : (hasRecipe ? "Guardar cambios" : "Crear receta")}
+                  </Btn>
+                </span>
               </div>
             </div>
           )}
