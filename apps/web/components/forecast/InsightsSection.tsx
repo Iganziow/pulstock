@@ -93,7 +93,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
       const peakLabel = peakKey ? bucketLabels[peakKey] || peakKey : "";
       const boost = Math.round((max - 1) * 100);
       if (boost > 0 && peakLabel) {
-        insights.push({ icon: "💰", text: `Vendés ${boost}% más ${peakLabel}` });
+        insights.push({ icon: "💰", text: `Vendes ${boost}% más ${peakLabel}` });
       }
     }
   }
@@ -144,7 +144,7 @@ export function InsightsSection({ model, history, avgDemand, mob }: {
   if (ps && ps.is_sensitive) {
     insights.push({
       icon: "💲",
-      text: "Los cambios de precio afectan mucho cuánto se vende — tenelo en cuenta si subís precio",
+      text: "Los cambios de precio afectan mucho cuánto se vende — tenlo en cuenta si subes el precio",
     });
   }
 

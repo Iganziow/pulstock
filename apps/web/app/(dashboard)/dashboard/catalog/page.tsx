@@ -774,7 +774,7 @@ export default function CatalogPage() {
                   ))}
                 </select>
                 <span style={{ fontSize:11, color:C.mute, marginTop:2 }}>
-                  Las comandas de productos en esta categoría saldrán en la impresora asignada a esa estación. Lo podés cambiar después.
+                  Las comandas de productos en esta categoría saldrán en la impresora asignada a esa estación. Lo puedes cambiar después.
                 </span>
               </div>
             )}
