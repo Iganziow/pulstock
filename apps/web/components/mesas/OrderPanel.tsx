@@ -117,7 +117,17 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   }
 
   async function cancelOrder() {
-    if (!confirm("¿Cerrar esta mesa sin cobrar?")) return;
+    // Si hay items pendientes sin confirmar, avisar antes de cerrar
+    // la mesa (pierde la lista local).
+    if (pendingItems.length > 0) {
+      const totalPending = pendingItems.reduce((s, p) => s + p.qty, 0);
+      if (!confirm(
+        `Tenés ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
+        `Si cerrás la mesa ahora se pierden. ¿Cerrar igual?`
+      )) return;
+    } else if (!confirm("¿Cerrar esta mesa sin cobrar?")) {
+      return;
+    }
     setCancelling(true); setCancelErr("");
     try {
       await apiFetch(`/tables/orders/${order.id}/cancel/`, { method: "POST" });
@@ -369,7 +379,23 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-        <button type="button" aria-label="Volver" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}>
+        <button
+          type="button"
+          aria-label="Volver"
+          onClick={() => {
+            // Si hay items pendientes sin confirmar, avisar (se pierden
+            // al volver porque es state local).
+            if (pendingItems.length > 0) {
+              const totalPending = pendingItems.reduce((s, p) => s + p.qty, 0);
+              if (!confirm(
+                `Tenés ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
+                `Si volvés ahora se pierden. ¿Volver igual?`
+              )) return;
+            }
+            onClose();
+          }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, padding: 2, display: "flex", borderRadius: 4 }}
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <span style={{ fontSize: 16 }}>{isCounter ? "📦" : "🪑"}</span>
@@ -773,8 +799,25 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </Btn>
         )}
         {unpaidLines.length > 0 && (
-          <Btn variant="primary" full size="lg" onClick={() => { setPayErr(""); setShowPayment(true); }}>
-            Cobrar ${fmt(order.subtotal_unpaid)}
+          <Btn
+            variant="primary"
+            full
+            size="lg"
+            disabled={pendingItems.length > 0}
+            onClick={() => {
+              if (pendingItems.length > 0) {
+                // Defensa: si por algun motivo se llega aca con pending,
+                // mostrar error inline en lugar de cobrar.
+                setPayErr("Confirma o cancela los items pendientes antes de cobrar.");
+                return;
+              }
+              setPayErr("");
+              setShowPayment(true);
+            }}
+          >
+            {pendingItems.length > 0
+              ? "Confirma pendientes para cobrar"
+              : `Cobrar $${fmt(order.subtotal_unpaid)}`}
           </Btn>
         )}
       </div>
