@@ -74,6 +74,14 @@ export default function CatalogPage() {
   const [page, setPage]               = useState(1);
   const [totalCount, setTotalCount]   = useState(0);
 
+  // Filtros adicionales — Mario lo pidió: "en el apartado de categorías
+  // poder filtrar por distintos motivos que ya usemos como por ejemplo
+  // categoría sku etc". El search por SKU ya está en `q`; estos cubren
+  // los filtros faltantes que apuntaban a un workflow más rápido para
+  // encontrar productos de una categoría específica o solo activos.
+  const [filterCategory, setFilterCategory] = useState<number | "">("");
+  const [filterStatus, setFilterStatus]     = useState<"all" | "active" | "inactive">("all");
+
   // Datos
   const [items, setItems]             = useState<Product[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -147,12 +155,18 @@ export default function CatalogPage() {
     const params = new URLSearchParams();
     const qq = q.trim();
     if (qq) params.set("q", qq);
+    if (filterCategory !== "") params.set("category", String(filterCategory));
+    if (filterStatus === "active") params.set("is_active", "true");
+    else if (filterStatus === "inactive") params.set("is_active", "false");
     params.set("page", String(page));
     return `/catalog/products/?${params.toString()}`;
-  }, [q, page]);
+  }, [q, page, filterCategory, filterStatus]);
 
-  // Reset página al cambiar búsqueda
-  useEffect(() => { setPage(1); }, [q]);
+  // Reset página al cambiar cualquier filtro
+  useEffect(() => { setPage(1); }, [q, filterCategory, filterStatus]);
+
+  const activeFilterCount = (filterCategory !== "" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
+  const clearFilters = () => { setFilterCategory(""); setFilterStatus("all"); };
 
   // Carga de productos — UN SOLO useEffect con debounce
   const load = useCallback(async (url: string) => {
@@ -408,31 +422,101 @@ export default function CatalogPage() {
         <StatCard label="Categorías" value={categories.length}        icon="🗂️" color={C.violet} />
       </div>
 
-      {/* SEARCH */}
+      {/* SEARCH + FILTROS */}
       <div style={{
         background:C.surface, border:`1px solid ${C.border}`,
         borderRadius:C.rMd, padding:"10px 14px",
-        display:"flex", gap:10, alignItems:"center", boxShadow:C.sh, flexWrap:"wrap",
+        display:"flex", flexDirection:"column", gap:10, boxShadow:C.sh,
       }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.mute} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0 }}>
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          value={q}
-          onChange={(e)=>setQ(e.target.value)}
-          onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); setPage(1); load(endpoint); } }}
-          placeholder="Ej: arroz, 1002521, 7802810050232…"
-          style={{ flex:1, minWidth:180, border:"none", background:"transparent", fontSize:14, outline:"none" }}
-        />
-        {q && (
-          <button onClick={clearSearch} className="ib" style={{ background:"none", border:"none", color:C.mute, cursor:"pointer", fontSize:16, padding:"0 4px", lineHeight:1 }}>{"✕"}</button>
-        )}
-        <div style={{ width:1, height:20, background:C.border }}/>
-        <Btn variant="secondary" size="sm" onClick={()=>{setPage(1);load(endpoint);}}>Buscar</Btn>
-        <Btn variant="ghost"     size="sm" onClick={clearSearch}>Limpiar</Btn>
-        <div style={{ fontSize:12, color:C.mute, whiteSpace:"nowrap" }}>
-          Total: <b style={{ color:C.text }}>{totalCount}</b> {"·"} Categorías: <b style={{ color:C.text }}>{categories.length}</b>
-          {catErr && <span style={{ marginLeft:8, color:C.red }}>({catErr})</span>}
+        {/* Fila 1: search */}
+        <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.mute} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0 }}>
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            value={q}
+            onChange={(e)=>setQ(e.target.value)}
+            onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); setPage(1); load(endpoint); } }}
+            placeholder="Ej: arroz, 1002521, 7802810050232…"
+            style={{ flex:1, minWidth:180, border:"none", background:"transparent", fontSize:14, outline:"none" }}
+          />
+          {q && (
+            <button onClick={clearSearch} className="ib" style={{ background:"none", border:"none", color:C.mute, cursor:"pointer", fontSize:16, padding:"0 4px", lineHeight:1 }}>{"✕"}</button>
+          )}
+          <div style={{ width:1, height:20, background:C.border }}/>
+          <Btn variant="secondary" size="sm" onClick={()=>{setPage(1);load(endpoint);}}>Buscar</Btn>
+          <Btn variant="ghost"     size="sm" onClick={clearSearch}>Limpiar</Btn>
+        </div>
+
+        {/* Fila 2: filtros (categoría + estado) y contador. Mario lo pidió:
+            "filtrar por distintos motivos que ya usemos como por ejemplo
+            categoría sku etc". El SKU ya queda en el campo de búsqueda;
+            acá agregamos los filtros que faltaban. */}
+        <div style={{
+          display:"flex", gap:8, alignItems:"center", flexWrap:"wrap",
+          paddingTop:8, borderTop:`1px solid ${C.border}`,
+        }}>
+          <span style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+            Filtros
+          </span>
+
+          {/* Categoría */}
+          <select
+            value={filterCategory}
+            onChange={(e)=> setFilterCategory(e.target.value === "" ? "" : Number(e.target.value))}
+            style={{
+              padding:"6px 10px", borderRadius:C.r,
+              border:`1px solid ${filterCategory !== "" ? C.accent : C.border}`,
+              background: filterCategory !== "" ? C.accentBg : C.surface,
+              color: filterCategory !== "" ? C.accent : C.text,
+              fontSize:12, fontFamily:"inherit", fontWeight:600,
+              cursor:"pointer", outline:"none",
+            }}
+          >
+            <option value="">Categoría: Todas</option>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+
+          {/* Estado */}
+          <select
+            value={filterStatus}
+            onChange={(e)=> setFilterStatus(e.target.value as "all" | "active" | "inactive")}
+            style={{
+              padding:"6px 10px", borderRadius:C.r,
+              border:`1px solid ${filterStatus !== "all" ? C.accent : C.border}`,
+              background: filterStatus !== "all" ? C.accentBg : C.surface,
+              color: filterStatus !== "all" ? C.accent : C.text,
+              fontSize:12, fontFamily:"inherit", fontWeight:600,
+              cursor:"pointer", outline:"none",
+            }}
+          >
+            <option value="all">Estado: Todos</option>
+            <option value="active">Solo activos</option>
+            <option value="inactive">Solo inactivos</option>
+          </select>
+
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="ib"
+              style={{
+                padding:"6px 10px", borderRadius:C.r,
+                border:`1px dashed ${C.borderMd}`, background:"transparent",
+                color:C.mute, fontSize:11, fontWeight:600, cursor:"pointer",
+                fontFamily:"inherit",
+              }}
+            >
+              Limpiar filtros ({activeFilterCount})
+            </button>
+          )}
+
+          <div style={{ marginLeft:"auto", fontSize:12, color:C.mute, whiteSpace:"nowrap" }}>
+            Mostrando: <b style={{ color:C.text }}>{totalCount}</b> {"·"} Categorías: <b style={{ color:C.text }}>{categories.length}</b>
+            {catErr && <span style={{ marginLeft:8, color:C.red }}>({catErr})</span>}
+          </div>
         </div>
       </div>
 

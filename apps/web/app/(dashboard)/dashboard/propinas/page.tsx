@@ -276,29 +276,88 @@ export default function PropinasPage() {
           </div>
         )}
 
-        {/* Por día */}
-        {data.by_day.length > 0 && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.05em", background: C.bg }}>
-              Por día
-            </div>
-            <div style={{ maxHeight: 360, overflowY: "auto" }}>
-              {[...data.by_day].reverse().map((d, i, arr) => (
-                <div key={d.date} style={{
-                  padding: "10px 14px",
-                  borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none",
-                  display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between",
+        {/* Por día — con mini-gráfico de barras arriba.
+            Mario lo pidió: visibilidad de las propinas por día para
+            poder ver el patrón de un vistazo (qué días recaudan más).
+            La lista detalle de abajo sigue siendo la fuente de verdad
+            para el monto exacto; el gráfico es solo orientativo. */}
+        {data.by_day.length > 0 && (() => {
+          const maxTotal = Math.max(...data.by_day.map(d => parseFloat(d.total) || 0), 1);
+          const avg = data.by_day.reduce((s, d) => s + (parseFloat(d.total) || 0), 0) / data.by_day.length;
+          // Para muchos días limitamos las barras visibles a los últimos 30
+          // — más allá el gráfico se vuelve ilegible. La lista debajo
+          // sigue mostrando todo el rango.
+          const chartDays = data.by_day.length > 30 ? data.by_day.slice(-30) : data.by_day;
+          return (
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.05em", background: C.bg, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Por día</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: C.mute, textTransform: "none", letterSpacing: 0 }}>
+                  Promedio: <b style={{ color: C.text }}>{fmtCLP(avg)}</b> · Mejor día: <b style={{ color: C.green }}>{fmtCLP(maxTotal)}</b>
+                </span>
+              </div>
+
+              {/* Mini-gráfico de barras */}
+              <div style={{ padding: "14px 14px 8px", background: C.surface }}>
+                <div style={{
+                  display: "flex", alignItems: "flex-end", gap: 3,
+                  height: 80, width: "100%",
                 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{fmtDate(d.date)}</div>
-                    <div style={{ fontSize: 11, color: C.mute }}>{d.count} {d.count === 1 ? "venta" : "ventas"}</div>
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>{fmtCLP(parseFloat(d.total))}</div>
+                  {chartDays.map(d => {
+                    const v = parseFloat(d.total) || 0;
+                    const h = Math.max(2, Math.round((v / maxTotal) * 100));
+                    const isMax = v === maxTotal && v > 0;
+                    return (
+                      <div
+                        key={d.date}
+                        title={`${fmtDate(d.date)}: ${fmtCLP(v)} (${d.count} venta${d.count === 1 ? "" : "s"})`}
+                        style={{
+                          flex: 1, minWidth: 0,
+                          height: `${h}%`,
+                          background: isMax ? C.green : C.accent,
+                          borderRadius: "3px 3px 0 0",
+                          opacity: v > 0 ? 1 : 0.15,
+                          transition: "opacity .15s",
+                          cursor: "default",
+                        }}
+                      />
+                    );
+                  })}
                 </div>
-              ))}
+                {data.by_day.length > 30 && (
+                  <div style={{ fontSize: 10, color: C.mute, marginTop: 6, textAlign: "right" }}>
+                    Mostrando últimos 30 días en el gráfico (lista completa abajo)
+                  </div>
+                )}
+              </div>
+
+              {/* Lista detalle */}
+              <div style={{ maxHeight: 360, overflowY: "auto", borderTop: `1px solid ${C.border}` }}>
+                {[...data.by_day].reverse().map((d, i, arr) => {
+                  const v = parseFloat(d.total) || 0;
+                  const isMax = v === maxTotal && v > 0;
+                  return (
+                    <div key={d.date} style={{
+                      padding: "10px 14px",
+                      borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none",
+                      display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between",
+                      background: isMax ? C.greenBg : "transparent",
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                          {fmtDate(d.date)}
+                          {isMax && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: C.green, color: "#fff", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mejor día</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.mute }}>{d.count} {d.count === 1 ? "venta" : "ventas"} · prom. {fmtCLP(v / Math.max(d.count, 1))} c/u</div>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: isMax ? C.green : C.text }}>{fmtCLP(v)}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Recordatorio */}
         <div style={{ marginTop: 16, padding: "10px 14px", background: C.amberBg, border: `1px solid ${C.amberBd}`, borderRadius: 8, fontSize: 12, color: C.mid, lineHeight: 1.5 }}>

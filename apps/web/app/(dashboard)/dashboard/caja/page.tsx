@@ -42,6 +42,11 @@ export default function CajaPage() {
   const [newRegBusy, setNewRegBusy] = useState(false);
   const [newRegErr, setNewRegErr] = useState("");
 
+  // Timestamp del último refresh exitoso. Mario pidió revisar el flujo
+  // de cajas — sin esto el cajero no sabía si los números eran "ahora"
+  // o de hace 30s. Útil sobre todo en mañanas con muchas ventas seguidas.
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
@@ -49,6 +54,7 @@ export default function CajaPage() {
       if (regs.status === "fulfilled") setRegisters(regs.value as Register[]);
       if (sess.status === "fulfilled") setSession(sess.value as Session);
       else setSession(null);
+      setLastUpdated(new Date());
     } catch (e: any) { setErr(e?.message ?? "Error cargando caja"); }
     finally { setLoading(false); }
   }, []);
@@ -70,10 +76,15 @@ export default function CajaPage() {
 
   useEffect(() => { if (tab === "history") loadHistory(); }, [tab, loadHistory]);
 
-  // Periodic refresh
+  // Periodic refresh — actualiza el timestamp para que el usuario sepa
+  // que los números están al día.
   useEffect(() => {
     if (!session || session.status !== "OPEN") return;
-    const iv = setInterval(() => { apiFetch("/caja/sessions/current/").then(s => setSession(s as Session)).catch(() => {}); }, 30_000);
+    const iv = setInterval(() => {
+      apiFetch("/caja/sessions/current/")
+        .then(s => { setSession(s as Session); setLastUpdated(new Date()); })
+        .catch(() => {});
+    }, 30_000);
     return () => clearInterval(iv);
   }, [session?.id, session?.status]);
 
@@ -115,9 +126,45 @@ export default function CajaPage() {
     <div style={{ maxWidth: 820, margin: "0 auto", padding: mob ? "16px 12px" : "24px 16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Caja</div>
-        <div style={{ fontSize: 13, color: C.mute, marginTop: 2 }}>Gestion de arqueos y flujo de efectivo</div>
+      <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Caja</div>
+          <div style={{ fontSize: 13, color: C.mute, marginTop: 2 }}>Gestion de arqueos y flujo de efectivo</div>
+        </div>
+        {/* Timestamp + refresh manual. Auto-refresh cada 30s, pero el
+            cajero a veces necesita "ver el monto AHORA" (ej: justo
+            después de una venta). */}
+        {tab === "live" && session && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {lastUpdated && (
+              <span style={{ fontSize: 11, color: C.mute, fontVariantNumeric: "tabular-nums" }}>
+                Actualizado: <b style={{ color: C.text }}>
+                  {lastUpdated.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </b>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => load()}
+              disabled={loading}
+              aria-label="Actualizar"
+              title="Actualizar ahora"
+              style={{
+                width: 32, height: 32, borderRadius: C.r,
+                border: `1px solid ${C.border}`, background: C.surface,
+                color: C.accent, cursor: loading ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                opacity: loading ? 0.6 : 1,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                style={{ animation: loading ? "spin 0.8s linear infinite" : undefined }}>
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

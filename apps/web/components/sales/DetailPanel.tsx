@@ -159,6 +159,39 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                 </div>
               )}
 
+              {/* Propina — apartado separado para que se pueda cuadrar
+                  con lo que entró al banco/caja. Mario lo pidió: "no
+                  sale un apartado extra donde muestre la propina
+                  después para poder cuadrar". Solo se muestra si la
+                  venta tuvo propina (>0). El total del apartado de
+                  pago YA incluye la propina, pero acá la separamos
+                  para que sea fácil identificar cuánto del cobro
+                  fue propina vs venta. */}
+              {sale.tip && toNum(sale.tip) > 0 && (
+                <div style={{
+                  background: C.amberBg, borderRadius: C.r,
+                  padding: "12px 14px",
+                  border: `1px solid ${C.amberBd}`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>💵</span>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Propina incluida
+                        </div>
+                        <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>
+                          Subtotal sin propina: ${fCLP(toNum(sale.total) - toNum(sale.tip))}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: C.amber, fontVariantNumeric: "tabular-nums" }}>
+                      +${fCLP(sale.tip)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Financials */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 {[
