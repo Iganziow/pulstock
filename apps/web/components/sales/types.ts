@@ -6,6 +6,10 @@ export type SaleRow = {
   warehouse_id: number;
   subtotal: string;
   total: string;
+  /** Propina (puede ser "0" o ausente). Patrón Fudo: total = venta del
+      local (sin propina); tip = propina por separado. El total cobrado
+      al cliente = total + tip. */
+  tip?: string | null;
   total_cost: string;
   gross_profit: string;
   status: string;

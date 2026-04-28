@@ -309,9 +309,19 @@ export default function SalesPage() {
                   {/* Warehouse */}
                   {!mob && <div style={{ fontSize:12, color:C.mid }}>{whName}</div>}
 
-                  {/* Total */}
-                  <div style={{ textAlign:"right", fontWeight:800, fontSize:mob?13:14, fontVariantNumeric:"tabular-nums" }}>
-                    {isVoid ? <span style={{ textDecoration:"line-through", color:C.mute }}>${fCLP(s.total)}</span> : `$${fCLP(s.total)}`}
+                  {/* Total — patrón Fudo: la fila muestra el total de
+                      la VENTA (sin propina). Si hubo propina, se indica
+                      con un "+" en pequeño abajo para que Mario sepa
+                      que el cobro al cliente fue mayor. */}
+                  <div style={{ textAlign:"right", fontVariantNumeric:"tabular-nums" }}>
+                    <div style={{ fontWeight:800, fontSize:mob?13:14 }}>
+                      {isVoid ? <span style={{ textDecoration:"line-through", color:C.mute }}>${fCLP(s.total)}</span> : `$${fCLP(s.total)}`}
+                    </div>
+                    {!isVoid && s.tip && toNum(s.tip) > 0 && (
+                      <div style={{ fontSize:10, color:"#d97706", fontWeight:700, marginTop:1 }}>
+                        +${fCLP(s.tip)} prop.
+                      </div>
+                    )}
                   </div>
 
                   {/* Profit */}

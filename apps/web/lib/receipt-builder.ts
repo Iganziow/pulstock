@@ -251,13 +251,22 @@ export function buildReceipt(data: ReceiptData, paperWidth: 58 | 80 = 80): Uint8
 
   p.separator("-", cols);
 
-  // Totals
-  p.textLine("SUBTOTAL", fmtCLP(data.subtotal), cols);
-  if (data.tip && data.tip > 0) {
-    p.textLine("PROPINA", fmtCLP(data.tip), cols);
+  // Totals — patrón Fudo/Wabi: subtotal (valor de la cuenta del local,
+  // ya con descuentos si los hay) y propina por separado. TOTAL = lo
+  // que el cliente paga = data.total + data.tip.
+  //
+  // Antes el TOTAL impreso era solo data.total (sin propina), entonces
+  // si el cliente dejó propina, la boleta mostraba un total menor al
+  // que realmente pagó. Mario lo reportó: "en las boletas todavía no
+  // puedo ver las propinas en las mesas que dejaron".
+  const tipAmt = data.tip && data.tip > 0 ? data.tip : 0;
+  const totalToPay = (data.total || 0) + tipAmt;
+  p.textLine("SUBTOTAL", fmtCLP(data.total), cols);
+  if (tipAmt > 0) {
+    p.textLine("PROPINA", fmtCLP(tipAmt), cols);
   }
   p.bold(true).fontSize(1, 2);
-  p.textLine("TOTAL", fmtCLP(data.total), cols);
+  p.textLine("TOTAL", fmtCLP(totalToPay), cols);
   p.fontSize(1, 1).bold(false);
   p.separator("-", cols);
 
@@ -365,9 +374,9 @@ export function buildReceiptHTML(data: ReceiptData): string {
     <div class="sep"></div>
     ${lines}
     <div class="sep"></div>
-    <div class="row"><span>SUBTOTAL</span><span class="price">${fmtCLP(data.subtotal)}</span></div>
-    ${data.tip && data.tip > 0 ? `<div class="row"><span>PROPINA</span><span class="price">${fmtCLP(data.tip)}</span></div>` : ""}
-    <div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP(data.total)}</span></div>
+    <div class="row"><span>SUBTOTAL</span><span class="price">${fmtCLP(data.total)}</span></div>
+    ${data.tip && data.tip > 0 ? `<div class="row" style="color:#d97706"><span>PROPINA</span><span class="price">${fmtCLP(data.tip)}</span></div>` : ""}
+    <div class="row total-row"><span>TOTAL</span><span class="price">${fmtCLP((data.total || 0) + (data.tip || 0))}</span></div>
     <div class="sep"></div>
     ${payments}
     ${payments ? '<div class="sep"></div>' : ""}
