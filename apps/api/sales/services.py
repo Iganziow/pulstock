@@ -264,8 +264,22 @@ def create_sale(
         raise
 
     # ── 7. Build SaleLines (pricing + discounts + costs) ─────────────
+    # Mario lo pidió: si el StockItem.avg_cost es 0 (porque nunca hubo
+    # una compra que lo actualizara) PERO el Producto tiene `cost`
+    # configurado en su ficha, usar `Product.cost` como fallback. Sin
+    # esto, el reporte ABC mostraba "100% margen" (ganancia=revenue)
+    # para todos los productos sin recepciones de compra, lo cual era
+    # engañoso. La primera compra que se reciba va a actualizar avg_cost
+    # con la fórmula PPP normal y reemplazará este fallback.
+    def _effective_cost(si, product):
+        avg = (si.avg_cost or Decimal("0.000"))
+        if avg > 0:
+            return avg.quantize(Decimal("0.000"))
+        product_cost = getattr(product, "cost", None) or Decimal("0.000")
+        return Decimal(str(product_cost)).quantize(Decimal("0.000"))
+
     ingredient_avg_cost = {
-        pid: (stock_map[pid].avg_cost or Decimal("0.000")).quantize(Decimal("0.000"))
+        pid: _effective_cost(stock_map[pid], products.get(pid))
         for pid in expanded_ids_sorted
         if pid in stock_map
     }
@@ -292,7 +306,9 @@ def create_sale(
         if not si:
             continue
 
-        unit_cost = (si.avg_cost or Decimal("0.000")).quantize(Decimal("0.000"))
+        # Mismo fallback Product.cost si avg_cost=0 (StockItem nunca tuvo
+        # una compra que lo actualizara).
+        unit_cost = _effective_cost(si, products.get(pid))
 
         # Si el producto permite stock negativo y la venta excede el
         # disponible, "clampeamos" el descuento al stock actual (lo deja
