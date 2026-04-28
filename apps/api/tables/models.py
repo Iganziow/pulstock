@@ -99,6 +99,12 @@ class OpenOrderLine(models.Model):
         null=True, blank=True,
         related_name="paid_order_lines",
     )
+    # Idempotency key del batch que creó esta línea (UUID por intento de
+    # confirm en el frontend). Si el frontend reintenta la misma request,
+    # el backend detecta la key existente y devuelve las líneas ya creadas
+    # en vez de duplicar. Cubre el caso WiFi inestable de Mario donde la
+    # response se pierde y el frontend reintenta.
+    add_lines_batch_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
 
     class Meta:
         indexes = [
