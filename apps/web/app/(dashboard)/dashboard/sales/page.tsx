@@ -11,6 +11,7 @@ import { SaleStatCard } from "@/components/sales/SaleStatCard";
 import { DetailPanel } from "@/components/sales/DetailPanel";
 import { toNum, fCLP, isoDate, fDate, profitPct } from "@/components/sales/helpers";
 import type { SaleRow, Warehouse } from "@/components/sales/types";
+import ExportButtons from "@/components/ExportButtons";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,9 @@ export default function SalesPage() {
   // Filters
   const [q, setQ]               = useState("");
   const [status, setStatus]     = useState<"ALL"|"COMPLETED"|"VOID">("ALL");
-  const [range, setRange]       = useState<"TODAY"|"7D"|"30D"|"ALL">("30D");
+  const [range, setRange]       = useState<"TODAY"|"7D"|"30D"|"MONTH"|"YEAR"|"CUSTOM"|"ALL">("30D");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo]     = useState("");
   const [warehouseId, setWarehouseId] = useState<number|"ALL">("ALL");
 
   // Selected row -> detail panel
@@ -49,15 +52,22 @@ export default function SalesPage() {
     if (range !== "ALL") {
       const now = new Date();
       let start = new Date(now);
+      let end   = now;
       if (range === "TODAY") start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       else if (range === "7D") start.setDate(now.getDate()-7);
       else if (range === "30D") start.setDate(now.getDate()-30);
+      else if (range === "MONTH") start = new Date(now.getFullYear(), now.getMonth(), 1);
+      else if (range === "YEAR") start = new Date(now.getFullYear(), 0, 1);
+      else if (range === "CUSTOM") {
+        if (customFrom) start = new Date(customFrom + "T00:00:00");
+        if (customTo)   end   = new Date(customTo   + "T23:59:59");
+      }
       p.set("date_from", isoDate(start));
-      p.set("date_to", isoDate(now));
+      p.set("date_to", isoDate(end));
     }
     const qs = p.toString();
     return qs ? `${base}?${qs}` : base;
-  }, [q, status, range, warehouseId]);
+  }, [q, status, range, warehouseId, customFrom, customTo]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -67,6 +77,45 @@ export default function SalesPage() {
     } catch (e:any) { setErr(e?.message ?? "Error cargando ventas"); setItems([]); }
     finally { setLoading(false); }
   }, [endpoint]);
+
+  // Para el export: trae TODAS las páginas filtradas (no solo la actual).
+  // El backend usa page_size=50 por default (DRF). Loopeamos hasta que
+  // no haya `next` link o la página venga con menos resultados.
+  // Tope de seguridad de 100 páginas (~5000 ventas) para no colgar el
+  // browser. Si Mario alguna vez exporta más, agregamos un endpoint
+  // de export dedicado en el backend.
+  const fetchAllForExport = useCallback(async (): Promise<SaleRow[]> => {
+    const sep = endpoint.includes("?") ? "&" : "?";
+    const all: SaleRow[] = [];
+    const MAX_PAGES = 100;
+    const PAGE_SIZE = 50;  // matchea el default DRF
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const url = `${endpoint}${sep}page=${page}`;
+      let data: any;
+      try { data = await apiFetch(url); } catch { break; }
+      const rows = data?.results ?? (Array.isArray(data) ? data : []);
+      if (!rows || rows.length === 0) break;
+      all.push(...rows);
+      // Endpoint no paginado, o última página
+      if (!data?.next || rows.length < PAGE_SIZE) break;
+    }
+    return all;
+  }, [endpoint]);
+
+  // Estado del export — usado para mostrar "Cargando..." mientras pre-carga
+  const [exportRows, setExportRows] = useState<SaleRow[] | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const handlePrepareExport = useCallback(async () => {
+    setExportLoading(true);
+    try {
+      const all = await fetchAllForExport();
+      setExportRows(all);
+    } catch (e: any) {
+      setErr(e?.message ?? "Error preparando export");
+    } finally {
+      setExportLoading(false);
+    }
+  }, [fetchAllForExport]);
 
   useEffect(() => {
     (async () => {
@@ -79,6 +128,9 @@ export default function SalesPage() {
 
   useEffect(() => {
     const t = setTimeout(() => load(), 250);
+    // Si cambian los filtros, descartamos el cache de export para no
+    // exportar datos viejos por error.
+    setExportRows(null);
     return () => clearTimeout(t);
   }, [load]);
 
@@ -113,14 +165,79 @@ export default function SalesPage() {
             Historial de ventas · haz clic en una fila para ver el detalle
           </p>}
         </div>
-        <Btn variant="secondary" size="sm" onClick={load} disabled={loading}>
-          {loading ? <Spinner/> : (
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-            </svg>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          {/* Export Excel/PDF — Mario lo pidió. Pre-carga TODAS las
+              ventas filtradas (no solo la pagina actual) y genera el
+              archivo. Si no hay datos pre-cargados, primero hace la
+              carga y luego el ExportButtons aparece. */}
+          {exportRows && exportRows.length > 0 ? (
+            <ExportButtons
+              title="Reporte de Ventas"
+              subtitle={(() => {
+                if (range === "TODAY") return "Hoy";
+                if (range === "7D") return "Últimos 7 días";
+                if (range === "30D") return "Últimos 30 días";
+                if (range === "MONTH") return "Mes actual";
+                if (range === "YEAR") return "Año en curso";
+                if (range === "CUSTOM") return `${customFrom || "—"} a ${customTo || "—"}`;
+                return "Todo el histórico";
+              })()}
+              columns={[
+                { key:"id", label:"#", width:6, format:"number" },
+                { key:"sale_number", label:"Venta", width:8, format:"number" },
+                { key:"created_at", label:"Fecha", width:18, format:"date" },
+                { key:"context", label:"Contexto", width:14 },
+                { key:"status", label:"Estado", width:12 },
+                { key:"subtotal", label:"Subtotal", width:12, format:"money" },
+                { key:"tip", label:"Propina", width:10, format:"money" },
+                { key:"total", label:"Total venta", width:13, format:"money" },
+                { key:"total_cobrado", label:"Total cobrado", width:14, format:"money" },
+                { key:"total_cost", label:"Costo", width:12, format:"money" },
+                { key:"gross_profit", label:"Utilidad", width:12, format:"money" },
+              ]}
+              rows={exportRows.map(s => ({
+                id: s.id,
+                sale_number: s.sale_number ?? s.id,
+                created_at: fDate(s.created_at),
+                context: s.table_name ? `Mesa ${s.table_name}` : "POS",
+                status: s.status === "COMPLETED" ? "Completada" : s.status === "VOID" ? "Anulada" : s.status,
+                subtotal: toNum(s.subtotal),
+                tip: toNum(s.tip ?? 0),
+                total: toNum(s.total),
+                total_cobrado: toNum(s.total) + toNum(s.tip ?? 0),
+                total_cost: toNum(s.total_cost),
+                gross_profit: toNum(s.gross_profit),
+              }))}
+              summaryRows={[{
+                label: `Total (${exportRows.filter(s => s.status === "COMPLETED").length} completadas)`,
+                subtotal: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.subtotal), 0),
+                tip: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.tip ?? 0), 0),
+                total: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.total), 0),
+                total_cobrado: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.total) + toNum(s.tip ?? 0), 0),
+                total_cost: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.total_cost), 0),
+                gross_profit: exportRows.filter(s => s.status === "COMPLETED").reduce((a, s) => a + toNum(s.gross_profit), 0),
+              }]}
+              fileName={`ventas-${(new Date()).toISOString().slice(0,10)}`}
+            />
+          ) : (
+            <Btn variant="secondary" size="sm" onClick={handlePrepareExport} disabled={exportLoading || items.length === 0}>
+              {exportLoading ? <Spinner/> : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              )}
+              {exportLoading ? "Cargando..." : "Preparar export"}
+            </Btn>
           )}
-          {loading ? "Cargando…" : "Recargar"}
-        </Btn>
+          <Btn variant="secondary" size="sm" onClick={() => { setExportRows(null); load(); }} disabled={loading}>
+            {loading ? <Spinner/> : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+              </svg>
+            )}
+            {loading ? "Cargando…" : "Recargar"}
+          </Btn>
+        </div>
       </div>
 
       {/* STAT CARDS */}
@@ -175,11 +292,15 @@ export default function SalesPage() {
 
         {!mob && <div style={{ width:1, height:24, background:C.border }}/>}
 
-        {/* Range */}
+        {/* Range — Mario lo pidió: histórico por mes/año/personalizado
+            además de los rangos cortos para reportes contables. */}
         {([
           { v:"TODAY", l:"Hoy" },
           { v:"7D",    l:"7 dias" },
           { v:"30D",   l:"30 dias" },
+          { v:"MONTH", l:"Mes" },
+          { v:"YEAR",  l:"Año" },
+          { v:"CUSTOM", l:"Personal." },
           { v:"ALL",   l:"Todo" },
         ] as const).map(b => (
           <button key={b.v} type="button" onClick={() => setRange(b.v)} className="xb" style={{
@@ -190,6 +311,17 @@ export default function SalesPage() {
             color:range===b.v ? C.accent : C.mid,
           }}>{b.l}</button>
         ))}
+
+        {/* Date pickers para CUSTOM */}
+        {range === "CUSTOM" && (
+          <>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+              style={{ height:32, padding:"0 8px", border:`1px solid ${C.border}`, borderRadius:C.r, fontSize:12, fontFamily:"inherit" }} />
+            <span style={{ fontSize:11, color:C.mute }}>→</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+              style={{ height:32, padding:"0 8px", border:`1px solid ${C.border}`, borderRadius:C.r, fontSize:12, fontFamily:"inherit" }} />
+          </>
+        )}
 
         {!mob && <div style={{ width:1, height:24, background:C.border }}/>}
 
