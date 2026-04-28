@@ -76,13 +76,39 @@ def build_sale_lines(
             line_discount = min(dv, gross_line_total).quantize(Decimal("1"))
             original_up = unit_price
 
-        # Auto-detected promo (only if no manual discount)
+        # Auto-detected promo (only if no manual discount).
+        # ENFORCE server-side: si hay promo activa y el cliente envió
+        # unit_price > promo_price, FORZAMOS el promo_price. Antes la
+        # promo se perdía si el frontend tenía cache stale.
+        #
+        # IMPORTANTE: cuando forzamos unit_price al promo_price, el
+        # gross_line_total queda en el valor con descuento ya aplicado.
+        # NO sumamos line_discount adicional (sería doble descuento).
+        # line_discount solo se usa para registro/reporte ("cuánto se
+        # ahorró"), no afecta el line_total cuando ya redujimos el
+        # unit_price.
         if pid in promo_map and line_discount == 0:
             promo_obj, promo_price = promo_map[pid]
-            original_up = products[pid].price
-            line_discount = ((original_up - unit_price) * qty).quantize(Decimal("1"))
-            if line_discount < 0:
-                line_discount = Decimal("0")
+            full_price = products[pid].price
+            if unit_price > promo_price:
+                # Cliente mandó precio inflado → forzamos al promo.
+                # gross queda con precio reducido, line_discount queda
+                # en 0 (no aplicamos otro descuento sobre el ya
+                # reducido). original_up registra el precio lleno
+                # para que la boleta muestre "antes $1000, hoy $700".
+                unit_price = promo_price
+                gross_line_total = (qty * unit_price).quantize(Decimal("1"))
+                original_up = full_price
+                # line_discount se queda en 0 — el descuento ya está
+                # reflejado en unit_price reducido.
+            else:
+                # Cliente respetó el promo (unit_price <= promo_price).
+                # Calculamos el line_discount como "diferencia con
+                # precio lleno" para auditoría.
+                original_up = full_price
+                line_discount = ((original_up - unit_price) * qty).quantize(Decimal("1"))
+                if line_discount < 0:
+                    line_discount = Decimal("0")
 
         line_promo_id = agg[pid].get("promotion_id")
 
