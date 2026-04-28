@@ -160,33 +160,42 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
               )}
 
               {/* Propina — apartado separado para que se pueda cuadrar
-                  con lo que entró al banco/caja. Mario lo pidió: "no
-                  sale un apartado extra donde muestre la propina
-                  después para poder cuadrar". Solo se muestra si la
-                  venta tuvo propina (>0). El total del apartado de
-                  pago YA incluye la propina, pero acá la separamos
-                  para que sea fácil identificar cuánto del cobro
-                  fue propina vs venta. */}
+                  con lo que entró al banco/caja. Mario lo pidió:
+                  "busca algun error parecido". Antes este bloque
+                  mostraba "Subtotal sin propina = total - tip", pero
+                  sale.total ya viene SIN propina (services.py setea
+                  total = subtotal - discount, sin tip). El cálculo
+                  correcto: total cobrado al cliente = total + tip. */}
               {sale.tip && toNum(sale.tip) > 0 && (
                 <div style={{
                   background: C.amberBg, borderRadius: C.r,
                   padding: "12px 14px",
                   border: `1px solid ${C.amberBd}`,
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>💵</span>
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                          Propina incluida
-                        </div>
-                        <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>
-                          Subtotal sin propina: ${fCLP(toNum(sale.total) - toNum(sale.tip))}
-                        </div>
-                      </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18 }}>💵</span>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Propina cobrada
                     </div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: C.amber, fontVariantNumeric: "tabular-nums" }}>
-                      +${fCLP(sale.tip)}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
+                      <span>Total de la venta</span>
+                      <span style={{ fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>${fCLP(sale.total)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
+                      <span>Propina</span>
+                      <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>+${fCLP(sale.tip)}</span>
+                    </div>
+                    <div style={{
+                      display: "flex", justifyContent: "space-between",
+                      fontSize: 13, fontWeight: 800, color: C.text,
+                      paddingTop: 6, borderTop: `1px dashed ${C.amberBd}`,
+                    }}>
+                      <span>Total cobrado al cliente</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                        ${fCLP(toNum(sale.total) + toNum(sale.tip))}
+                      </span>
                     </div>
                   </div>
                 </div>
