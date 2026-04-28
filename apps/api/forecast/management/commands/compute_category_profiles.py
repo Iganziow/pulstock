@@ -120,8 +120,20 @@ class Command(BaseCommand):
                     sum(per_product_avgs) / len(per_product_avgs)
                 )).quantize(Decimal("0.001"))
 
-                # DOW factors for this category+warehouse
+                # DOW factors for this category+warehouse.
+                # Días sin ventas en TODA la categoría con >= 4 ocurrencias
+                # → factor 0 (asumimos local cerrado ese día). Sin esto,
+                # el forecast del category_prior predecía ventas en
+                # domingos cuando la cafetería no abre.
+                import datetime as _dt
                 dow_key = (cat_id, wh_id)
+                # Calcular días que se cubrió en el lookback
+                end_date = _dt.date.today()
+                start_date = end_date - _dt.timedelta(days=lookback)
+                dow_occurrences = {dow: 0 for dow in range(7)}
+                for i in range(lookback + 1):
+                    d = start_date + _dt.timedelta(days=i)
+                    dow_occurrences[d.weekday()] += 1
                 overall_avg = float(avg_daily) if avg_daily > 0 else 1.0
                 dow_factors = {}
                 for dow in range(7):
@@ -129,6 +141,8 @@ class Command(BaseCommand):
                     if values:
                         dow_avg = sum(values) / len(values)
                         dow_factors[dow] = round(dow_avg / overall_avg, 3) if overall_avg > 0 else 1.0
+                    elif dow_occurrences.get(dow, 0) >= 4:
+                        dow_factors[dow] = 0.0  # local cerrado ese día
                     else:
                         dow_factors[dow] = 1.0
 
