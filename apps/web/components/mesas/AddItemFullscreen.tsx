@@ -465,37 +465,198 @@ export function AddItemFullscreen({ orderId, tableName, onAdded, onClose }: AddI
         </div>
       </div>
 
-      {/* ── Footer sticky con "Confirmar" ─────────────────────────────── */}
+      {/* ── Panel "Pendiente" (estilo Fudo) ───────────────────────────────
+          Mario lo pidió: lista visible de items que vas a agregar antes
+          de confirmar, con botones [-] [N] [+] [x] por cada item.
+          Permite revisar/quitar fácilmente sin tener que entrar a la
+          mesa después.
+          Paleta Pulstock indigo (no naranja Fudo). */}
       {cart.length > 0 && (
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
-          background: C.surface, borderTop: `1px solid ${C.border}`,
-          padding: "10px 12px",
-          boxShadow: "0 -6px 20px rgba(0,0,0,0.08)",
-          display: "flex", flexDirection: "column", gap: 6,
+          background: C.surface,
+          borderTop: `1px solid ${C.accentBd}`,
+          borderTopLeftRadius: 14, borderTopRightRadius: 14,
+          boxShadow: "0 -10px 32px rgba(79,70,229,0.15)",
+          maxHeight: "70vh", display: "flex", flexDirection: "column",
         }}>
-          {err && (
-            <div style={{ fontSize: 12, color: C.red, padding: "4px 8px", background: C.redBg, borderRadius: 6 }}>
-              {err}
+          {/* Header del panel */}
+          <div style={{
+            padding: "10px 14px",
+            background: C.accentBg,
+            borderBottom: `1px solid ${C.accentBd}`,
+            borderTopLeftRadius: 14, borderTopRightRadius: 14,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Pendiente
+              </span>
+              <span style={{
+                padding: "1px 8px", borderRadius: 99,
+                background: C.accent, color: "#fff",
+                fontSize: 10, fontWeight: 700,
+              }}>
+                {cartItems}
+              </span>
             </div>
-          )}
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving}
-            style={{
-              width: "100%", padding: "14px 16px", borderRadius: 10,
-              border: "none", background: C.accent, color: "#fff",
-              fontSize: 15, fontWeight: 800, cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.6 : 1, fontFamily: C.font,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            }}
-          >
-            {saving ? <Spinner size={16} /> : null}
-            {saving
-              ? "Agregando…"
-              : `Agregar ${cartItems} item${cartItems !== 1 ? "s" : ""} · $${fmt(cartTotal)}`}
-          </button>
+            <button
+              type="button"
+              onClick={() => setCart([])}
+              style={{
+                background: "transparent", border: "none",
+                color: C.mute, fontSize: 11, fontWeight: 600,
+                cursor: "pointer", padding: "2px 6px",
+              }}
+              title="Vaciar lista pendiente"
+            >
+              Vaciar
+            </button>
+          </div>
+
+          {/* Lista scrolleable de items pendientes */}
+          <div style={{
+            flex: 1, overflowY: "auto",
+            padding: "6px 10px",
+            // Limitamos altura para que no tape el catálogo entero.
+            maxHeight: "32vh",
+          }}>
+            {cart.map((c) => (
+              <div key={c.product.id} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 6px",
+                borderBottom: `1px solid ${C.border}`,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {c.product.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.mute, fontVariantNumeric: "tabular-nums" }}>
+                    ${fmt(c.unit_price)} c/u · <b style={{ color: C.text }}>${fmt(Number(c.unit_price) * c.qty)}</b>
+                  </div>
+                </div>
+                {/* Controles compactos [-] [N] [+] */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 2,
+                  background: C.bg, borderRadius: 8,
+                  border: `1px solid ${C.border}`, padding: 2,
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => updateQty(c.product.id, -1)}
+                    aria-label="Disminuir"
+                    style={{
+                      width: 28, height: 28, borderRadius: 5,
+                      border: "none", background: "transparent",
+                      color: C.mid, cursor: "pointer",
+                      fontWeight: 800, fontSize: 16, lineHeight: 1,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >−</button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingProduct(c.product)}
+                    title="Tocar para escribir cantidad exacta"
+                    style={{
+                      minWidth: 32, height: 28, padding: "0 4px",
+                      border: "none", background: "transparent",
+                      color: C.accent, fontWeight: 800, fontSize: 13,
+                      fontFamily: C.font, cursor: "pointer",
+                    }}
+                  >
+                    {c.qty}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addToCart(c.product)}
+                    aria-label="Aumentar"
+                    style={{
+                      width: 28, height: 28, borderRadius: 5,
+                      border: "none", background: C.accent,
+                      color: "#fff", cursor: "pointer",
+                      fontWeight: 800, fontSize: 14, lineHeight: 1,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >+</button>
+                </div>
+                {/* Botón eliminar */}
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(c.product.id)}
+                  aria-label={`Quitar ${c.product.name}`}
+                  style={{
+                    width: 28, height: 28, borderRadius: 6,
+                    border: "none", background: "transparent",
+                    color: C.red, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer con total y botones */}
+          <div style={{
+            padding: "10px 14px 12px",
+            borderTop: `1px solid ${C.border}`,
+            background: C.bg,
+            display: "flex", flexDirection: "column", gap: 8,
+          }}>
+            {err && (
+              <div style={{ fontSize: 12, color: C.red, padding: "6px 10px", background: C.redBg, borderRadius: 6, border: `1px solid ${C.redBd}` }}>
+                {err}
+              </div>
+            )}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              fontSize: 13, color: C.mid,
+            }}>
+              <span>Total a confirmar</span>
+              <span style={{ fontSize: 18, fontWeight: 900, color: C.text, fontVariantNumeric: "tabular-nums" }}>
+                ${fmt(cartTotal)}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setCart([])}
+                disabled={saving}
+                style={{
+                  flex: 1, padding: "12px", borderRadius: 10,
+                  border: `1px solid ${C.border}`,
+                  background: C.surface, color: C.mid,
+                  fontSize: 14, fontWeight: 700,
+                  cursor: saving ? "not-allowed" : "pointer",
+                  fontFamily: C.font, opacity: saving ? 0.6 : 1,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                style={{
+                  flex: 2, padding: "12px 16px", borderRadius: 10,
+                  border: "none", background: C.accent, color: "#fff",
+                  fontSize: 15, fontWeight: 800,
+                  cursor: saving ? "not-allowed" : "pointer",
+                  opacity: saving ? 0.6 : 1, fontFamily: C.font,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {saving ? <Spinner size={16} /> : null}
+                {saving
+                  ? "Agregando…"
+                  : `Confirmar ${cartItems} item${cartItems !== 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
