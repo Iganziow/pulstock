@@ -197,9 +197,9 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
             lineHeight: 1.5, marginBottom: 12,
           }}>
             <strong>¿Cuándo necesito esto?</strong><br/>
-            Si tu negocio tiene <strong>una sola impresora</strong> (caso típico cafetería) podés saltarte esta pestaña — todo se imprime ahí automáticamente.
+            Si tu negocio tiene <strong>una sola impresora</strong> (caso típico cafetería) puedes saltarte esta pestaña — todo se imprime ahí automáticamente.
             <br/><br/>
-            Crealas si tenés <strong>2 o más impresoras</strong> (cocina + bar, despacho separado, etc.) o si querés que los tickets de cocina y despacho salgan en hojas distintas aunque sea la misma impresora.
+            Créalas si tienes <strong>2 o más impresoras</strong> (cocina + bar, despacho separado, etc.) o si quieres que los tickets de cocina y despacho salgan en hojas distintas aunque sea la misma impresora.
           </div>
         )}
 
@@ -381,7 +381,7 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
                     placeholder="Ej: Cocina, Bar, Despacho, Caja"
                     autoFocus
                   />
-                  <Hint>Usa nombres cortos. Una vez creada, los podés usar en Catálogo → Categorías.</Hint>
+                  <Hint>Usa nombres cortos. Una vez creada, los puedes usar en Catálogo → Categorías.</Hint>
                 </div>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, cursor: "pointer", fontSize: 13, color: C.mid }}>
                   <input

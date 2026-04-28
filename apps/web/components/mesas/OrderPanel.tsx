@@ -157,8 +157,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     if (pendingItems.length > 0) {
       const totalPending = pendingItems.reduce((s, p) => s + p.qty, 0);
       if (!confirm(
-        `Tenés ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
-        `Si cerrás la mesa ahora se pierden. ¿Cerrar igual?`
+        `Tienes ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
+        `Si cierras la mesa ahora se pierden. ¿Cerrar igual?`
       )) return;
     } else if (!confirm("¿Cerrar esta mesa sin cobrar?")) {
       return;
@@ -423,8 +423,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
             if (pendingItems.length > 0) {
               const totalPending = pendingItems.reduce((s, p) => s + p.qty, 0);
               if (!confirm(
-                `Tenés ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
-                `Si volvés ahora se pierden. ¿Volver igual?`
+                `Tienes ${totalPending} item${totalPending !== 1 ? "s" : ""} pendiente${totalPending !== 1 ? "s" : ""} sin confirmar. ` +
+                `Si vuelves ahora se pierden. ¿Volver igual?`
               )) return;
             }
             onClose();

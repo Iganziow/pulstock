@@ -29,7 +29,7 @@ const ERROR_TRANSLATIONS: Array<{ pattern: RegExp; message: string }> = [
   // ── WebUSB / WebBluetooth (picker cancelado) ──
   {
     pattern: /user cancell?ed|user dismissed/i,
-    message: "Cancelaste la selección. Si querés reintentar, presiona el botón de nuevo.",
+    message: "Cancelaste la selección. Si quieres reintentar, presiona el botón de nuevo.",
   },
   {
     pattern: /no device selected|must provide a device/i,

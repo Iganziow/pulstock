@@ -112,7 +112,7 @@ export default function AgentPage() {
             }}
           >
             {isWindows
-              ? "Descargá, doble click, pegá tu código. Listo."
+              ? "Descarga, doble clic, pega tu código. Listo."
               : "Descargá el instalador, ejecutalo, escribí el código."}
           </p>
         </div>
@@ -280,16 +280,16 @@ export default function AgentPage() {
               </li>
               <li>
                 Windows puede mostrar <strong>&quot;Windows protegió tu PC&quot;</strong> →
-                apretá <strong>&quot;Más información&quot;</strong> y después{" "}
+                presiona <strong>&quot;Más información&quot;</strong> y después{" "}
                 <strong>&quot;Ejecutar de todas formas&quot;</strong>
                 <div style={warningBox}>
-                  💡 Es normal — pasa con programas nuevos. Podés verificar
+                  💡 Es normal — pasa con programas nuevos. Puedes verificar
                   con Windows Defender, no tiene virus.
                 </div>
               </li>
               <li>
                 Aparece una ventana negra que te pide el <strong>código de emparejado</strong>.
-                Pegalo (<code style={codeStyle}>ABCD-1234</code>) y presioná Enter.
+                Pégalo (<code style={codeStyle}>ABCD-1234</code>) y presiona Enter.
               </li>
               <li>
                 ¡Listo! El agente empieza a funcionar.
@@ -298,18 +298,18 @@ export default function AgentPage() {
           ) : os === "mac" ? (
             <ol style={listStyle}>
               <li>
-                Descomprimí el ZIP (doble click)
+                Descomprime el ZIP (doble clic)
               </li>
               <li>
-                Dentro de la carpeta, <strong>click derecho</strong> en{" "}
+                Dentro de la carpeta, <strong>clic derecho</strong> en{" "}
                 <code style={codeStyle}>instalar-pulstock.sh</code> → <strong>Abrir con Terminal</strong>
                 <div style={warningBox}>
                   💡 Si Mac se queja de &quot;desarrollador no identificado&quot;,
-                  hacé click derecho → <strong>Abrir</strong> y luego <strong>&quot;Abrir&quot;</strong> de nuevo.
+                  haz clic derecho → <strong>Abrir</strong> y luego <strong>&quot;Abrir&quot;</strong> de nuevo.
                 </div>
               </li>
               <li>
-                El instalador te va a pedir tu código de emparejado — pegalo y listo.
+                El instalador te va a pedir tu código de emparejado — pégalo y listo.
               </li>
             </ol>
           ) : (
