@@ -103,8 +103,13 @@ export default function RecetasPage() {
       const data = await apiFetch(`/catalog/products/${p.id}/recipe/`);
       setRecipe(data);
       setRecipeLines((data.lines ?? []).map((l: any) => ({
-        ...l, qty: String(l.qty),
+        ...l,
+        // qty viene como Decimal "1.0000" del backend → simplificar
+        // a string sin ceros sobrantes ("1" en vez de "1.0000",
+        // "0.15" en vez de "0.1500"). Daniel lo pidió.
+        qty: l.qty != null ? String(parseFloat(String(l.qty))) : "1",
         unit_id: l.unit_id ?? null, unit_code: l.unit_code ?? null,
+        ingredient_unit_obj_id: l.ingredient_unit_obj_id ?? null,
         ingredient_unit_family: l.ingredient_unit_family ?? null,
       })));
       setRecipeNotes(data.notes ?? "");
@@ -142,6 +147,12 @@ export default function RecetasPage() {
     setRecipeLines(prev => [...prev, {
       ingredient_id: p.id, ingredient_name: p.name,
       ingredient_sku: p.sku ?? "", ingredient_unit: p.unit ?? "UN",
+      // ingredient_unit_obj_id es el FK que el RecipeEditor usa para
+      // chequear si el producto tiene unidad de medida (warning rojo
+      // "Sin unidad de medida"). Antes faltaba pasarlo aquí — el warning
+      // salía siempre que se agregaba un ingrediente nuevo aunque sí
+      // tuviera unit_obj configurado.
+      ingredient_unit_obj_id: p.unit_obj_id ?? null,
       ingredient_unit_family: p.unit_obj_family ?? null,
       qty: "1",
       unit_id: defaultUnit?.id ?? null, unit_code: defaultUnit?.code ?? null,
