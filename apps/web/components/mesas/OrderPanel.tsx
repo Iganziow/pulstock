@@ -8,7 +8,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { MesaBtn as Btn } from "./MesaBtn";
 import { PaymentModal } from "./PaymentModal";
 import { AddItemPanel } from "./AddItemPanel";
-import { AddItemFullscreen } from "./AddItemFullscreen";
+import { AddItemFullscreen, type PendingLineDraft } from "./AddItemFullscreen";
 import { Order, OrderLine, PaymentRow } from "./types";
 import { fmt, fmtTime, timeAgo } from "./helpers";
 
@@ -45,6 +45,76 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [printing, setPrinting] = useState<null | "comanda" | "precuenta" | "boleta">(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelErr, setCancelErr] = useState("");
+
+  // Lista "Pendiente" — Mario lo pidió: items seleccionados desde
+  // AddItemFullscreen quedan en una lista local antes de confirmar
+  // todos juntos. Si recarga la página o cierra la mesa, se pierde
+  // (Opción B confirmada por Mario). Permite revisar, modificar
+  // cantidades y eliminar items antes del POST al backend.
+  const [pendingItems, setPendingItems] = useState<PendingLineDraft[]>([]);
+  const [confirmingPending, setConfirmingPending] = useState(false);
+  const [pendingErr, setPendingErr] = useState("");
+
+  // Acumula items del AddItemFullscreen en pendingItems. Si el mismo
+  // producto ya está, suma cantidades.
+  function addToPending(items: PendingLineDraft[]) {
+    setPendingErr("");
+    setPendingItems(prev => {
+      const next = [...prev];
+      for (const it of items) {
+        const idx = next.findIndex(p => p.product_id === it.product_id);
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], qty: next[idx].qty + it.qty };
+        } else {
+          next.push(it);
+        }
+      }
+      return next;
+    });
+  }
+
+  function updatePendingQty(productId: number, delta: number) {
+    setPendingItems(prev =>
+      prev.flatMap(p => {
+        if (p.product_id !== productId) return [p];
+        const newQty = p.qty + delta;
+        return newQty <= 0 ? [] : [{ ...p, qty: newQty }];
+      })
+    );
+  }
+
+  function removePending(productId: number) {
+    setPendingItems(prev => prev.filter(p => p.product_id !== productId));
+  }
+
+  async function confirmPending() {
+    if (pendingItems.length === 0) return;
+    setConfirmingPending(true); setPendingErr("");
+    try {
+      await apiFetch(`/tables/orders/${order.id}/add-lines/`, {
+        method: "POST",
+        body: JSON.stringify({
+          lines: pendingItems.map(p => ({
+            product_id: p.product_id,
+            qty: p.qty,
+            unit_price: p.unit_price,
+            note: p.note,
+          })),
+        }),
+      });
+      setPendingItems([]);  // limpiar después del éxito
+      // Refrescar mesa
+      try {
+        const updated = await apiFetch(`/tables/orders/${order.id}/`);
+        onOrderUpdate(updated);
+      } catch { /* el parent refresh lo cubre */ }
+      onRefresh();
+    } catch (e: unknown) {
+      setPendingErr(e instanceof Error ? e.message : "Error al confirmar");
+    } finally {
+      setConfirmingPending(false);
+    }
+  }
 
   async function cancelOrder() {
     if (!confirm("¿Cerrar esta mesa sin cobrar?")) return;
@@ -354,11 +424,192 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "10px 16px" }}>
-        {/* Unpaid lines */}
+
+        {/* Bloque PENDIENTE — items recién seleccionados desde el
+            catálogo que aún no se confirmaron al backend. Se pierden
+            si recarga la página (estado local). Mario lo pidió:
+            poder revisar y quitar items antes de que entren a la
+            mesa oficialmente, estilo Fudo. Paleta indigo Pulstock. */}
+        {pendingItems.length > 0 && (
+          <div style={{
+            marginBottom: 14,
+            background: C.accentBg,
+            border: `2px solid ${C.accent}`,
+            borderRadius: 10,
+            overflow: "hidden",
+          }}>
+            <div style={{
+              padding: "10px 14px",
+              borderBottom: `1px solid ${C.accentBd}`,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              background: "rgba(255,255,255,0.4)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Pendiente
+                </span>
+                <span style={{
+                  padding: "1px 8px", borderRadius: 99,
+                  background: C.accent, color: "#fff",
+                  fontSize: 10, fontWeight: 700,
+                }}>
+                  {pendingItems.reduce((s, p) => s + p.qty, 0)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingItems([])}
+                disabled={confirmingPending}
+                style={{
+                  background: "transparent", border: "none",
+                  color: C.mute, fontSize: 11, fontWeight: 600,
+                  cursor: confirmingPending ? "not-allowed" : "pointer",
+                  padding: "2px 6px", opacity: confirmingPending ? 0.5 : 1,
+                }}
+              >
+                Vaciar
+              </button>
+            </div>
+
+            {/* Lista de items pendientes con controles */}
+            <div>
+              {pendingItems.map((p, idx) => (
+                <div key={p.product_id} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px",
+                  borderBottom: idx < pendingItems.length - 1 ? `1px solid ${C.accentBd}` : "none",
+                  background: C.surface,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {p.product_name}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.mute, fontVariantNumeric: "tabular-nums" }}>
+                      ${fmt(p.unit_price)} c/u · <b style={{ color: C.text }}>${fmt(Number(p.unit_price) * p.qty)}</b>
+                    </div>
+                  </div>
+                  {/* Controles compactos [-] [N] [+] */}
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 2,
+                    background: C.bg, borderRadius: 8,
+                    border: `1px solid ${C.border}`, padding: 2,
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => updatePendingQty(p.product_id, -1)}
+                      disabled={confirmingPending}
+                      aria-label="Disminuir"
+                      style={{
+                        width: 26, height: 26, borderRadius: 5,
+                        border: "none", background: "transparent",
+                        color: C.mid, cursor: confirmingPending ? "not-allowed" : "pointer",
+                        fontWeight: 800, fontSize: 16, lineHeight: 1,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >−</button>
+                    <span style={{
+                      minWidth: 28, textAlign: "center",
+                      fontSize: 13, fontWeight: 800, color: C.accent,
+                    }}>{p.qty}</span>
+                    <button
+                      type="button"
+                      onClick={() => updatePendingQty(p.product_id, +1)}
+                      disabled={confirmingPending}
+                      aria-label="Aumentar"
+                      style={{
+                        width: 26, height: 26, borderRadius: 5,
+                        border: "none", background: C.accent,
+                        color: "#fff", cursor: confirmingPending ? "not-allowed" : "pointer",
+                        fontWeight: 800, fontSize: 14, lineHeight: 1,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >+</button>
+                  </div>
+                  {/* Botón eliminar */}
+                  <button
+                    type="button"
+                    onClick={() => removePending(p.product_id)}
+                    disabled={confirmingPending}
+                    aria-label={`Quitar ${p.product_name}`}
+                    style={{
+                      width: 28, height: 28, borderRadius: 6,
+                      border: "none", background: "transparent",
+                      color: C.red, cursor: confirmingPending ? "not-allowed" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer del bloque pendiente */}
+            <div style={{
+              padding: "10px 14px 12px",
+              borderTop: `1px solid ${C.accentBd}`,
+              background: "rgba(255,255,255,0.4)",
+              display: "flex", flexDirection: "column", gap: 8,
+            }}>
+              {pendingErr && (
+                <div style={{ fontSize: 12, color: C.red, padding: "6px 10px", background: C.redBg, borderRadius: 6, border: `1px solid ${C.redBd}` }}>
+                  {pendingErr}
+                </div>
+              )}
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                fontSize: 13, color: C.mid,
+              }}>
+                <span>Total a confirmar</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: C.text, fontVariantNumeric: "tabular-nums" }}>
+                  ${fmt(pendingItems.reduce((s, p) => s + Number(p.unit_price) * p.qty, 0))}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setPendingItems([])}
+                  disabled={confirmingPending}
+                  style={{
+                    flex: 1, padding: "10px", borderRadius: 8,
+                    border: `1px solid ${C.border}`,
+                    background: C.surface, color: C.mid,
+                    fontSize: 13, fontWeight: 700,
+                    cursor: confirmingPending ? "not-allowed" : "pointer",
+                    fontFamily: C.font, opacity: confirmingPending ? 0.6 : 1,
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmPending}
+                  disabled={confirmingPending}
+                  style={{
+                    flex: 2, padding: "10px 16px", borderRadius: 8,
+                    border: "none", background: C.accent, color: "#fff",
+                    fontSize: 14, fontWeight: 800,
+                    cursor: confirmingPending ? "not-allowed" : "pointer",
+                    opacity: confirmingPending ? 0.6 : 1, fontFamily: C.font,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}
+                >
+                  {confirmingPending ? <Spinner size={14} /> : null}
+                  {confirmingPending ? "Confirmando…" : `Confirmar ${pendingItems.reduce((s, p) => s + p.qty, 0)} item${pendingItems.reduce((s, p) => s + p.qty, 0) !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Items por cobrar (oficiales en la mesa, no pagados aún) */}
         {unpaidLines.length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-              Pendiente ({unpaidLines.length})
+              Por cobrar ({unpaidLines.length})
             </div>
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", background: C.surface }}>
               {unpaidLines.map((l, idx) => (
@@ -542,20 +793,15 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           }} />
       )}
 
-      {/* Modal full-screen para agregar productos (solo móvil). Le pasamos
-          el tableName para mostrarlo en el header del modal y los callbacks
-          para refrescar la mesa y cerrarse. */}
+      {/* Modal full-screen para agregar productos (solo móvil).
+          Ahora NO hace POST: devuelve los items al padre vía onConfirm,
+          que los acumula en `pendingItems`. El cajero revisa la lista
+          en la mesa y confirma todo junto. */}
       {showAddFullscreen && (
         <AddItemFullscreen
           orderId={order.id}
           tableName={order.customer_name || tableName}
-          onAdded={async () => {
-            try {
-              const updated = await apiFetch(`/tables/orders/${order.id}/`);
-              onOrderUpdate(updated);
-            } catch { /* parent refresh will cover it */ }
-            onRefresh();
-          }}
+          onConfirm={(items) => addToPending(items)}
           onClose={() => setShowAddFullscreen(false)}
         />
       )}
