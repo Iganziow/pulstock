@@ -194,7 +194,7 @@ export function RecipeEditor({
                       const familyUnits = l.ingredient_unit_family
                         ? units.filter(u => u.family === l.ingredient_unit_family)
                         : [];
-                      // Warnings de blindaje (Mario lo pidió):
+                      // Warnings de blindaje:
                       //   Riesgo 1: ingrediente sin unit_obj configurada
                       //     → no se puede convertir, el sistema asume
                       //     unidad raw. Si la receta dice 0,15 y el
@@ -203,9 +203,23 @@ export function RecipeEditor({
                       //   Riesgo 2: ingrediente con unit_obj de COUNT
                       //     (UN/conteo) en una receta donde claramente
                       //     debería ser MASS o VOLUME (leche, café...).
+                      //   Riesgo 3 (Daniel lo pidió): cantidad sospechosa
+                      //     en producto ML/GR — Mario escribía "0.13"
+                      //     pensando litros pero el producto era ML →
+                      //     0.13 ML descontados, gota. Avisamos visual
+                      //     antes de guardar.
                       const hasUnitObj = l.ingredient_unit_obj_id != null && l.ingredient_unit_obj_id > 0;
                       const isCountFamily = l.ingredient_unit_family === "COUNT";
-                      const showWarning = !hasUnitObj || (isCountFamily && Number(l.qty) > 0 && Number(l.qty) < 1);
+                      const qtyNum = Number(l.qty);
+                      const ingUnit = l.ingredient_unit?.toUpperCase() ?? "";
+                      const lineUnitCode = l.unit_code?.toUpperCase() ?? ingUnit;
+                      // Sospechoso: producto en ML pero qty < 1 con unit ML
+                      // → seguro quiso litros. Mismo para GR con qty < 1.
+                      const suspiciousFraction =
+                        qtyNum > 0 && qtyNum < 1 &&
+                        ((ingUnit === "ML" && lineUnitCode === "ML") ||
+                         (ingUnit === "GR" && lineUnitCode === "GR"));
+                      const showWarning = !hasUnitObj || (isCountFamily && qtyNum > 0 && qtyNum < 1);
                       return (
                       <div key={l.ingredient_id} style={{
                         borderBottom: i < recipeLines.length - 1 ? `1px solid ${C.border}` : "none",
@@ -284,6 +298,31 @@ export function RecipeEditor({
                                 Si querías por ejemplo gramos o litros, edita el producto y
                                 cambia su unidad a una de masa (KG/GR) o volumen (L/ML).
                               </>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {!showWarning && suspiciousFraction && (
+                        <div style={{
+                          margin: "0 12px 9px", padding: "8px 10px",
+                          background: "#FFFBEB",
+                          border: "1px solid #F59E0B",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          color: "#92400E",
+                          display: "flex", alignItems: "flex-start", gap: 6,
+                        }}>
+                          <span style={{ fontSize: 13, flexShrink: 0 }}>⚠️</span>
+                          <span>
+                            <b>Cantidad muy chica para {ingUnit}.</b>{" "}
+                            Estás indicando <b>{l.qty} {lineUnitCode}</b> de <b>{l.ingredient_name}</b>.{" "}
+                            {ingUnit === "ML" && (
+                              <>¿Quisiste decir <b>{l.qty} L</b> ({Math.round(qtyNum * 1000)} ml)?{" "}
+                              Cambia la unidad a <b>L</b> en el dropdown si es así.</>
+                            )}
+                            {ingUnit === "GR" && (
+                              <>¿Quisiste decir <b>{l.qty} KG</b> ({Math.round(qtyNum * 1000)} g)?{" "}
+                              Cambia la unidad a <b>KG</b> en el dropdown si es así.</>
                             )}
                           </span>
                         </div>
