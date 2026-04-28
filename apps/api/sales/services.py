@@ -229,10 +229,21 @@ def create_sale(
     if _model_has_field(Sale, "cash_session"):
         try:
             from caja.models import CashSession
-            open_session = CashSession.objects.filter(
+            # select_for_update bloquea la sesión mientras commiteamos la
+            # venta. Sin esto había race: cajero A cierra caja (toma lock,
+            # computa expected_cash) en paralelo cajero B confirma venta
+            # (lee sesión OPEN sin lock, attacha cash_session=esa). Al
+            # commit del close, la venta queda enganchada pero NO entró
+            # en el expected_cash → caja "falta" exactamente esa venta.
+            #
+            # Re-validamos status=OPEN bajo el lock: si la sesión cerró
+            # entre el .first() y el lock, dejamos la venta sin
+            # cash_session (queda fuera del arqueo, mejor que enganchada
+            # incorrectamente).
+            open_session = CashSession.objects.select_for_update().filter(
                 tenant_id=tenant_id, store_id=store_id, status=CashSession.STATUS_OPEN
             ).first()
-            if open_session:
+            if open_session and open_session.status == CashSession.STATUS_OPEN:
                 sale_create_kwargs["cash_session"] = open_session
         except (ImportError, LookupError) as e:
             logger.warning("Error obteniendo sesión de caja: %s", e)
@@ -320,9 +331,26 @@ def create_sale(
         StockMove.objects.bulk_create(stock_moves)
 
     # ── 9. Record payments ───────────────────────────────────────────
+    # CRÍTICO: SalePayment.amount representa el dinero que ENTRÓ a la
+    # caja, NO el dinero que el cliente entregó. Si el cliente paga con
+    # cash más del total (ej. $11.000 por una cuenta de $10.000), el
+    # cajero le devuelve $1.000 — esos $1.000 NO se quedan en la caja.
+    # Si registramos amount=$11.000, el sistema espera ese dinero al
+    # cerrar la caja → "falta $1.000" falso. Frontend ya recorta el
+    # último pago, pero defensa server-side por si llega request raw
+    # (POS direct, retry mal armado, cliente con bug).
+    #
+    # Lógica: el grandTotal a cobrar es subtotal_neto + tip. Si la suma
+    # de payments excede ese grandTotal, recortamos el ÚLTIMO payment al
+    # remanente para que sum(payments) == grandTotal exacto.
+    grand_total_to_charge = max(
+        (subtotal - total_discount).quantize(Decimal("1")), Decimal("0")
+    ) + tip
     valid_methods = {SalePayment.METHOD_CASH, SalePayment.METHOD_CARD, SalePayment.METHOD_DEBIT, SalePayment.METHOD_TRANSFER}
     payment_rows = []
     total_paid = Decimal("0.00")
+    # Procesamos primero todos los válidos; el clamp se aplica al final.
+    raw_pays = []
     for p in payments_in:
         method = (p.get("method") or "").strip().lower()
         try:
@@ -333,8 +361,22 @@ def create_sale(
             logger.warning("Pago con monto no positivo ignorado: method=%s amount=%s sale=%s", method, amount, sale.id)
             continue
         if method in valid_methods:
-            payment_rows.append(SalePayment(sale=sale, tenant_id=tenant_id, method=method, amount=amount))
-            total_paid += amount
+            raw_pays.append((method, amount))
+    # Clamp del último payment si la suma excede el grandTotal
+    if raw_pays and grand_total_to_charge > 0:
+        running = Decimal("0.00")
+        for i, (method, amount) in enumerate(raw_pays):
+            is_last = i == len(raw_pays) - 1
+            if is_last and (running + amount) > grand_total_to_charge:
+                clamped = (grand_total_to_charge - running).quantize(Decimal("0.01"))
+                if clamped > 0:
+                    payment_rows.append(SalePayment(sale=sale, tenant_id=tenant_id, method=method, amount=clamped))
+                    total_paid += clamped
+                # Si clamped == 0, el último payment se elimina (totalmente cubierto por previos).
+            else:
+                payment_rows.append(SalePayment(sale=sale, tenant_id=tenant_id, method=method, amount=amount))
+                total_paid += amount
+                running += amount
     if payment_rows:
         SalePayment.objects.bulk_create(payment_rows)
 

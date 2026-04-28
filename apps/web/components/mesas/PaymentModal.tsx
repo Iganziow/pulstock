@@ -409,12 +409,38 @@ export function PaymentModal({
         <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
         <Btn variant={isConsumoInterno ? "danger" : "primary"} full size="lg"
           disabled={loading || grandTotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < grandTotal)}
-          onClick={() => onConfirm(
-            isConsumoInterno ? [] : rows.filter(r => Number(r.amount) > 0),
-            isConsumoInterno ? 0 : tip,
-            checkoutMode, [...selLines],
-            isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
-          )}>
+          onClick={() => {
+            // CRÍTICO (auditoría E2E): si el cliente paga más que el total
+            // (ej. da $11.000 por una cuenta de $10.000), el cajero
+            // devuelve $1.000 de vuelto. Pero si mandamos al backend
+            // payment.amount=$11.000, la caja va a "esperar" ese dinero
+            // en el cajón al cerrar. Recortamos el ÚLTIMO pago al monto
+            // que falta para llegar exacto al grandTotal — el vuelto
+            // queda solo en UI, NO entra al SalePayment. Así
+            // expected_cash refleja el dinero que de verdad quedó.
+            const validRows = rows.filter(r => Number(r.amount) > 0);
+            let clampedRows = validRows;
+            if (!isConsumoInterno && validRows.length > 0) {
+              let running = 0;
+              clampedRows = validRows.map((r, i) => {
+                const amt = Number(r.amount) || 0;
+                if (i < validRows.length - 1) {
+                  running += amt;
+                  return r;
+                }
+                // Última fila: clampear al exacto remanente para que
+                // sum(rows) === grandTotal (sin vuelto en backend).
+                const remaining = Math.max(0, grandTotal - running);
+                return { ...r, amount: String(remaining) };
+              });
+            }
+            onConfirm(
+              isConsumoInterno ? [] : clampedRows,
+              isConsumoInterno ? 0 : tip,
+              checkoutMode, [...selLines],
+              isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
+            );
+          }}>
           {loading ? <Spinner size={14} /> : null}
           {loading ? "Procesando…" : isConsumoInterno ? "Registrar consumo" : `Cobrar $${fmt(grandTotal)}`}
         </Btn>

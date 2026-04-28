@@ -286,41 +286,55 @@ class SaleVoid(APIView):
 
         lines = list(sale.lines.select_for_update().all())
 
-        # traemos los moves SALE para recuperar el costo real que usamos al vender
-        sale_moves = {
-            int(m.product_id): m
-            for m in StockMove.objects.filter(
+        # CRÍTICO (Mario - café Marbrava): el void debe reversar los
+        # StockMove ORIGINALES de la venta, no iterar `sale.lines`.
+        # Antes: iteraba lines (productos vendidos como "Capuchino") y
+        # re-stockeaba el Capuchino → pero create_sale NO descuenta stock
+        # del Capuchino sino de los ingredientes (leche, café) tras la
+        # expansión de receta. Resultado: cada void de un producto con
+        # receta dejaba la leche/café permanentemente faltante e inflaba
+        # phantom stock del producto compuesto.
+        #
+        # Fix: leer los StockMove con ref_type="SALE" y ref_id=sale.id
+        # (que ya tienen el producto real — ingrediente o no — y la qty
+        # exacta descontada en su momento) y reversarlos uno por uno.
+        # Eso garantiza simetría perfecta sin importar si hay receta.
+        sale_moves = list(
+            StockMove.objects.filter(
                 tenant_id=t_id,
                 warehouse_id=sale.warehouse_id,
                 ref_type="SALE",
                 ref_id=sale.id,
             ).only("product_id", "cost_snapshot", "value_delta", "qty")
-        }
+        )
 
         moves = []
         total_cost_reversed = Decimal("0.000")
 
-        for l in lines:
-            # Importar helper race-safe (usa savepoint para no romper la
-            # transacción externa si hay IntegrityError en la creación)
-            from inventory.views import _get_or_create_stockitem_locked
+        # Importar helper race-safe (usa savepoint para no romper la
+        # transacción externa si hay IntegrityError en la creación).
+        from inventory.views import _get_or_create_stockitem_locked
+
+        for m_sale in sale_moves:
             si = _get_or_create_stockitem_locked(
                 tenant_id=t_id,
                 warehouse_id=sale.warehouse_id,
-                product_id=l.product_id,
+                product_id=m_sale.product_id,
             )
 
-            m_sale = sale_moves.get(int(l.product_id))
-            unit_cost = Decimal("0.000")
-            if m_sale and m_sale.cost_snapshot is not None:
-                unit_cost = Decimal(str(m_sale.cost_snapshot)).quantize(Decimal("0.000"))
+            # value_delta del SALE es NEGATIVO (qty × cost descontados).
+            # Reversamos sumando el valor absoluto al stock_value, y la
+            # qty al on_hand. Si el SALE original había clampeado por
+            # stock negativo permitido, el value_delta refleja la qty
+            # realmente descontada (no la qty solicitada), así que el
+            # void revierte exactamente lo mismo.
+            qty_to_restore = m_sale.qty
+            value_to_restore = abs(Decimal(str(m_sale.value_delta or 0))).quantize(Decimal("0.000"))
+            unit_cost = Decimal(str(m_sale.cost_snapshot or 0)).quantize(Decimal("0.000"))
 
-            line_cost = (l.qty * unit_cost).quantize(Decimal("0.000"))
-
-            # devolver stock y valor al inventario
             StockItem.objects.filter(id=si.id).update(
-                on_hand=F("on_hand") + l.qty,
-                stock_value=F("stock_value") + line_cost,
+                on_hand=F("on_hand") + qty_to_restore,
+                stock_value=F("stock_value") + value_to_restore,
             )
 
             # IN: value_delta POSITIVO (vuelve al inventario)
@@ -328,19 +342,19 @@ class SaleVoid(APIView):
                 StockMove(
                     tenant_id=t_id,
                     warehouse_id=sale.warehouse_id,
-                    product_id=l.product_id,
+                    product_id=m_sale.product_id,
                     move_type=StockMove.IN,
-                    qty=l.qty,
+                    qty=qty_to_restore,
                     ref_type="SALE_VOID",
                     ref_id=sale.id,
                     note=f"Void sale #{sale.id}",
                     created_by=user,
                     cost_snapshot=unit_cost,
-                    value_delta=line_cost,
+                    value_delta=value_to_restore,
                 )
             )
 
-            total_cost_reversed += line_cost
+            total_cost_reversed += value_to_restore
 
         if moves:
             StockMove.objects.bulk_create(moves)
