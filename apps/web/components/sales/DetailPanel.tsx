@@ -160,46 +160,99 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
               )}
 
               {/* Propina — apartado separado para que se pueda cuadrar
-                  con lo que entró al banco/caja. Mario lo pidió:
-                  "busca algun error parecido". Antes este bloque
-                  mostraba "Subtotal sin propina = total - tip", pero
-                  sale.total ya viene SIN propina (services.py setea
-                  total = subtotal - discount, sin tip). El cálculo
-                  correcto: total cobrado al cliente = total + tip. */}
-              {sale.tip && toNum(sale.tip) > 0 && (
-                <div style={{
-                  background: C.amberBg, borderRadius: C.r,
-                  padding: "12px 14px",
-                  border: `1px solid ${C.amberBd}`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 18 }}>💵</span>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      Propina cobrada
+                  con lo que entró al banco/caja. Muestra el desglose
+                  por método de pago (Mario lo pidió: "ahora aca aparece
+                  la propina pero no sale si la dejaron en debito
+                  efectivo credito transferencia, esto es importante
+                  para validar el cierre de caja"). */}
+              {sale.tip && toNum(sale.tip) > 0 && (() => {
+                // Calcular reparto proporcional de la propina por método
+                // de pago, IDÉNTICO al backend (caja/views.py): la última
+                // fila absorbe el resto del redondeo para que la suma
+                // cuadre exacto con sale.tip.
+                const tipNum = toNum(sale.tip);
+                const payments = sale.payments || [];
+                const totalPaid = payments.reduce((s, p) => s + toNum(p.amount), 0);
+                const tipByMethod: Record<string, number> = {};
+                if (payments.length > 0 && totalPaid > 0) {
+                  let running = 0;
+                  for (let i = 0; i < payments.length - 1; i++) {
+                    const p = payments[i];
+                    const share = Math.round(tipNum * toNum(p.amount) / totalPaid);
+                    tipByMethod[p.method] = (tipByMethod[p.method] || 0) + share;
+                    running += share;
+                  }
+                  const last = payments[payments.length - 1];
+                  const lastShare = tipNum - running;
+                  tipByMethod[last.method] = (tipByMethod[last.method] || 0) + lastShare;
+                }
+                const tipMethodLabels: Record<string, string> = {
+                  cash: "Efectivo", debit: "Débito", card: "Crédito", transfer: "Transferencia",
+                };
+                const tipMethodIcons: Record<string, string> = {
+                  cash: "💵", debit: "💳", card: "💳", transfer: "🏦",
+                };
+                const methodRows = Object.entries(tipByMethod)
+                  .filter(([_, amt]) => amt > 0)
+                  .sort((a, b) => b[1] - a[1]);
+
+                return (
+                  <div style={{
+                    background: C.amberBg, borderRadius: C.r,
+                    padding: "12px 14px",
+                    border: `1px solid ${C.amberBd}`,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 18 }}>💵</span>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        Propina cobrada
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
+                        <span>Total de la venta</span>
+                        <span style={{ fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>${fCLP(sale.total)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
+                        <span>Propina</span>
+                        <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>+${fCLP(sale.tip)}</span>
+                      </div>
+
+                      {/* Desglose por método: solo se muestra si la
+                          propina se pudo atribuir (al menos un payment
+                          válido). Si hay 1 método: una sola fila clara.
+                          Si hay split: varias filas con el reparto
+                          proporcional. */}
+                      {methodRows.length > 0 && (
+                        <div style={{ marginTop: 4, paddingLeft: 12, borderLeft: `2px solid ${C.amberBd}`, display: "flex", flexDirection: "column", gap: 2 }}>
+                          {methodRows.map(([method, amt]) => (
+                            <div key={method} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.mid }}>
+                              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 12 }}>{tipMethodIcons[method] || "💰"}</span>
+                                {methodRows.length === 1 ? "Pagada con " : ""}{tipMethodLabels[method] || method}
+                              </span>
+                              <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>
+                                ${fCLP(amt)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{
+                        display: "flex", justifyContent: "space-between",
+                        fontSize: 13, fontWeight: 800, color: C.text,
+                        paddingTop: 6, marginTop: 4, borderTop: `1px dashed ${C.amberBd}`,
+                      }}>
+                        <span>Total cobrado al cliente</span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                          ${fCLP(toNum(sale.total) + toNum(sale.tip))}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
-                      <span>Total de la venta</span>
-                      <span style={{ fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>${fCLP(sale.total)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
-                      <span>Propina</span>
-                      <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>+${fCLP(sale.tip)}</span>
-                    </div>
-                    <div style={{
-                      display: "flex", justifyContent: "space-between",
-                      fontSize: 13, fontWeight: 800, color: C.text,
-                      paddingTop: 6, borderTop: `1px dashed ${C.amberBd}`,
-                    }}>
-                      <span>Total cobrado al cliente</span>
-                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                        ${fCLP(toNum(sale.total) + toNum(sale.tip))}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Financials */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
