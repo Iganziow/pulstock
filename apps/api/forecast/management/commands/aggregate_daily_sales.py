@@ -18,7 +18,6 @@ from django.db.models.functions import Coalesce
 from core.models import Tenant
 from inventory.models import StockMove, StockItem
 from sales.models import SaleLine
-from catalog.models import RecipeLine
 from forecast.models import DailySales
 
 
@@ -63,6 +62,10 @@ class Command(BaseCommand):
         updated = 0
 
         # ── Sales: SaleLine grouped by product + warehouse ──
+        # Solo usamos SaleLine para revenue / total_cost / gross_profit:
+        # esos son atributos del producto VENDIDO directamente (Latte vainilla,
+        # Cappuccino, etc.), no de los ingredientes que se descuentan vía receta.
+        # Para qty_sold usamos StockMove (ver más abajo).
         sale_agg = (
             SaleLine.objects.filter(
                 tenant=tenant,
@@ -83,11 +86,40 @@ class Command(BaseCommand):
             revenue = row["total_revenue"] or Decimal("0.00")
             cost = row["total_cost"] or Decimal("0.00")
             sales_map[key] = {
-                "qty_sold": row["total_qty"] or Decimal("0.000"),
+                "qty_sold_direct": row["total_qty"] or Decimal("0.000"),
                 "revenue": revenue,
                 "total_cost": cost,
                 "gross_profit": revenue - cost,
             }
+
+        # ── Demanda real: StockMove OUT con ref_type=SALE ──────────────────
+        # Este es el descuento físico de stock que generó la venta. Incluye:
+        # 1) ventas directas (Cappuccino, etc.)
+        # 2) ingredientes consumidos vía expansión de receta (recursiva).
+        #
+        # Antes: qty_sold se tomaba de SaleLine. Si la "Leche entera" se vendía
+        # directa Y se consumía como ingrediente de cafés, qty_sold solo
+        # contaba la venta directa → el forecast subestimaba la demanda real
+        # de leche. El PASO 2 (más abajo) trataba de cubrir el caso "puro
+        # ingrediente" pero excluía explícitamente los productos vendidos
+        # directos → bug.
+        #
+        # Fix: usar StockMove como fuente única de verdad para qty_sold.
+        # Cubre los 3 casos (puro directo, puro ingrediente, mixto).
+        stockmove_sale_agg = (
+            StockMove.objects.filter(
+                tenant=tenant,
+                created_at__date=target_date,
+                move_type="OUT",
+                ref_type="SALE",
+            )
+            .values("product_id", "warehouse_id")
+            .annotate(total_qty=Coalesce(Sum("qty"), Decimal("0.000")))
+        )
+        consumed_map = {
+            (row["product_id"], row["warehouse_id"]): row["total_qty"] or Decimal("0.000")
+            for row in stockmove_sale_agg
+        }
 
         # ── Promotional sales: SaleLines with promotion set ──
         promo_agg = (
@@ -143,11 +175,26 @@ class Command(BaseCommand):
             recv_map[key] = row["total_qty"] or Decimal("0.000")
 
         # ── Merge all keys ──
-        all_keys = set(sales_map.keys()) | set(loss_map.keys()) | set(recv_map.keys())
+        # Incluimos consumed_map para que ingredientes consumidos vía recetas
+        # (que NO aparecen en SaleLine) también generen su DailySales.
+        all_keys = (
+            set(sales_map.keys())
+            | set(loss_map.keys())
+            | set(recv_map.keys())
+            | set(consumed_map.keys())
+        )
 
         for product_id, warehouse_id in all_keys:
             sale_data = sales_map.get((product_id, warehouse_id), {})
-            qty_sold = sale_data.get("qty_sold", Decimal("0.000"))
+            # qty_sold = demanda total (directa + via recetas), desde StockMove.
+            # Fallback a SaleLine.qty solo si NO hubo StockMove (caso raro:
+            # venta de producto sin descuento de stock — p. ej. servicio o
+            # producto con allow_negative=True y stock=0 que después del fix
+            # del PR #87 ya no genera StockMove). Mantenemos el fallback para
+            # no perder esa demanda en el forecast.
+            consumed_qty = consumed_map.get((product_id, warehouse_id), Decimal("0.000"))
+            direct_qty = sale_data.get("qty_sold_direct", Decimal("0.000"))
+            qty_sold = consumed_qty if consumed_qty > 0 else direct_qty
             revenue = sale_data.get("revenue", Decimal("0.00"))
             total_cost = sale_data.get("total_cost", Decimal("0.00"))
             gross_profit = sale_data.get("gross_profit", Decimal("0.00"))
@@ -220,64 +267,14 @@ class Command(BaseCommand):
                     date=target_date,
                 ).update(closing_stock=closing, is_stockout=is_stockout)
 
-        # ── PASO 2: ingredientes puros de recetas ──────────────────────────────
-        # Productos que son ingredientes en recetas activas pero que NO se venden
-        # directamente (no aparecen en SaleLine). Su consumo queda en StockMove OUT
-        # con ref_type="SALE", generado por la expansión de receta en create_sale().
-
-        ingredient_ids = set(
-            RecipeLine.objects.filter(
-                tenant=tenant,
-                recipe__is_active=True,
-            ).values_list("ingredient_id", flat=True)
-        )
-
-        # Warehouses que tuvieron actividad de venta ese día (para distribuir correctamente)
-        sale_warehouses = set(wh for (_, wh) in all_keys)
-
-        # Para cada ingrediente puro (no vendido directamente), agregar por bodega
-        direct_sold_ids = {pid for (pid, _) in sales_map}
-        pure_ingredient_ids = ingredient_ids - direct_sold_ids
-
-        if pure_ingredient_ids:
-            ingredient_agg = (
-                StockMove.objects.filter(
-                    tenant=tenant,
-                    created_at__date=target_date,
-                    move_type="OUT",
-                    ref_type="SALE",
-                    product_id__in=pure_ingredient_ids,
-                )
-                .values("product_id", "warehouse_id")
-                .annotate(total_qty=Coalesce(Sum("qty"), Decimal("0.000")))
-            )
-            for row in ingredient_agg:
-                pid = row["product_id"]
-                wh_id = row["warehouse_id"]
-                qty = row["total_qty"] or Decimal("0.000")
-                if qty <= 0:
-                    continue
-                if DailySales.objects.filter(
-                    tenant=tenant, product_id=pid,
-                    warehouse_id=wh_id, date=target_date,
-                    forecast_only=True,
-                ).exists():
-                    continue
-                obj, was_created = DailySales.objects.update_or_create(
-                    tenant=tenant,
-                    product_id=pid,
-                    warehouse_id=wh_id,
-                    date=target_date,
-                    defaults={
-                        "qty_sold": qty,
-                        "revenue": Decimal("0.00"),
-                        "qty_lost": Decimal("0.000"),
-                        "qty_received": Decimal("0.000"),
-                    },
-                )
-                if was_created:
-                    created += 1
-                else:
-                    updated += 1
+        # NOTA: el "PASO 2" original (que iteraba pure_ingredient_ids para
+        # capturar consumo via recetas) quedó obsoleto al cambiar qty_sold
+        # del PASO 1 a basarse en StockMove (consumed_map). Ahora el PASO 1
+        # cubre los 3 casos:
+        #   - producto vendido directamente (Cappuccino)
+        #   - ingrediente puro (Leche solo usada en cafés)
+        #   - mixto: vendido directo Y consumido como ingrediente
+        # Los 3 generan StockMove OUT ref_type="SALE" → todos terminan en
+        # consumed_map → DailySales correcto.
 
         return created, updated
