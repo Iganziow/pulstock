@@ -60,22 +60,48 @@ def _sales_in_session_range(session):
 
     end_dt = session.closed_at or timezone.now()
 
-    # Buscar la última sesión cerrada antes de esta (mismo store, mismo tenant)
-    prev_closed = CashSession.objects.filter(
+    # Buscar la sesión cerrada anterior CON ACTIVIDAD REAL (ventas o
+    # movimientos manuales). Sin esto, una sesión-fantasma de 7 minutos
+    # que se abrió y cerró por error "reservaba" un período temporal y
+    # bloqueaba que la sesión real absorbiera las huérfanas.
+    #
+    # Caso real Marbrava 27-abr: Mario abrió la caja 21:19, la cerró
+    # 21:26 sin vender nada. Después Ignacia abrió 21:26 y vendió hasta
+    # 01:23. Las 8 ventas previas del día (huérfanas) deberían entrar al
+    # cierre de Ignacia, no quedar atrapadas en la sesión vacía de Mario.
+    #
+    # Limitamos la búsqueda a las últimas 10 sesiones para no degradar
+    # performance — más que suficiente para cualquier caso real.
+    prev_closed = None
+    candidates = CashSession.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status=CashSession.STATUS_CLOSED,
         closed_at__lt=session.opened_at,
-    ).exclude(id=session.id).order_by("-closed_at").first()
+    ).exclude(id=session.id).order_by("-closed_at")[:10]
+
+    for pc in candidates:
+        # Actividad = ventas con FK a esta sesión O movimientos manuales.
+        # Usamos FK directo (no rango temporal) para evitar circularidad:
+        # si chequeáramos por rango, las huérfanas que ya están en la
+        # sesión-fantasma cuentan como "actividad" y nunca se libera.
+        from sales.models import Sale
+        has_sales = Sale.objects.filter(
+            cash_session_id=pc.id, status="COMPLETED",
+        ).exists()
+        has_movs = pc.movements.exists()
+        if has_sales or has_movs:
+            prev_closed = pc
+            break
 
     if prev_closed and prev_closed.closed_at:
-        # Empezar desde el cierre anterior — captura el gap entre cierres.
+        # Empezar desde el cierre anterior con actividad — captura el gap.
         start_dt = prev_closed.closed_at
     else:
-        # Sin sesión cerrada previa: extender hasta el inicio del día local
-        # de opened_at. Esto absorbe huérfanas de la mañana cuando la caja
-        # se abrió tarde. Caso Marbrava 27-abr: abrieron 17:26 con 8 ventas
-        # previas en el día → todas entran al cierre.
+        # Sin sesión cerrada previa con actividad: extender hasta el
+        # inicio del día local de opened_at. Esto absorbe huérfanas de
+        # la mañana cuando la caja se abrió tarde, ignorando sesiones
+        # fantasma vacías. Caso Marbrava 27-abr.
         local_tz = timezone.get_current_timezone()
         opened_local = session.opened_at.astimezone(local_tz)
         start_of_day_naive = datetime.combine(opened_local.date(), dt_time(0, 0))
@@ -481,13 +507,23 @@ class CloseSessionView(APIView):
         # constraint de 1 sola OPEN, pero defensivo) NO se tocan.
         from sales.models import Sale
         end_dt = timezone.now()  # cierre = ahora
-        # Cerramos la sesión temporalmente para que _sales_in_session_range
-        # use end_dt correcto. Más limpio: replicar la lógica acá.
-        prev_closed = CashSession.objects.filter(
+        # Mismo cálculo de rango extendido que `_sales_in_session_range`
+        # (ignora sesiones-fantasma sin actividad).
+        prev_closed = None
+        candidates = CashSession.objects.filter(
             tenant_id=t_id, store_id=s_id,
             status=CashSession.STATUS_CLOSED,
             closed_at__lt=session.opened_at,
-        ).exclude(id=session.id).order_by("-closed_at").first()
+        ).exclude(id=session.id).order_by("-closed_at")[:10]
+        for pc in candidates:
+            has_sales = Sale.objects.filter(
+                cash_session_id=pc.id, status="COMPLETED",
+            ).exists()
+            has_movs = pc.movements.exists()
+            if has_sales or has_movs:
+                prev_closed = pc
+                break
+
         if prev_closed and prev_closed.closed_at:
             start_dt = prev_closed.closed_at
         else:
