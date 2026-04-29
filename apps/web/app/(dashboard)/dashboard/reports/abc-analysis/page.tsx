@@ -22,7 +22,7 @@ const ABC_CONFIG: Record<string, { color: string; bg: string; bd: string; icon: 
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-type Row = { rank: number; product_id: number; product_name: string; sku: string; category: string; abc_class: string; revenue: string; cost: string; profit: string; margin_pct: string; qty: string; sale_count: number; contribution_pct: string; cumulative_pct: string; current_stock: string; stock_value: string };
+type Row = { rank: number; product_id: number; product_name: string; sku: string; category: string; abc_class: string; revenue: string; cost: string; profit: string; margin_pct: string; qty: string; sale_count: number; contribution_pct: string; cumulative_pct: string; current_stock: string; stock_value: string; is_virtual_stock?: boolean };
 type ClassSummary = Record<string, { count: number; pct_products: string; revenue: string; profit: string; pct_revenue: string; stock_value: string }>;
 type ViewTab = "pareto" | "topn" | "category";
 
@@ -286,7 +286,10 @@ export default function ABCAnalysisPage() {
                     <span>Margen: <b>{r.margin_pct}%</b></span>
                   </div>
                   <div style={{ height: 3, borderRadius: 2, background: "#E4E4E7", marginTop: 6, overflow: "hidden" }}><div style={{ height: "100%", width: `${barPct}%`, background: cfg.color, borderRadius: 2, opacity: .5 }} /></div>
-                  <div style={{ fontSize: 10, color: C.mute, marginTop: 3 }}>{r.contribution_pct}% del total · Acumulado: {r.cumulative_pct}% · Stock: {fmt(r.current_stock)}</div>
+                  <div style={{ fontSize: 10, color: C.mute, marginTop: 3 }}>
+                    {r.contribution_pct}% del total · Acumulado: {r.cumulative_pct}% · Stock: {fmt(r.current_stock)}
+                    {r.is_virtual_stock && <span title="Stock calculado a partir de los ingredientes de la receta. El producto se 'arma' al vender." style={{ marginLeft: 4, fontSize: 9, padding: "1px 4px", background: "#EEF2FF", color: "#4F46E5", borderRadius: 3, fontWeight: 600 }}>vía receta</span>}
+                  </div>
                 </div>
               );
               return (
@@ -301,7 +304,10 @@ export default function ABCAnalysisPage() {
                   <div style={{ textAlign: "right", fontWeight: 600, fontSize: 12 }}>{fmtMoney(r.revenue)}</div>
                   <div style={{ textAlign: "right", fontSize: 12, color: parseFloat(r.profit) > 0 ? C.green : C.red }}>{fmtMoney(r.profit)}</div>
                   <div style={{ textAlign: "right", fontSize: 12, color: C.mid }}>{r.margin_pct}%</div>
-                  <div style={{ textAlign: "right", fontSize: 12 }}>{fmt(r.current_stock)}</div>
+                  <div style={{ textAlign: "right", fontSize: 12 }}>
+                    {fmt(r.current_stock)}
+                    {r.is_virtual_stock && <span title="Stock calculado a partir de los ingredientes de la receta. El producto se 'arma' al vender." style={{ display: "inline-block", marginLeft: 4, fontSize: 9, padding: "1px 4px", background: "#EEF2FF", color: "#4F46E5", borderRadius: 3, fontWeight: 600 }}>vía receta</span>}
+                  </div>
                   <div style={{ textAlign: "right", fontSize: 11, color: C.mute }}>{r.cumulative_pct}%</div>
                 </div>
               );

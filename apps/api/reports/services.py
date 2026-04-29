@@ -962,7 +962,7 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
         .order_by(f"-{criterion}")
     )
 
-    # Get current stock for each product
+    # Get current stock for each product (raw on_hand + stock_value).
     stock_map = {}
     if agg:
         pids = [r["product_id"] for r in agg]
@@ -977,6 +977,22 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
                 "stock": si["total_stock"],
                 "stock_value": si["total_value"],
             }
+
+    # Stock VIRTUAL para productos compuestos (con receta activa).
+    # Antes: Latte vainilla aparecía con "Stock: 0" porque no tiene
+    # StockItem propio (es virtual, se fabrica vía expansión de receta).
+    # Ahora calculamos cuántas unidades se pueden armar con el stock
+    # actual de ingredientes raw, recursivo.
+    from catalog.virtual_stock import compute_virtual_stock_map
+    virtual_stock_map = compute_virtual_stock_map(t_id, s_id, warehouse_id=warehouse_id)
+    # Set de productos que son compuestos (tienen receta activa) — para
+    # marcar el badge "virtual" en la UI.
+    from catalog.models import Recipe
+    composed_pids = set(
+        Recipe.objects.filter(
+            tenant_id=t_id, is_active=True,
+        ).values_list("product_id", flat=True)
+    )
 
     # FIX: use Decimal instead of float for grand_total
     grand_total = sum(r[criterion] for r in agg) or Decimal("1")
@@ -997,6 +1013,14 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
             abc_class = "C"
 
         stk = stock_map.get(r["product_id"], {})
+        is_composed = r["product_id"] in composed_pids
+        # Para compuestos: usar virtual_stock (calculado desde ingredientes).
+        # Para raw: usar stk.stock directo. Si no hay stk ni virtual_stock
+        # (caso edge: producto sin receta y sin StockItem), cae a 0.
+        if is_composed:
+            current_stock = virtual_stock_map.get(r["product_id"], D0)
+        else:
+            current_stock = stk.get("stock", D0)
 
         results.append({
             "rank": i + 1,
@@ -1013,8 +1037,12 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
             "sale_count": r["sale_count"],
             "contribution_pct": str(Decimal(str(pct)).quantize(Decimal("0.1"))),
             "cumulative_pct": str(Decimal(str(cum_pct)).quantize(Decimal("0.1"))),
-            "current_stock": str(stk.get("stock", D0)),
+            "current_stock": str(current_stock),
             "stock_value": str(stk.get("stock_value", D0)),
+            # Flag para que el frontend muestre badge "virtual" / "compuesto".
+            # Cuando is_virtual_stock=True, current_stock es producible-via-receta
+            # (no hay StockItem físico del producto compuesto).
+            "is_virtual_stock": is_composed,
         })
 
     # Summary per class
