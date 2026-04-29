@@ -45,6 +45,18 @@ def _load_all_active_recipes(tenant_id):
     }
 
 
+def _load_inactive_recipe_pids(tenant_id):
+    """
+    Set de product_ids con Recipe is_active=False. Lo usamos para detectar
+    "receta intermedia desactivada" en una cadena anidada y dar mensaje
+    claro al dueño en lugar de fallar con shortage confuso.
+    """
+    return set(
+        Recipe.objects.filter(tenant_id=tenant_id, is_active=False)
+        .values_list("product_id", flat=True)
+    )
+
+
 def _convert_line_qty(qty, line, tenant_id):
     """
     Aplica la conversión de unidad de una RecipeLine a una qty arbitraria.
@@ -129,6 +141,7 @@ def expand_recipes(agg, tenant_id):
             la profundidad excede MAX_RECIPE_DEPTH.
     """
     all_recipes = _load_all_active_recipes(tenant_id)
+    inactive_pids = _load_inactive_recipe_pids(tenant_id)
     expanded_agg = {}
 
     for pid, data in agg.items():
@@ -141,22 +154,30 @@ def expand_recipes(agg, tenant_id):
             pid=pid,
             qty=data["qty"],
             all_recipes=all_recipes,
+            inactive_pids=inactive_pids,
             expanded_agg=expanded_agg,
             tenant_id=tenant_id,
             depth=0,
             visited=frozenset(),
             leaf_unit_price=leaf_price,
+            parent_pid=None,
         )
 
     return expanded_agg, all_recipes
 
 
-def _expand_one(*, pid, qty, all_recipes, expanded_agg, tenant_id, depth, visited, leaf_unit_price):
+def _expand_one(*, pid, qty, all_recipes, inactive_pids, expanded_agg, tenant_id,
+                depth, visited, leaf_unit_price, parent_pid):
     """
     Expande UN producto recursivamente acumulando qty en expanded_agg.
 
     visited es un frozenset con los pids YA en cadena (ancestros). Si pid
     ya está en visited → ciclo detectado.
+
+    parent_pid permite distinguir si pid llegó como producto vendido (None)
+    o como ingrediente de otro (pid del padre). Lo usamos para el chequeo
+    de "receta intermedia inactiva" — si el padre lo trae como ingrediente
+    pero su receta está inactiva, damos error claro.
     """
     if depth > MAX_RECIPE_DEPTH:
         from .services import SaleValidationError
@@ -177,6 +198,24 @@ def _expand_one(*, pid, qty, all_recipes, expanded_agg, tenant_id, depth, visite
         })
 
     if pid not in all_recipes:
+        # Caso especial: el producto NO tiene receta activa, pero existe una
+        # receta INACTIVA. Si llegamos a este pid como ingrediente de otro
+        # producto compuesto, lo más probable es que el dueño desactivó
+        # temporalmente la receta intermedia sin querer (ej. testeando) y la
+        # venta del padre va a fallar después con "Insufficient stock"
+        # confuso (porque el intermedio no tiene stock real). Mejor avisar
+        # con mensaje claro acá.
+        if parent_pid is not None and pid in inactive_pids:
+            from .services import SaleValidationError
+            raise SaleValidationError({
+                "detail": (
+                    f"El producto '{_resolve_product_name(pid)}' es ingrediente de "
+                    f"'{_resolve_product_name(parent_pid)}', pero su receta está "
+                    f"DESACTIVADA. Activá la receta o quitala de la receta padre "
+                    f"para poder vender."
+                )
+            })
+
         # Caso base: producto sin receta → es un ingrediente raw, lo
         # acumulamos en expanded_agg.
         if pid not in expanded_agg:
@@ -195,19 +234,38 @@ def _expand_one(*, pid, qty, all_recipes, expanded_agg, tenant_id, depth, visite
 
     # Caso recursivo: tiene receta activa → expandir sus líneas.
     recipe = all_recipes[pid]
+    lines = list(recipe.lines.all())
+
+    # Receta activa pero SIN líneas: es una mala configuración. Si seguimos,
+    # el for no itera, no se descuenta nada (ni el producto ni ingredientes),
+    # y la venta pasa "fantasma" sin descontar stock → bug grave que
+    # detectamos en auditoría 28/04/26. Mejor abortar con mensaje claro
+    # para que el dueño arregle la receta o la desactive.
+    if not lines:
+        from .services import SaleValidationError
+        raise SaleValidationError({
+            "detail": (
+                f"La receta de '{_resolve_product_name(pid)}' está activa pero no "
+                f"tiene ingredientes configurados. Agregalos en Catálogo → Recetas, "
+                f"o desactivá la receta si querés vender el producto sin descontar stock."
+            )
+        })
+
     new_visited = visited | {pid}
-    for line in recipe.lines.all():
+    for line in lines:
         line_qty = qty * line.qty
         line_qty = _convert_line_qty(line_qty, line, tenant_id)
         _expand_one(
             pid=line.ingredient_id,
             qty=line_qty,
             all_recipes=all_recipes,
+            inactive_pids=inactive_pids,
             expanded_agg=expanded_agg,
             tenant_id=tenant_id,
             depth=depth + 1,
             visited=new_visited,
             leaf_unit_price=None,  # ingredientes intermedios no llevan precio
+            parent_pid=pid,
         )
 
 

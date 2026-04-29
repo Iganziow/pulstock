@@ -977,6 +977,69 @@ class RecipeImport(APIView):
                 "qty": qty,
             })
 
+        # Detección de ciclos en el batch importado.
+        #
+        # `_has_cycle` del endpoint POST de receta única solo valida una
+        # receta por vez. El CSV puede traer A→B y B→A en el mismo archivo
+        # — si commiteamos así, todas las ventas del producto en el ciclo
+        # estallan después con SaleValidationError de "ciclo detectado" en
+        # runtime. Mejor abortar todo el import acá con mensaje claro.
+        #
+        # Estrategia: armar un grafo en memoria con (a) recetas existentes
+        # del tenant y (b) las recetas a importar (las nuevas REEMPLAZAN
+        # las existentes del mismo producto, igual que hace el bulk_create
+        # más abajo). Después BFS desde cada producto del import buscando
+        # si llega a sí mismo.
+        if recipes_data:
+            existing_graph = {}
+            for rl in RecipeLine.objects.filter(
+                tenant_id=t_id,
+                recipe__is_active=True,
+            ).values_list("recipe__product_id", "ingredient_id"):
+                existing_graph.setdefault(rl[0], set()).add(rl[1])
+
+            # Sobrescribir con las del import
+            graph = dict(existing_graph)
+            for pid, rdata in recipes_data.items():
+                graph[pid] = {l["ingredient"].id for l in rdata["lines"]}
+
+            cycle_errors = []
+            for pid in recipes_data:
+                # BFS desde ingredientes de pid buscando si llega a pid
+                queue = list(graph.get(pid, set()))
+                seen = set(queue)
+                found_cycle = False
+                while queue:
+                    next_queue = []
+                    for node in queue:
+                        if node == pid:
+                            found_cycle = True
+                            break
+                        for child in graph.get(node, set()):
+                            if child not in seen:
+                                seen.add(child)
+                                next_queue.append(child)
+                    if found_cycle:
+                        break
+                    queue = next_queue
+                if found_cycle:
+                    cycle_errors.append({
+                        "product": recipes_data[pid]["product"].name,
+                        "error": "Dependencia circular: este producto aparece en su propia cadena de ingredientes.",
+                    })
+
+            if cycle_errors:
+                return Response({
+                    "created": 0,
+                    "updated": 0,
+                    "errors_count": len(errors) + len(cycle_errors),
+                    "errors": (errors + cycle_errors)[:50],
+                    "detail": (
+                        "Import abortado: se detectaron dependencias circulares en "
+                        "el archivo. Corregí las recetas marcadas y reintentá."
+                    ),
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         # Save recipes
         created = 0
         updated = 0
