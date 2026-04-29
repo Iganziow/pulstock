@@ -336,21 +336,37 @@ def create_sale(
             stock_value=F("stock_value") - line_cost_move,
         )
 
-        stock_moves.append(
-            StockMove(
-                tenant_id=tenant_id,
-                warehouse_id=warehouse_id,
-                product_id=pid,
-                move_type=StockMove.OUT,
-                qty=qty,
-                ref_type="SALE",
-                ref_id=sale.id,
-                note=f"Sale #{sale.id}",
-                created_by=user,
-                cost_snapshot=unit_cost,
-                value_delta=(line_cost_move * Decimal("-1")).quantize(Decimal("0.000")),
+        # CRÍTICO: el StockMove debe registrar `actual_decrement` (qty REAL
+        # descontada), NO `qty` (qty solicitada). Antes guardaba qty solicitada
+        # y el void usaba ese valor para restaurar → al voidear ventas con
+        # clamping (allow_negative + stock insuficiente) el sistema inflaba
+        # el stock, creando "stock fantasma" que jamás existió.
+        #
+        # Reproducción del bug original (Marbrava 28/04/26):
+        # - Leche en 0 ML, allow_negative=True
+        # - Vender Latte vainilla (necesita 200 ML) → 201 OK, descuento real=0
+        # - StockMove guardaba qty=200, value_delta=0 (inconsistente)
+        # - Void → restauraba qty=200 → leche pasaba de 0 a 200 ML fantasmas
+        #
+        # Si actual_decrement=0, no creamos StockMove: no hubo movimiento
+        # físico, y registrar uno con qty=0 ensucia el kardex sin aportar
+        # valor (la SaleLine ya registra la venta).
+        if actual_decrement > 0:
+            stock_moves.append(
+                StockMove(
+                    tenant_id=tenant_id,
+                    warehouse_id=warehouse_id,
+                    product_id=pid,
+                    move_type=StockMove.OUT,
+                    qty=actual_decrement,
+                    ref_type="SALE",
+                    ref_id=sale.id,
+                    note=f"Sale #{sale.id}",
+                    created_by=user,
+                    cost_snapshot=unit_cost,
+                    value_delta=(line_cost_move * Decimal("-1")).quantize(Decimal("0.000")),
+                )
             )
-        )
 
     if stock_moves:
         StockMove.objects.bulk_create(stock_moves)
