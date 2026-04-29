@@ -2,6 +2,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
+import {
+  validateImportFile,
+  MAX_SUPERADMIN_IMPORT_SIZE_BYTES,
+  MAX_SUPERADMIN_IMPORT_SIZE_LABEL,
+} from "@/lib/file-validation";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", border: "#334155",
@@ -290,7 +295,22 @@ export default function ForecastMetricsPage() {
               ))}
             </select>
             <input type="file" accept=".csv,.xlsx,.xls"
-              onChange={e => setImportFile(e.target.files?.[0] || null)}
+              onChange={e => {
+                const f = e.target.files?.[0] || null;
+                if (f) {
+                  const v = validateImportFile(f, {
+                    maxBytes: MAX_SUPERADMIN_IMPORT_SIZE_BYTES,
+                    maxLabel: MAX_SUPERADMIN_IMPORT_SIZE_LABEL,
+                  });
+                  if (!v.ok) {
+                    alert(v.error);
+                    e.target.value = "";
+                    setImportFile(null);
+                    return;
+                  }
+                }
+                setImportFile(f);
+              }}
               style={{ flex: 1, fontSize: 12, color: C.mute }} />
             <button onClick={handleImport} disabled={importing || !importTenant || !importFile}
               style={{

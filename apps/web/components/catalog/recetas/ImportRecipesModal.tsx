@@ -2,6 +2,7 @@
 
 import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
+import { validateImportFile, ACCEPTED_CSV_EXTS } from "@/lib/file-validation";
 
 interface ImportRecipesModalProps {
   showImport: boolean;
@@ -60,7 +61,21 @@ export function ImportRecipesModal({
           <div style={{ display: "grid", gap: 5 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: C.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>Archivo CSV</label>
             <input type="file" accept=".csv,text/csv"
-              onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportResult(null); }}
+              onChange={e => {
+                const f = e.target.files?.[0] ?? null;
+                setImportResult(null);
+                if (f) {
+                  const v = validateImportFile(f, { allowedExts: ACCEPTED_CSV_EXTS });
+                  if (!v.ok) {
+                    setImportErr(v.error);
+                    setImportFile(null);
+                    e.target.value = "";  // reset input para que onChange dispare otra vez
+                    return;
+                  }
+                  setImportErr(null);
+                }
+                setImportFile(f);
+              }}
               style={{ padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}
               disabled={importing}
             />

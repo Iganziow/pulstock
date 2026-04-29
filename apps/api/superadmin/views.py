@@ -1111,10 +1111,18 @@ class AdminImportSalesView(APIView):
     """
     permission_classes = PERMS
 
+    # Cap de filas para prevenir DoS por archivo gigante (sin esto, un
+    # CSV de 5MB con líneas cortas podía tener >200k filas y procesarlas
+    # todas sin transacción → corruption parcial si reventaba a mitad).
+    MAX_ROWS = 50000  # superadmin tiene casos legítimos con muchos meses
+    MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+    MAX_ERRORS_RETURN = 100
+
     def post(self, request):
         import csv
         from datetime import date as date_cls
         from decimal import Decimal, InvalidOperation
+        from django.db import transaction
 
         tenant_id = request.data.get("tenant_id")
         if not tenant_id:
@@ -1134,13 +1142,29 @@ class AdminImportSalesView(APIView):
         if not uploaded:
             return Response({"detail": "Archivo es requerido."}, status=400)
 
+        # Defensa por tamaño antes de leer en memoria
+        if uploaded.size > self.MAX_FILE_SIZE:
+            mb = self.MAX_FILE_SIZE // (1024 * 1024)
+            return Response({"detail": f"Archivo demasiado grande (máximo {mb} MB)."}, status=413)
+
         # Parse file
         fname = uploaded.name.lower()
         rows = []
 
         if fname.endswith(".csv"):
             import io
-            content = uploaded.read().decode("utf-8-sig", errors="replace")
+            # `errors="replace"` antes silenciosamente ponía `?` en
+            # caracteres mal codificados → basura persistida. Mejor
+            # fallar explícito para que el dueño re-exporte en UTF-8.
+            try:
+                content = uploaded.read().decode("utf-8-sig")
+            except UnicodeDecodeError as e:
+                return Response({
+                    "detail": (
+                        f"Encoding inválido: {e}. Guardá el CSV como UTF-8 "
+                        f"(en Excel: Archivo → Guardar como → CSV UTF-8)."
+                    )
+                }, status=400)
             reader = csv.DictReader(io.StringIO(content))
             rows = list(reader)
         elif fname.endswith((".xlsx", ".xls")):
@@ -1156,6 +1180,14 @@ class AdminImportSalesView(APIView):
 
         if not rows:
             return Response({"detail": "Archivo vacío."}, status=400)
+
+        if len(rows) > self.MAX_ROWS:
+            return Response({
+                "detail": (
+                    f"Archivo tiene {len(rows)} filas, máximo {self.MAX_ROWS}. "
+                    f"Dividilo en archivos más chicos."
+                )
+            }, status=413)
 
         # Header mapping (Spanish support)
         HEADER_MAP = {
@@ -1190,78 +1222,120 @@ class AdminImportSalesView(APIView):
         skipped = 0
         errors = []
 
-        for i, row in enumerate(rows, start=2):
-            # Parse date
-            dt_raw = row.get("date", "")
-            try:
-                if hasattr(dt_raw, "date"):
-                    dt = dt_raw.date() if hasattr(dt_raw, "date") else dt_raw
-                elif isinstance(dt_raw, date_cls):
-                    dt = dt_raw
-                else:
-                    dt = date_cls.fromisoformat(str(dt_raw).strip()[:10])
-            except (ValueError, TypeError):
-                errors.append(f"Fila {i}: fecha inválida '{dt_raw}'")
-                skipped += 1
-                continue
-
-            # Resolve product
-            product = None
-            pid = row.get("product_id")
-            sku = row.get("sku")
-            name = row.get("name")
-
-            if pid:
+        # Transacción global con savepoints por fila: si una fila revienta
+        # se rollback solo esa, las anteriores quedan persistidas. Si falla
+        # algo POST-loop (commit, audit log), revierte todo. Antes: el
+        # bucle no estaba envuelto → un crash a mitad dejaba 50% importado
+        # con corruption silenciosa.
+        with transaction.atomic():
+            for i, row in enumerate(rows, start=2):
+                sid = transaction.savepoint()
                 try:
-                    product = products_by_id.get(int(pid))
-                except (ValueError, TypeError):
-                    pass
-            if not product and sku:
-                product = products_by_sku.get(str(sku).strip().upper())
-            if not product and name:
-                product = products_by_name.get(str(name).strip().upper())
+                    # Parse date
+                    dt_raw = row.get("date", "")
+                    try:
+                        if hasattr(dt_raw, "date") and not isinstance(dt_raw, date_cls):
+                            dt = dt_raw.date()
+                        elif isinstance(dt_raw, date_cls):
+                            dt = dt_raw
+                        else:
+                            dt = date_cls.fromisoformat(str(dt_raw).strip()[:10])
+                    except (ValueError, TypeError):
+                        errors.append(f"Fila {i}: fecha inválida '{dt_raw}'")
+                        skipped += 1
+                        transaction.savepoint_rollback(sid)
+                        continue
 
-            if not product:
-                errors.append(f"Fila {i}: producto no encontrado (id={pid}, sku={sku}, name={name})")
-                skipped += 1
-                continue
+                    # Resolve product
+                    product = None
+                    pid = row.get("product_id")
+                    sku = row.get("sku")
+                    name = row.get("name")
 
-            # Parse qty
-            try:
-                qty_sold = Decimal(str(row.get("qty_sold", 0) or 0))
-            except (InvalidOperation, TypeError):
-                errors.append(f"Fila {i}: cantidad inválida")
-                skipped += 1
-                continue
+                    if pid:
+                        try:
+                            product = products_by_id.get(int(pid))
+                        except (ValueError, TypeError):
+                            pass
+                    if not product and sku:
+                        product = products_by_sku.get(str(sku).strip().upper())
+                    if not product and name:
+                        product = products_by_name.get(str(name).strip().upper())
 
-            promo_qty = Decimal("0")
-            try:
-                promo_qty = Decimal(str(row.get("promo_qty", 0) or 0))
-            except (InvalidOperation, TypeError):
-                pass
+                    if not product:
+                        errors.append(f"Fila {i}: producto no encontrado (id={pid}, sku={sku}, name={name})")
+                        skipped += 1
+                        transaction.savepoint_rollback(sid)
+                        continue
 
-            total = Decimal("0")
-            try:
-                total = Decimal(str(row.get("total", 0) or 0))
-            except (InvalidOperation, TypeError):
-                total = qty_sold * product.price
+                    # Parse qty — NO permitir negativos ni NaN/Inf
+                    try:
+                        qty_sold = Decimal(str(row.get("qty_sold", 0) or 0))
+                        if not qty_sold.is_finite():
+                            raise InvalidOperation("non-finite")
+                    except (InvalidOperation, TypeError):
+                        errors.append(f"Fila {i}: cantidad inválida")
+                        skipped += 1
+                        transaction.savepoint_rollback(sid)
+                        continue
+                    if qty_sold < 0:
+                        errors.append(f"Fila {i}: qty_sold negativo no permitido ({qty_sold})")
+                        skipped += 1
+                        transaction.savepoint_rollback(sid)
+                        continue
 
-            # Upsert DailySales
-            obj, was_created = DailySales.objects.update_or_create(
-                tenant_id=tenant_id,
-                product=product,
-                warehouse=warehouse,
-                date=dt,
-                defaults={
-                    "qty_sold": qty_sold,
-                    "revenue": total,
-                    "promo_qty": promo_qty,
-                },
-            )
-            if was_created:
-                created += 1
-            else:
-                updated += 1
+                    promo_qty = Decimal("0")
+                    try:
+                        promo_qty = Decimal(str(row.get("promo_qty", 0) or 0))
+                        if not promo_qty.is_finite() or promo_qty < 0:
+                            promo_qty = Decimal("0")
+                    except (InvalidOperation, TypeError):
+                        promo_qty = Decimal("0")
+
+                    # Total: si viene mal, REPORTAR error (no fallback al
+                    # precio actual del producto, que distorsiona revenue
+                    # histórico). Si falta del todo, también error explícito.
+                    total_raw = row.get("total")
+                    if total_raw is None or str(total_raw).strip() == "":
+                        # Total ausente → asumir 0 con warning explícito.
+                        # No usamos product.price porque el precio de hoy
+                        # no es el de hace 6 meses (inflación, promos).
+                        total = Decimal("0")
+                    else:
+                        try:
+                            total = Decimal(str(total_raw))
+                            if not total.is_finite() or total < 0:
+                                raise InvalidOperation("invalid")
+                        except (InvalidOperation, TypeError):
+                            errors.append(
+                                f"Fila {i}: total inválido '{total_raw}'. "
+                                f"Dejá la celda vacía si no tenés el dato (asumirá 0)."
+                            )
+                            skipped += 1
+                            transaction.savepoint_rollback(sid)
+                            continue
+
+                    # Upsert DailySales
+                    obj, was_created = DailySales.objects.update_or_create(
+                        tenant_id=tenant_id,
+                        product=product,
+                        warehouse=warehouse,
+                        date=dt,
+                        defaults={
+                            "qty_sold": qty_sold,
+                            "revenue": total,
+                            "promo_qty": promo_qty,
+                        },
+                    )
+                    if was_created:
+                        created += 1
+                    else:
+                        updated += 1
+                    transaction.savepoint_commit(sid)
+                except Exception as e:
+                    transaction.savepoint_rollback(sid)
+                    errors.append(f"Fila {i}: {str(e)[:200]}")
+                    skipped += 1
 
         logger.info(
             "Superadmin %s imported sales for tenant %d: %d created, %d updated, %d skipped",
@@ -1273,7 +1347,8 @@ class AdminImportSalesView(APIView):
             "created": created,
             "updated": updated,
             "skipped": skipped,
-            "errors": errors[:20],
+            "errors": errors[: self.MAX_ERRORS_RETURN],
+            "errors_count": len(errors),
             "total_rows": len(rows),
         })
 
