@@ -184,21 +184,47 @@ def create_sale(
     # el stock baja a 0 (clampeado por constraint DB) — el dueño después
     # corrige con una entrada manual.
     #
-    # Reportado por Marbrava 28/04/26: las mesas con Cappuccino no
-    # cerraban porque la leche estaba en 53 ML y la receta requería
-    # 150 ML. Antes la query filtraba solo `agg.keys()` (productos
-    # directos) → marcar la leche con la flag NO servía (no estaba en
-    # agg), marcar el Cappuccino TAMPOCO servía (después de
-    # expand_recipes el Capuccino ya no está en expanded_agg). Ahora
-    # incluimos también los ingredientes expandidos: marcar la leche
-    # ahora deja pasar la venta y su stock se clampea a 0.
-    allow_neg_pids = set(
+    # `allow_neg_pids` combina TRES fuentes:
+    #   (a) Productos vendidos directos con la flag (ej: Bombones).
+    #   (b) Ingredientes raw expandidos con la flag (ej: leche entera).
+    #   (c) PROPAGACIÓN: si un producto vendido directo tiene la flag,
+    #       sus ingredientes (recursivos) heredan el permiso SOLO durante
+    #       esta venta. Esto matchea la expectativa del dueño: "marco
+    #       Latte vainilla como vender sin stock" → debe poder venderse
+    #       aunque leche/café/syrup estén en 0. Sin la propagación, el
+    #       dueño tenía que marcar manualmente cada ingrediente, y eso
+    #       además habilitaría OTRAS ventas (Cappuccino, etc.) a pasar
+    #       sin stock — efecto colateral no deseado.
+    flagged_in_scope = set(
         Product.objects.filter(
             tenant_id=tenant_id,
             id__in=list(set(list(agg.keys()) + list(expanded_agg.keys()))),
             allow_negative_stock=True,
         ).values_list("id", flat=True)
     )
+    # (c) propagación: si un padre en agg tiene la flag, todos sus
+    # ingredientes recursivos (vía all_recipes) la heredan durante esta
+    # venta. NO modifica la flag en BD, solo extiende el set en memoria.
+    propagated_pids = set()
+    parents_flagged = flagged_in_scope & set(agg.keys())
+    for parent_pid in parents_flagged:
+        if parent_pid not in all_recipes:
+            continue
+        # DFS por la cadena de receta del parent
+        stack = [parent_pid]
+        seen = set()
+        while stack:
+            pid_ = stack.pop()
+            if pid_ in seen:
+                continue
+            seen.add(pid_)
+            recipe_ = all_recipes.get(pid_)
+            if not recipe_:
+                continue
+            for line in recipe_.lines.all():
+                propagated_pids.add(line.ingredient_id)
+                stack.append(line.ingredient_id)
+    allow_neg_pids = flagged_in_scope | propagated_pids
 
     shortages = []
     for pid in expanded_ids_sorted:
