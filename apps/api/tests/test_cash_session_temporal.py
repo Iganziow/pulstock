@@ -163,6 +163,122 @@ class TestSessionSummaryTemporalRange:
 
 
 @pytest.mark.django_db
+class TestSessionRangeExtendsBackwards:
+    """El rango se extiende hacia atrás cuando no hay sesión cerrada
+    previa, hasta el inicio del día local. Esto cubre el caso Marbrava
+    27-abr (abrieron caja tarde con ventas previas en el día)."""
+
+    def test_first_session_of_day_includes_morning_sales(
+        self, tenant, store, warehouse, owner,
+    ):
+        """Sin sesión cerrada previa, abrir varias horas después del inicio
+        del día → el cierre incluye ventas del día desde 00:00 local
+        (caso Marbrava 27-abr).
+
+        Para que el test sea realista, usamos AYER como "el día" (porque
+        la sesión y las ventas tienen que estar en el pasado, end_dt=now).
+        """
+        from datetime import datetime, time
+        local_tz = timezone.get_current_timezone()
+        register = _make_register(tenant, store)
+
+        # "Día de operación" = ayer (sesión cerrada ya). Para que end_dt
+        # cubra hasta el cierre, cerramos la sesión.
+        yesterday_local = (timezone.now().astimezone(local_tz) - timedelta(days=1)).date()
+        open_local = timezone.make_aware(datetime.combine(yesterday_local, time(17, 0)), local_tz)
+        close_local = timezone.make_aware(datetime.combine(yesterday_local, time(23, 0)), local_tz)
+        session = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("100000"),
+            status=CashSession.STATUS_CLOSED,
+            closed_by=owner,
+            counted_cash=Decimal("105500"),
+            expected_cash=Decimal("105500"),
+            difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=session.id).update(opened_at=open_local, closed_at=close_local)
+        session.refresh_from_db()
+
+        # Venta a las 11:30 del mismo día (morning, ANTES de abrir) — huérfana
+        morning = timezone.make_aware(datetime.combine(yesterday_local, time(11, 30)), local_tz)
+        _make_sale(tenant, store, warehouse, owner, total="5000", tip="500",
+                   method="cash", at=morning, cash_session=None)
+
+        summary = _session_summary(session)
+        # La venta de la mañana DEBE aparecer ahora
+        assert Decimal(summary["cash_sales"]) == Decimal("5000.00"), \
+            f"Esperado 5000 (huérfana mañana), obtuvo {summary['cash_sales']}"
+        assert Decimal(summary["total_tips"]) == Decimal("500")
+
+    def test_second_session_starts_from_previous_close(
+        self, tenant, store, warehouse, owner,
+    ):
+        """Si hay una sesión cerrada antes, esta empieza desde su cierre,
+        no desde inicio del día (no doble contar). Usamos AYER para que
+        todas las fechas estén en el pasado (end_dt=now() debe ser después)."""
+        from datetime import datetime, time
+        local_tz = timezone.get_current_timezone()
+        register = _make_register(tenant, store)
+        yesterday_local = (timezone.now().astimezone(local_tz) - timedelta(days=1)).date()
+
+        # Sesión 1: 09:00 - 12:00 (cerrada)
+        s1_open = timezone.make_aware(datetime.combine(yesterday_local, time(9, 0)), local_tz)
+        s1_close = timezone.make_aware(datetime.combine(yesterday_local, time(12, 0)), local_tz)
+        s1 = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("50000"), status="CLOSED",
+            closed_by=owner, counted_cash=Decimal("60000"),
+            expected_cash=Decimal("60000"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=s1.id).update(opened_at=s1_open, closed_at=s1_close)
+        s1.refresh_from_db()
+
+        # Venta a las 10:00 → en s1
+        _make_sale(tenant, store, warehouse, owner, total="3000", tip="0",
+                   method="cash",
+                   at=timezone.make_aware(datetime.combine(yesterday_local, time(10, 0)), local_tz),
+                   cash_session=s1)
+
+        # Sesión 2: 14:00 - 18:00 (cerrada también para que end_dt sea válido)
+        s2_open = timezone.make_aware(datetime.combine(yesterday_local, time(14, 0)), local_tz)
+        s2_close = timezone.make_aware(datetime.combine(yesterday_local, time(18, 0)), local_tz)
+        s2 = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("60000"),
+            status=CashSession.STATUS_CLOSED,
+            closed_by=owner, counted_cash=Decimal("63000"),
+            expected_cash=Decimal("63000"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=s2.id).update(opened_at=s2_open, closed_at=s2_close)
+        s2.refresh_from_db()
+
+        # Venta a las 13:00 (gap entre cierres) → huérfana
+        _make_sale(tenant, store, warehouse, owner, total="2000", tip="0",
+                   method="cash",
+                   at=timezone.make_aware(datetime.combine(yesterday_local, time(13, 0)), local_tz),
+                   cash_session=None)
+
+        # Venta a las 15:00 → dentro de s2 (sin FK, en rango)
+        _make_sale(tenant, store, warehouse, owner, total="1000", tip="0",
+                   method="cash",
+                   at=timezone.make_aware(datetime.combine(yesterday_local, time(15, 0)), local_tz),
+                   cash_session=None)
+
+        # Summary de s2 debe incluir ambas (la del gap y la de su rango propio),
+        # pero NO la de s1 (10:00) porque está antes de s1.closed_at.
+        summary_s2 = _session_summary(s2)
+        # cash_sales = 2000 (gap) + 1000 (en rango) = 3000 — NO incluir 3000 de s1
+        assert Decimal(summary_s2["cash_sales"]) == Decimal("3000.00"), \
+            f"s2 debería sumar 3000 (gap+propia), no la de s1. Got {summary_s2['cash_sales']}"
+
+        # Summary de s1: solo la suya (10:00) porque su rango se extiende
+        # desde inicio del día hasta su cierre.
+        summary_s1 = _session_summary(s1)
+        assert Decimal(summary_s1["cash_sales"]) == Decimal("3000.00"), \
+            f"s1 debería sumar solo la de las 10 (3000). Got {summary_s1['cash_sales']}"
+
+
+@pytest.mark.django_db
 class TestCloseSessionAdoptsOrphans:
     """Al cerrar la sesión, las ventas huérfanas del rango se asocian a esta
     sesión vía FK para dejar la BD consistente."""

@@ -40,20 +40,58 @@ def _sales_in_session_range(session):
     Daniel: "el cierre tiene que vizualizar TODO no solo del usuario que abre
     la caja, ¿cómo van a cuadrar si no se muestra todo lo del día?".
 
-    Fix: el cierre representa lo que pasó FÍSICAMENTE en el local entre
-    apertura y cierre. Toda venta del store en ese rango temporal cuenta,
-    sin importar si tiene cash_session asignado o quién la cobró.
+    RANGO TEMPORAL CALCULADO:
+      - end_dt   = session.closed_at o ahora (si sigue OPEN).
+      - start_dt = closed_at de la SESIÓN ANTERIOR cerrada (mismo store), o
+                   el inicio del día local de opened_at si no hay anterior.
 
-    Si la sesión sigue OPEN, end_dt = ahora.
+    Esto cubre el caso típico de Marbrava: el dueño abrió la caja a las
+    17:26 después de 6 horas operando con caja cerrada. Las ventas de
+    11:24-17:13 quedaron huérfanas. Con el rango extendido, el cierre de
+    esa sesión absorbe TODO el día (porque no hay sesión anterior). Si
+    después abren otra sesión, la siguiente empezará desde el cierre de
+    ésta, sin doble contar.
+
+    Toda venta del store en el rango cuenta, sin importar si tiene
+    cash_session asignado o quién la cobró.
     """
+    from datetime import datetime, time as dt_time
     from sales.models import Sale
+
     end_dt = session.closed_at or timezone.now()
+
+    # Buscar la última sesión cerrada antes de esta (mismo store, mismo tenant)
+    prev_closed = CashSession.objects.filter(
+        tenant_id=session.tenant_id,
+        store_id=session.store_id,
+        status=CashSession.STATUS_CLOSED,
+        closed_at__lt=session.opened_at,
+    ).exclude(id=session.id).order_by("-closed_at").first()
+
+    if prev_closed and prev_closed.closed_at:
+        # Empezar desde el cierre anterior — captura el gap entre cierres.
+        start_dt = prev_closed.closed_at
+    else:
+        # Sin sesión cerrada previa: extender hasta el inicio del día local
+        # de opened_at. Esto absorbe huérfanas de la mañana cuando la caja
+        # se abrió tarde. Caso Marbrava 27-abr: abrieron 17:26 con 8 ventas
+        # previas en el día → todas entran al cierre.
+        local_tz = timezone.get_current_timezone()
+        opened_local = session.opened_at.astimezone(local_tz)
+        start_of_day_naive = datetime.combine(opened_local.date(), dt_time(0, 0))
+        start_dt = timezone.make_aware(start_of_day_naive, local_tz)
+
+    # Defensivo: nunca exceder opened_at hacia adelante (no perderíamos
+    # ventas POSTERIORES al opened_at, esas siempre entran).
+    if start_dt > session.opened_at:
+        start_dt = session.opened_at
+
     return Sale.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status="COMPLETED",
         sale_type="VENTA",
-        created_at__gte=session.opened_at,
+        created_at__gte=start_dt,
         created_at__lt=end_dt,
     )
 
@@ -433,26 +471,42 @@ class CloseSessionView(APIView):
         note = (request.data.get("note") or "").strip()
 
         # Asociar ventas huérfanas (cash_session=NULL) que cayeron dentro
-        # del rango de esta sesión. Caso típico: la venta se hizo en un
-        # micro-gap entre create_sale leyendo "no hay sesión OPEN" y la
-        # sesión efectivamente abriendo (race muy raro), o la sesión se
-        # creó después de la venta. Sin esto, esas ventas quedan en limbo
-        # y nunca aparecen en ningún cierre vía FK.
-        # NOTA: las que están en el rango pero ya tienen cash_session
-        # asignado a OTRA sesión (no debería pasar por el constraint de
-        # 1 sola sesión OPEN, pero defensivo) NO se tocan.
+        # del rango EXTENDIDO de esta sesión (incluye huérfanas previas a
+        # la apertura si no hay sesión cerrada anterior — caso Marbrava
+        # 27-abr donde abrieron caja a las 17:26 con 8 ventas previas).
+        # Reusamos exactamente el mismo rango que _session_summary para
+        # mantener consistencia: lo que aparece en el cierre = lo que se
+        # asocia por FK.
+        # NOTA: las que tienen FK a OTRA sesión (no debería pasar por el
+        # constraint de 1 sola OPEN, pero defensivo) NO se tocan.
         from sales.models import Sale
         end_dt = timezone.now()  # cierre = ahora
+        # Cerramos la sesión temporalmente para que _sales_in_session_range
+        # use end_dt correcto. Más limpio: replicar la lógica acá.
+        prev_closed = CashSession.objects.filter(
+            tenant_id=t_id, store_id=s_id,
+            status=CashSession.STATUS_CLOSED,
+            closed_at__lt=session.opened_at,
+        ).exclude(id=session.id).order_by("-closed_at").first()
+        if prev_closed and prev_closed.closed_at:
+            start_dt = prev_closed.closed_at
+        else:
+            from datetime import datetime, time as dt_time
+            local_tz = timezone.get_current_timezone()
+            opened_local = session.opened_at.astimezone(local_tz)
+            start_of_day_naive = datetime.combine(opened_local.date(), dt_time(0, 0))
+            start_dt = timezone.make_aware(start_of_day_naive, local_tz)
+        if start_dt > session.opened_at:
+            start_dt = session.opened_at
+
         Sale.objects.filter(
             tenant_id=t_id, store_id=s_id,
             cash_session__isnull=True,
-            created_at__gte=session.opened_at,
+            created_at__gte=start_dt,
             created_at__lt=end_dt,
         ).update(cash_session=session)
 
-        # Compute expected_cash usando el nuevo rango temporal
-        # (incluye las huérfanas que acabamos de asociar Y otras que
-        # estaban en el rango).
+        # Compute expected_cash usando el rango temporal extendido
         live = _session_summary(session)
         expected = Decimal(live["expected_cash"])
         difference = counted - expected
