@@ -155,8 +155,11 @@ def create_sale(
     if all(agg[pid]["qty"] <= 0 for pid in agg):
         raise SaleValidationError({"detail": "Todos los items tienen cantidad 0."})
 
-    # ── 4. Recipe expansion ──────────────────────────────────────────
-    expanded_agg, recipe_map = expand_recipes(agg, tenant_id)
+    # ── 4. Recipe expansion (recursivo: maneja recetas anidadas) ─────
+    # expand_recipes devuelve all_recipes (todas las recetas activas del
+    # tenant) en lugar del recipe_map antiguo. Lo usamos también para
+    # compute_recipe_costs así el cost se calcula recursivamente.
+    expanded_agg, all_recipes = expand_recipes(agg, tenant_id)
 
     # ── 5. Lock stock + check shortages ──────────────────────────────
     expanded_ids_sorted = sorted(expanded_agg.keys())
@@ -289,7 +292,7 @@ def create_sale(
         for pid in expanded_ids_sorted
         if pid in stock_map
     }
-    recipe_costs = compute_recipe_costs(agg, recipe_map, ingredient_avg_cost)
+    recipe_costs = compute_recipe_costs(agg, all_recipes, ingredient_avg_cost, tenant_id=tenant_id)
 
     sale_lines, subtotal, total_discount, total_cost, total_qty_costed = build_sale_lines(
         sale=sale,
