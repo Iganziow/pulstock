@@ -28,22 +28,56 @@ def _s(request):
     return getattr(request.user, "active_store_id", None)
 
 
+def _sales_in_session_range(session):
+    """
+    Devuelve QuerySet de Sales que pertenecen a esta sesión POR RANGO TEMPORAL,
+    no por FK cash_session_id.
+
+    ANTES (bug reportado por Daniel 29/04/26): el cierre filtraba ventas por
+    `sale.cash_session_id == session.id`. Si una venta se hacía con la caja
+    cerrada (cash_session=NULL), nunca aparecía en NINGÚN cierre →
+    Marbrava 27-abr tenía $6.764 en propinas huérfanas que el dueño no veía.
+    Daniel: "el cierre tiene que vizualizar TODO no solo del usuario que abre
+    la caja, ¿cómo van a cuadrar si no se muestra todo lo del día?".
+
+    Fix: el cierre representa lo que pasó FÍSICAMENTE en el local entre
+    apertura y cierre. Toda venta del store en ese rango temporal cuenta,
+    sin importar si tiene cash_session asignado o quién la cobró.
+
+    Si la sesión sigue OPEN, end_dt = ahora.
+    """
+    from sales.models import Sale
+    end_dt = session.closed_at or timezone.now()
+    return Sale.objects.filter(
+        tenant_id=session.tenant_id,
+        store_id=session.store_id,
+        status="COMPLETED",
+        sale_type="VENTA",
+        created_at__gte=session.opened_at,
+        created_at__lt=end_dt,
+    )
+
+
 def _session_summary(session):
-    """Compute live expected_cash and payment breakdown for an open session."""
+    """Compute live expected_cash and payment breakdown.
+
+    Suma TODAS las ventas del store en el rango temporal de la sesión, no
+    solo las que tienen FK cash_session=session. Ver `_sales_in_session_range`
+    para el contexto del fix.
+    """
     from sales.models import SalePayment
+
+    sales_in_range = _sales_in_session_range(session)
+    sale_ids_in_range = list(sales_in_range.values_list("id", flat=True))
 
     # Single query: GROUP BY method → {method: total}.
     # NOTA: SalePayment.amount cubre el TOTAL pagado (subtotal + propina),
     # porque en el flujo del PaymentModal el cajero pone el monto que
     # cobra al cliente, que ya incluye la propina si la hubo. Por lo
     # tanto method_totals[method] incluye las propinas.
-    # Filtramos sale_type=VENTA para excluir CONSUMO_INTERNO del flujo
-    # de caja — los consumos no son ingresos del local.
     method_totals = dict(
         SalePayment.objects.filter(
-            sale__cash_session=session,
-            sale__status="COMPLETED",
-            sale__sale_type="VENTA",
+            sale_id__in=sale_ids_in_range,
         ).values_list("method").annotate(total=Sum("amount")).values_list("method", "total")
     )
     zero = Decimal("0")
@@ -75,12 +109,9 @@ def _session_summary(session):
             tip_count_by_method[method] = 0
         return method
 
-    # Filtramos también por sale_type=VENTA. CONSUMO_INTERNO con tip > 0
-    # es un estado inválido (defensivo: el backend ahora zeroiza el tip
-    # de consumos en checkout, pero datos legacy o un cliente con bug
-    # podrían tener filas raras).
-    sales_with_tips = session.sales.filter(
-        status="COMPLETED", sale_type="VENTA", tip__gt=0,
+    # Mismo cambio que arriba: usar rango temporal en vez de FK.
+    sales_with_tips = sales_in_range.filter(
+        tip__gt=0,
     ).prefetch_related("payments")
     for sale in sales_with_tips:
         payments = list(sale.payments.all())
@@ -401,14 +432,34 @@ class CloseSessionView(APIView):
 
         note = (request.data.get("note") or "").strip()
 
-        # Compute expected_cash
+        # Asociar ventas huérfanas (cash_session=NULL) que cayeron dentro
+        # del rango de esta sesión. Caso típico: la venta se hizo en un
+        # micro-gap entre create_sale leyendo "no hay sesión OPEN" y la
+        # sesión efectivamente abriendo (race muy raro), o la sesión se
+        # creó después de la venta. Sin esto, esas ventas quedan en limbo
+        # y nunca aparecen en ningún cierre vía FK.
+        # NOTA: las que están en el rango pero ya tienen cash_session
+        # asignado a OTRA sesión (no debería pasar por el constraint de
+        # 1 sola sesión OPEN, pero defensivo) NO se tocan.
+        from sales.models import Sale
+        end_dt = timezone.now()  # cierre = ahora
+        Sale.objects.filter(
+            tenant_id=t_id, store_id=s_id,
+            cash_session__isnull=True,
+            created_at__gte=session.opened_at,
+            created_at__lt=end_dt,
+        ).update(cash_session=session)
+
+        # Compute expected_cash usando el nuevo rango temporal
+        # (incluye las huérfanas que acabamos de asociar Y otras que
+        # estaban en el rango).
         live = _session_summary(session)
         expected = Decimal(live["expected_cash"])
         difference = counted - expected
 
         session.status       = CashSession.STATUS_CLOSED
         session.closed_by    = request.user
-        session.closed_at    = timezone.now()
+        session.closed_at    = end_dt
         session.counted_cash = counted
         session.expected_cash = expected
         session.difference   = difference
