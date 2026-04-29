@@ -546,3 +546,202 @@ class TipsSummaryView(APIView):
             "by_cashier":        by_cashier,
             "by_payment_method": by_payment_method,
         })
+
+
+class TipsListView(APIView):
+    """GET /sales/tips-list/?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&...
+
+    Lista DETALLADA de propinas (una fila por venta con propina), filtrable
+    y paginada. Diseñada para auditoría — Mario lo pidió tipo Fudo:
+    "más que gráficos que a veces no dicen nada, una tabla con los registros
+    para ver fila por fila quién, cuándo, cuánto, qué método". Cuando hay
+    1000 propinas en un mes, la tabla filtrable es mucho más útil que un
+    gráfico ilegible.
+
+    Filtros (todos opcionales):
+      date_from, date_to     — rango de fechas (default: últimos 30 días)
+      cashier_id             — created_by (mesero/cajero)
+      payment_method         — cash | debit | card | transfer
+      register_id            — caja específica (cash_session.register_id)
+      sale_type              — VENTA | CONSUMO_INTERNO (default: solo VENTA)
+
+    Paginación: ?page=1&page_size=50 (default 50, max 500).
+
+    Response:
+      {
+        "results": [{ ... }],
+        "count": int,                    # total filtrado (no de la página)
+        "page": int,
+        "page_size": int,
+        "total_pages": int,
+        "totals": {                      # agregados del filtro completo
+          "total_tips": "12345",
+          "total_sales": "98765",
+          "count": 42,
+          "avg_tip": "294",
+        },
+      }
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        from rest_framework.exceptions import ValidationError
+        t_id = _tenant_id(request)
+        p = request.query_params
+
+        date_from = parse_date(p.get("date_from") or "")
+        date_to = parse_date(p.get("date_to") or "")
+        if not date_from:
+            date_from = (timezone.now() - timedelta(days=30)).date()
+        if not date_to:
+            date_to = timezone.now().date()
+
+        # Base queryset: ventas COMPLETED con propina > 0 en el rango.
+        # CONSUMO_INTERNO no se filtra por defecto (no debería tener tip,
+        # pero defensivamente lo dejamos opt-in via sale_type).
+        sale_type = (p.get("sale_type") or "VENTA").upper()
+        if sale_type not in ("VENTA", "CONSUMO_INTERNO", "ALL"):
+            sale_type = "VENTA"
+
+        qs = Sale.objects.filter(
+            tenant_id=t_id,
+            status=Sale.STATUS_COMPLETED,
+            tip__gt=Decimal("0"),
+            created_at__date__gte=date_from,
+            created_at__date__lte=date_to,
+        )
+        if sale_type != "ALL":
+            qs = qs.filter(sale_type=sale_type)
+
+        # Filtros opcionales
+        cashier_id = p.get("cashier_id")
+        if cashier_id and str(cashier_id).isdigit():
+            qs = qs.filter(created_by_id=int(cashier_id))
+
+        register_id = p.get("register_id")
+        if register_id and str(register_id).isdigit():
+            qs = qs.filter(cash_session__register_id=int(register_id))
+
+        payment_method = (p.get("payment_method") or "").strip().lower()
+        if payment_method in ("cash", "debit", "card", "transfer"):
+            # Una venta queda incluida si TIENE algún pago de ese método.
+            # Después en la fila el "método dominante" puede ser otro si la
+            # venta es split — eso lo informamos pero filtramos amplio.
+            qs = qs.filter(payments__method=payment_method).distinct()
+
+        # Optimización: traer todo en 1 query con joins
+        qs = qs.select_related(
+            "created_by", "cash_session__register", "open_order__table",
+        ).prefetch_related("payments").order_by("-created_at")
+
+        # Totales del filtro completo (antes de paginar)
+        agg = qs.aggregate(
+            total_tips=Coalesce(Sum("tip"), Decimal("0")),
+            total_sales=Coalesce(Sum("total"), Decimal("0")),
+            count=Count("id"),
+        )
+        avg_tip = (
+            (agg["total_tips"] / agg["count"]).quantize(Decimal("1"))
+            if agg["count"] else Decimal("0")
+        )
+
+        # Paginación (manual con LimitOffset semántica para no depender de
+        # DRF Pagination — más control sobre el response shape).
+        try:
+            page = max(1, int(p.get("page") or 1))
+        except (ValueError, TypeError):
+            page = 1
+        try:
+            page_size = min(500, max(1, int(p.get("page_size") or 50)))
+        except (ValueError, TypeError):
+            page_size = 50
+
+        total_pages = (agg["count"] + page_size - 1) // page_size if agg["count"] else 1
+        offset = (page - 1) * page_size
+        page_qs = qs[offset:offset + page_size]
+
+        results = []
+        for sale in page_qs:
+            # Determinar método dominante: el pago de mayor monto.
+            # Si hay split y empate, gana cash > debit > card > transfer.
+            payments = list(sale.payments.all())
+            if not payments:
+                method, method_label = "cash", "Efectivo"  # legacy
+            else:
+                payments_sorted = sorted(
+                    payments, key=lambda x: (-float(x.amount), x.method)
+                )
+                method = payments_sorted[0].method
+                # Si todos los métodos son distintos → "mixto"
+                methods_set = {p.method for p in payments}
+                if len(methods_set) > 1:
+                    method = "mixed"
+
+            method_labels = {
+                "cash": "Efectivo",
+                "debit": "Tarj. Débito",
+                "card": "Tarj. Crédito",
+                "transfer": "Transferencia",
+                "mixed": "Mixto",
+            }
+            method_label = method_labels.get(method, method.title())
+
+            # Mesa: si la venta vino de mesa, mostrar table.name. Si no,
+            # null (POS directo / para llevar). El frontend muestra "—".
+            table_name = None
+            if sale.open_order_id and getattr(sale.open_order, "table_id", None):
+                t = sale.open_order.table
+                table_name = getattr(t, "name", None) or getattr(t, "number", None)
+                if table_name is not None:
+                    table_name = str(table_name)
+
+            # Cajero/garzón: full name → username fallback
+            user = sale.created_by
+            full_name = " ".join(filter(None, [
+                getattr(user, "first_name", "") or "",
+                getattr(user, "last_name", "") or "",
+            ])).strip()
+            cashier_name = full_name or getattr(user, "username", "") or "—"
+
+            # Caja
+            register_name = None
+            if sale.cash_session_id and sale.cash_session and sale.cash_session.register_id:
+                register_name = sale.cash_session.register.name
+
+            results.append({
+                "sale_id": sale.id,
+                "sale_number": sale.sale_number,
+                "created_at": sale.created_at.isoformat(),
+                "table_name": table_name,
+                "cashier_id": user.id,
+                "cashier_name": cashier_name,
+                "payment_method": method,
+                "payment_method_label": method_label,
+                "total_sale": str(sale.total),
+                "tip_amount": str(sale.tip),
+                "register_id": sale.cash_session.register_id if sale.cash_session_id else None,
+                "register_name": register_name,
+                "sale_type": sale.sale_type,
+            })
+
+        return Response({
+            "results": results,
+            "count": agg["count"],
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "totals": {
+                "total_tips": str(agg["total_tips"].quantize(Decimal("1"))),
+                "total_sales": str(agg["total_sales"].quantize(Decimal("1"))),
+                "count": agg["count"],
+                "avg_tip": str(avg_tip),
+            },
+            "filters": {
+                "date_from": str(date_from),
+                "date_to": str(date_to),
+                "cashier_id": int(cashier_id) if cashier_id and str(cashier_id).isdigit() else None,
+                "register_id": int(register_id) if register_id and str(register_id).isdigit() else None,
+                "payment_method": payment_method or None,
+                "sale_type": sale_type,
+            },
+        })
