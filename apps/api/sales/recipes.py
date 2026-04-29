@@ -32,16 +32,35 @@ logger = logging.getLogger(__name__)
 MAX_RECIPE_DEPTH = 10
 
 
-def _load_all_active_recipes(tenant_id):
+def _load_all_active_recipes(tenant_id, lock=False):
     """
     Carga TODAS las recetas activas del tenant en un dict pid → Recipe.
     Una sola query con prefetch_related para evitar N+1 durante la expansión
     recursiva (sin esto, cada nivel haría su propia query).
+
+    Si `lock=True` (uso desde create_sale), aplica `select_for_update(of=("self",))`
+    a la query de Recipe para bloquear ediciones concurrentes mientras la venta
+    está en flight. Sin esto, había una race condition: cajero A confirma venta
+    de Latte vainilla; en paralelo, dueño edita la receta de Latte (cambia 200 ML
+    → 250 ML) y commitea. El cajero leyó la receta vieja (200 ML) y descontó
+    200 ML, pero la receta vigente decía 250 ML → kardex inconsistente. Con
+    el lock, la edición espera a que la venta termine.
+
+    `of=("self",)` asegura que solo bloqueamos la fila Recipe, no los joins
+    (Product/Unit/RecipeLine), que no necesitan estar locked y pueden ser
+    leídos por otros writers en paralelo.
+
+    SQLite ignora el lock silenciosamente (no falla, solo no bloquea).
+    En tests SQLite el comportamiento es equivalente a la versión sin lock.
     """
+    qs = Recipe.objects.filter(tenant_id=tenant_id, is_active=True)
+    if lock:
+        # `nowait=False` (default): si otro writer tiene el lock, esperamos.
+        # Eso es lo que queremos: serializar venta vs edición concurrente.
+        qs = qs.select_for_update(of=("self",))
     return {
         r.product_id: r
-        for r in Recipe.objects.filter(tenant_id=tenant_id, is_active=True)
-            .prefetch_related("lines__ingredient__unit_obj", "lines__unit")
+        for r in qs.prefetch_related("lines__ingredient__unit_obj", "lines__unit")
     }
 
 
@@ -116,7 +135,7 @@ def _resolve_product_name(pid):
         return f"id={pid}"
 
 
-def expand_recipes(agg, tenant_id):
+def expand_recipes(agg, tenant_id, lock_recipes=False):
     """
     Expande líneas de venta agregadas en cantidades a nivel de ingrediente raw.
 
@@ -127,6 +146,9 @@ def expand_recipes(agg, tenant_id):
     Args:
         agg: dict product_id → {qty, unit_price, ...}
         tenant_id: int
+        lock_recipes: si True, hace `select_for_update` en las recetas
+            (uso desde create_sale para serializar contra ediciones
+            concurrentes del dueño). Default False para usos read-only.
 
     Returns:
         tuple(expanded_agg, all_recipes):
@@ -140,7 +162,7 @@ def expand_recipes(agg, tenant_id):
         SaleValidationError: si hay ciclo en las recetas (A → B → A) o si
             la profundidad excede MAX_RECIPE_DEPTH.
     """
-    all_recipes = _load_all_active_recipes(tenant_id)
+    all_recipes = _load_all_active_recipes(tenant_id, lock=lock_recipes)
     inactive_pids = _load_inactive_recipe_pids(tenant_id)
     expanded_agg = {}
 

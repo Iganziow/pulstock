@@ -159,7 +159,14 @@ def create_sale(
     # expand_recipes devuelve all_recipes (todas las recetas activas del
     # tenant) en lugar del recipe_map antiguo. Lo usamos también para
     # compute_recipe_costs así el cost se calcula recursivamente.
-    expanded_agg, all_recipes = expand_recipes(agg, tenant_id)
+    #
+    # lock_recipes=True: serializa contra ediciones concurrentes del dueño.
+    # Caso del bug: cajero confirma venta de Latte vainilla mientras dueño
+    # cambia la receta del Latte (200 → 250 ML). Sin lock, el cajero leía
+    # la receta vieja y descontaba 200 ML, pero la receta vigente al
+    # momento del commit decía 250 → kardex inconsistente. Con lock, la
+    # edición espera. Crítico cuando varias cajas POS venden en paralelo.
+    expanded_agg, all_recipes = expand_recipes(agg, tenant_id, lock_recipes=True)
 
     # ── 5. Lock stock + check shortages ──────────────────────────────
     expanded_ids_sorted = sorted(expanded_agg.keys())
