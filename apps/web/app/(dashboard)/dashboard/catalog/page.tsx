@@ -6,6 +6,7 @@ import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { formatCLP, extractErr } from "@/lib/format";
+import { validateImportFile } from "@/lib/file-validation";
 import { Btn, Spinner, SkeletonPage, Modal, Badge, Toggle, StatCard, ErrBox, FLabel, Hint, iS, tS, FL, G2 } from "@/components/ui";
 import { BarcodeAssignModal } from "@/components/catalog/BarcodeAssignModal";
 import { CategoryTree } from "@/components/catalog/CategoryTree";
@@ -341,6 +342,11 @@ export default function CatalogPage() {
   // Import CSV
   const runImport = async () => {
     if (!importFile) return;
+    // Pre-validación cliente: tamaño y extensión. Backend re-valida igual,
+    // pero esto evita que el dueño espere a un upload de 50 MB para
+    // descubrir que no se aceptaba.
+    const v = validateImportFile(importFile);
+    if (!v.ok) { setErr(v.error); return; }
     setSaving(true); setErr(null); setImportResult(null);
     try {
       const fd = new FormData(); fd.append("file", importFile);
@@ -682,7 +688,21 @@ export default function CatalogPage() {
             <div style={FL}>
               <FLabel>Archivo CSV o Excel</FLabel>
               <input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(e)=>{ setImportFile(e.target.files?.[0]??null); setImportResult(null); }}
+                onChange={(e)=>{
+                  const f = e.target.files?.[0] ?? null;
+                  setImportResult(null);
+                  if (f) {
+                    const v = validateImportFile(f);
+                    if (!v.ok) {
+                      setErr(v.error);
+                      setImportFile(null);
+                      e.target.value = "";
+                      return;
+                    }
+                    setErr(null);
+                  }
+                  setImportFile(f);
+                }}
                 style={{ ...iS, paddingTop:9, height:"auto", cursor:"pointer" }} disabled={saving}
               />
               <Hint>Sube directamente tu Excel o CSV. Los headers en español se mapean automáticamente.</Hint>

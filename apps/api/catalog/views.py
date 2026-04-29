@@ -403,6 +403,13 @@ class ProductImport(APIView):
         if not s:
             return Decimal("0")
 
+        # Defensa contra valores especiales: "NaN", "Infinity", "nan", "inf"
+        # Decimal acepta esos literales SIN levantar ValueError, lo que dejaba
+        # `Decimal("NaN")` persistido en BD y reventaba reportes después.
+        s_lower = s.lower()
+        if s_lower in ("nan", "inf", "infinity", "+inf", "-inf", "+infinity", "-infinity"):
+            raise ValueError(f"Precio inválido: {raw} (NaN/Infinity no permitido)")
+
         s = s.replace("$", "").replace(" ", "")
 
         if "," in s and "." in s:
@@ -414,9 +421,16 @@ class ProductImport(APIView):
             s = s.replace(",", ".")  # 1234,56 -> 1234.56
 
         try:
-            return Decimal(s)
+            d = Decimal(s)
         except (InvalidOperation, ValueError):
             raise ValueError(f"Precio inválido: {raw}")
+
+        # Por las dudas (Decimal("nan") no levanta), validar finito
+        if not d.is_finite():
+            raise ValueError(f"Precio inválido: {raw} (debe ser finito)")
+        if d < 0:
+            raise ValueError(f"Precio inválido: {raw} (no puede ser negativo)")
+        return d
 
     def _clean_barcodes(self, raw: str):
         # acepta "code1,code2" o "code1|code2"
@@ -519,6 +533,23 @@ class ProductImport(APIView):
 
         expected_keys = set(fieldnames)
 
+        # Tracking de duplicados intra-archivo: si el mismo SKU/nombre
+        # aparece dos veces, ambas filas hacían update sobre el mismo
+        # producto contando "updated += 1" duplicado. Ahora la 2da fila
+        # se rechaza con error claro indicando dónde apareció antes.
+        seen_skus = {}    # sku.lower() → línea donde apareció
+        seen_names = {}   # name.lower() → línea donde apareció
+
+        # CRÍTICO: límite de plan. El check `_check_product_limit` arriba
+        # ya rechaza si el tenant está SATURADO ahora. Pero un tenant con
+        # 90/100 que sube un CSV con 50 filas nuevas pasaba ese check y
+        # creaba 50 productos → 140 totales → reventaba el límite.
+        # Acá llevamos `created_in_file` y abortamos el resto cuando se
+        # llega al límite. plan_limit < 0 = ilimitado (no chequear).
+        plan_limit = limit_check.get("limit", -1)
+        plan_current = limit_check.get("current", 0)
+        plan_remaining = (plan_limit - plan_current) if (plan_limit and plan_limit > 0) else None
+
         MAX_ROWS = 5000
         for i, row in enumerate(reader, start=2):
             if i - 1 > MAX_ROWS:
@@ -557,6 +588,36 @@ class ProductImport(APIView):
                     continue
 
                 sku = (row.get("sku") or "").strip()
+
+                # ── Duplicado intra-archivo ──────────────────────────
+                # Antes: misma SKU 2 veces → ambas hacían UPDATE sobre
+                # el mismo product → contadores mienten + comportamiento
+                # impredecible (el orden de las filas determinaba qué
+                # ganaba). Ahora la 2da aparición se rechaza con error
+                # claro indicando dónde estaba la 1ra.
+                if sku:
+                    sku_key = sku.lower()
+                    if sku_key in seen_skus:
+                        errors.append({
+                            "line": i,
+                            "error": f"SKU '{sku}' ya apareció en la línea {seen_skus[sku_key]}. Cada SKU debe estar una sola vez en el archivo.",
+                            "row": row,
+                        })
+                        skipped += 1
+                        continue
+                    seen_skus[sku_key] = i
+                # Sin SKU: chequeo por nombre (el upsert también va por nombre)
+                if not sku:
+                    name_key = name.lower()
+                    if name_key in seen_names:
+                        errors.append({
+                            "line": i,
+                            "error": f"Producto '{name}' ya apareció en la línea {seen_names[name_key]} (sin SKU). Asigná un SKU único o consolidá las filas.",
+                            "row": row,
+                        })
+                        skipped += 1
+                        continue
+                    seen_names[name_key] = i
                 desc = (row.get("description") or "").strip()
                 unit = ((row.get("unit") or "").strip() or "UN").upper()
 
@@ -625,6 +686,30 @@ class ProductImport(APIView):
                       + (["image_url"] if image_url else []))
                     updated += 1
                 else:
+                    # ── Plan limit guard antes de CREAR ─────────────────
+                    # plan_remaining=None → plan ilimitado.
+                    # plan_remaining<=0 → ya creamos `plan_remaining` productos
+                    # nuevos en este archivo, hemos llenado el cupo. Resto
+                    # del archivo se rechaza con error claro.
+                    if plan_remaining is not None and plan_remaining <= 0:
+                        errors.append({
+                            "line": i,
+                            "error": (
+                                f"Plan saturado: alcanzaste el límite de {plan_limit} productos. "
+                                f"Resto del archivo no se procesó. Actualizá tu suscripción para continuar."
+                            ),
+                            "row": row,
+                        })
+                        skipped += 1
+                        # No `break` para que las filas posteriores también
+                        # se reporten como error y el dueño sepa qué quedó
+                        # afuera. Pero todas dan el mismo error, así que
+                        # cortamos al ver el primero (UX más limpio).
+                        # Si el cliente quiere ver TODAS las afectadas,
+                        # puede usar el endpoint de check de plan.
+                        transaction.savepoint_commit(sid)
+                        # Romper igual para no spammear errores idénticos
+                        break
                     product = Product.objects.create(
                         tenant_id=t_id,
                         name=name,
@@ -641,6 +726,8 @@ class ProductImport(APIView):
                         image_url=image_url,
                     )
                     created += 1
+                    if plan_remaining is not None:
+                        plan_remaining -= 1
 
                 # barcodes (reemplazo total si la columna viene)
                 if "barcodes" in expected_keys:
@@ -845,13 +932,18 @@ class RecipeImport(APIView):
     """
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
+    # Cap de filas y tamaño como atributos de clase para que tests puedan
+    # patchearlos sin generar 5000 productos reales.
+    MAX_ROWS = 5000
+    MAX_FILE_SIZE = 5 * 1024 * 1024
+
     def post(self, request):
         t_id = tenant_id(request)
         file = request.FILES.get("file")
         if not file:
             return Response({"detail": "file is required"}, status=400)
 
-        if file.size > 5 * 1024 * 1024:
+        if file.size > self.MAX_FILE_SIZE:
             return Response(
                 {"detail": "Archivo demasiado grande (máximo 5 MB)"},
                 status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -891,19 +983,37 @@ class RecipeImport(APIView):
                           "(ingredient_sku o ingredient_name), qty"
             }, status=400)
 
-        # Cache products by SKU and name
+        # Cache products: incluimos TODOS (activos e inactivos) para
+        # diferenciar "no existe" vs "está desactivado". Antes solo se
+        # cacheaban activos → un producto desactivado producía error
+        # confuso "Producto no encontrado" sin pista de que existe pero
+        # está inactivo.
         products_by_sku = {}
         products_by_name = {}
-        for p in Product.objects.filter(tenant_id=t_id, is_active=True):
+        inactive_pids = set()
+        for p in Product.objects.filter(tenant_id=t_id):
             if p.sku:
                 products_by_sku[p.sku.strip().upper()] = p
             products_by_name[p.name.strip().lower()] = p
+            if not p.is_active:
+                inactive_pids.add(p.id)
 
         # Parse rows → group by parent product
         recipes_data = {}  # product_id -> [(ingredient, qty)]
         errors = []
 
+        # Cap de filas: sin esto, un CSV de 5 MB con líneas cortas puede
+        # tener >200k filas y construir un grafo BFS gigante en memoria
+        # → DoS trivial. ProductImport ya tiene MAX_ROWS=5000, alineamos.
+        max_rows = self.MAX_ROWS
+
         for line_num, row in enumerate(reader, start=2):
+            if line_num - 1 > max_rows:
+                errors.append({
+                    "line": line_num,
+                    "error": f"Máximo {max_rows} filas. Filas restantes ignoradas.",
+                })
+                break
             # Normalize keys
             norm = {}
             for k, v in row.items():
@@ -926,6 +1036,15 @@ class RecipeImport(APIView):
                     "error": f"Producto padre no encontrado: SKU='{p_sku}' nombre='{p_name}'",
                 })
                 continue
+            if parent.id in inactive_pids:
+                errors.append({
+                    "line": line_num,
+                    "error": (
+                        f"Producto padre '{parent.name}' está DESACTIVADO. "
+                        f"Activalo en Catálogo antes de cargar su receta."
+                    ),
+                })
+                continue
 
             # Find ingredient
             ingredient = None
@@ -941,6 +1060,15 @@ class RecipeImport(APIView):
                 errors.append({
                     "line": line_num,
                     "error": f"Ingrediente no encontrado: SKU='{i_sku}' nombre='{i_name}'",
+                })
+                continue
+            if ingredient.id in inactive_pids:
+                errors.append({
+                    "line": line_num,
+                    "error": (
+                        f"Ingrediente '{ingredient.name}' está DESACTIVADO. "
+                        f"Activalo en Catálogo antes de usarlo en receta."
+                    ),
                 })
                 continue
 
@@ -1516,13 +1644,17 @@ class PriceExportView(APIView):
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center")
 
+        # CSV-injection guard: sku/name/category provienen de input usuario.
+        # Sin sanitize, un producto llamado `=cmd|...` ejecuta fórmula al
+        # abrir el XLSX. Ver core/excel_safety.py.
+        from core.excel_safety import sanitize_cell
         for row_idx, p in enumerate(qs, 2):
             cost = float(p.cost) if hasattr(p, "cost") else 0
             price = float(p.price)
             margin = ((price - cost) / price * 100) if price else 0
-            ws.cell(row=row_idx, column=1, value=p.sku or "")
-            ws.cell(row=row_idx, column=2, value=p.name)
-            ws.cell(row=row_idx, column=3, value=p.category.name if p.category else "")
+            ws.cell(row=row_idx, column=1, value=sanitize_cell(p.sku or ""))
+            ws.cell(row=row_idx, column=2, value=sanitize_cell(p.name))
+            ws.cell(row=row_idx, column=3, value=sanitize_cell(p.category.name if p.category else ""))
             ws.cell(row=row_idx, column=4, value=cost)
             ws.cell(row=row_idx, column=5, value=price)
             ws.cell(row=row_idx, column=6, value=round(margin, 1))

