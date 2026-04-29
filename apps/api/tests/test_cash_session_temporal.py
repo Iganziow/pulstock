@@ -279,6 +279,105 @@ class TestSessionRangeExtendsBackwards:
 
 
 @pytest.mark.django_db
+class TestEmptyPrevSessionIgnored:
+    """Sesiones cerradas SIN actividad real (sin sales ni movs) NO bloquean
+    que la siguiente sesión absorba huérfanas hacia atrás. Caso real
+    Marbrava 27-abr: Mario abrió y cerró caja en 7 minutos sin vender."""
+
+    def test_empty_prev_session_does_not_anchor_start(
+        self, tenant, store, warehouse, owner,
+    ):
+        from datetime import datetime, time
+        local_tz = timezone.get_current_timezone()
+        register = _make_register(tenant, store)
+        yesterday_local = (timezone.now().astimezone(local_tz) - timedelta(days=1)).date()
+
+        # Sesión "fantasma": abrió 14:00, cerró 14:07, SIN ventas ni movs
+        sf_open = timezone.make_aware(datetime.combine(yesterday_local, time(14, 0)), local_tz)
+        sf_close = timezone.make_aware(datetime.combine(yesterday_local, time(14, 7)), local_tz)
+        sf = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("100000"), status=CashSession.STATUS_CLOSED,
+            closed_by=owner, counted_cash=Decimal("100000"),
+            expected_cash=Decimal("100000"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=sf.id).update(opened_at=sf_open, closed_at=sf_close)
+
+        # Sesión real: abrió 14:30, cerró 18:00
+        sr_open = timezone.make_aware(datetime.combine(yesterday_local, time(14, 30)), local_tz)
+        sr_close = timezone.make_aware(datetime.combine(yesterday_local, time(18, 0)), local_tz)
+        sr = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("100000"), status=CashSession.STATUS_CLOSED,
+            closed_by=owner, counted_cash=Decimal("105500"),
+            expected_cash=Decimal("105500"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=sr.id).update(opened_at=sr_open, closed_at=sr_close)
+        sr.refresh_from_db()
+
+        # Venta a las 11:30 (mañana, ANTES de ambas sesiones) — huérfana
+        morning = timezone.make_aware(datetime.combine(yesterday_local, time(11, 30)), local_tz)
+        _make_sale(tenant, store, warehouse, owner, total="5000", tip="500",
+                   method="cash", at=morning, cash_session=None)
+
+        # El cierre de sr (sesión real) debe absorber la venta de la mañana
+        # IGNORANDO la sesión fantasma sf que no tuvo actividad.
+        summary = _session_summary(sr)
+        assert Decimal(summary["cash_sales"]) == Decimal("5000.00"), \
+            f"Sesión real debe absorber huérfana ignorando sf vacía. Got {summary['cash_sales']}"
+        assert Decimal(summary["total_tips"]) == Decimal("500")
+
+    def test_prev_session_with_sales_anchors_start(
+        self, tenant, store, warehouse, owner,
+    ):
+        """Caso opuesto: si la sesión previa SÍ tuvo ventas, sigue siendo
+        el anchor (no extender al inicio del día)."""
+        from datetime import datetime, time
+        local_tz = timezone.get_current_timezone()
+        register = _make_register(tenant, store)
+        yesterday_local = (timezone.now().astimezone(local_tz) - timedelta(days=1)).date()
+
+        # Sesión 1: 09-12 con 1 venta
+        s1_open = timezone.make_aware(datetime.combine(yesterday_local, time(9, 0)), local_tz)
+        s1_close = timezone.make_aware(datetime.combine(yesterday_local, time(12, 0)), local_tz)
+        s1 = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("50000"), status=CashSession.STATUS_CLOSED,
+            closed_by=owner, counted_cash=Decimal("60000"),
+            expected_cash=Decimal("60000"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=s1.id).update(opened_at=s1_open, closed_at=s1_close)
+        # Una venta dentro de s1 con FK
+        _make_sale(tenant, store, warehouse, owner, total="3000", tip="0",
+                   method="cash",
+                   at=timezone.make_aware(datetime.combine(yesterday_local, time(10, 0)), local_tz),
+                   cash_session=s1)
+
+        # Sesión 2: 14-18
+        s2_open = timezone.make_aware(datetime.combine(yesterday_local, time(14, 0)), local_tz)
+        s2_close = timezone.make_aware(datetime.combine(yesterday_local, time(18, 0)), local_tz)
+        s2 = CashSession.objects.create(
+            tenant=tenant, store=store, register=register, opened_by=owner,
+            initial_amount=Decimal("60000"), status=CashSession.STATUS_CLOSED,
+            closed_by=owner, counted_cash=Decimal("60000"),
+            expected_cash=Decimal("60000"), difference=Decimal("0"),
+        )
+        CashSession.objects.filter(id=s2.id).update(opened_at=s2_open, closed_at=s2_close)
+        s2.refresh_from_db()
+
+        # Venta a las 8 AM (antes de s1) — huérfana
+        morning = timezone.make_aware(datetime.combine(yesterday_local, time(8, 0)), local_tz)
+        _make_sale(tenant, store, warehouse, owner, total="9999", tip="0",
+                   method="cash", at=morning, cash_session=None)
+
+        # Cierre de s2 NO debería incluir la venta de las 8 AM
+        # (porque s1 con actividad real es su anchor).
+        summary = _session_summary(s2)
+        assert Decimal(summary["cash_sales"]) == Decimal("0"), \
+            f"s2 NO debe absorber huérfana de antes de s1. Got {summary['cash_sales']}"
+
+
+@pytest.mark.django_db
 class TestCloseSessionAdoptsOrphans:
     """Al cerrar la sesión, las ventas huérfanas del rango se asocian a esta
     sesión vía FK para dejar la BD consistente."""
