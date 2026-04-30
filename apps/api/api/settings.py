@@ -423,11 +423,6 @@ if _REDIS_URL:
             "LOCATION": _REDIS_URL,
             "TIMEOUT": 60,  # default TTL global; cada cache.set() puede sobrescribir
             "KEY_PREFIX": "pulstock",
-            "OPTIONS": {
-                # Si Redis cae, lanzar excepcion en cache ops; el codigo
-                # cliente la captura con try/except (ver dashboard/views.py).
-                "IGNORE_EXCEPTIONS": False,
-            },
         }
     }
 else:
