@@ -137,7 +137,7 @@ export default function TransferDetailPage(){
             ):(
               <>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 90px 120px 1fr",columnGap:12,padding:mob?"9px 12px":"9px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em",minWidth:mob?480:undefined}}>
-                  <div>Producto</div><div>SKU</div><div style={{textAlign:"right"}}>Qty</div><div>Nota</div>
+                  <div>Producto</div><div>SKU</div><div style={{textAlign:"right"}}>Cantidad</div><div>Nota</div>
                 </div>
                 {data.lines.map((l,i)=>(
                   <div key={l.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 120px 1fr",columnGap:12,padding:mob?"12px 12px":"12px 18px",borderBottom:i<data.lines.length-1?`1px solid ${C.border}`:"none",alignItems:"center",minWidth:mob?480:undefined}}>
@@ -172,7 +172,7 @@ export default function TransferDetailPage(){
               <>
                 <div style={{display:"grid",gridTemplateColumns:mob?"110px 60px 70px":"150px 90px 70px 80px 90px 1fr",columnGap:mob?6:10,padding:mob?"9px 10px":"9px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.07em"}}>
                   <div>Fecha</div><div style={{textAlign:"center"}}>{mob?"Tipo":"Bodega"}</div>{!mob&&<div style={{textAlign:"center"}}>Tipo</div>}
-                  <div style={{textAlign:"right"}}>Qty</div>{!mob&&<div>Usuario</div>}{!mob&&<div>Nota</div>}
+                  <div style={{textAlign:"right"}}>Cantidad</div>{!mob&&<div>Usuario</div>}{!mob&&<div>Nota</div>}
                 </div>
                 {data.moves.map((m,i)=>(
                   <div key={m.id} style={{display:"grid",gridTemplateColumns:mob?"110px 60px 70px":"150px 90px 70px 80px 90px 1fr",columnGap:mob?6:10,padding:mob?"11px 10px":"11px 18px",borderBottom:i<data.moves.length-1?`1px solid ${C.border}`:"none",alignItems:"center"}}>

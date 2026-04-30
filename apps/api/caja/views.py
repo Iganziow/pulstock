@@ -277,15 +277,39 @@ def _session_summary(session):
 
     # Display: ventas NETAS (sin propinas) por método. La propina se
     # muestra aparte en el widget "Propinas del turno".
-    cash_sales     = cash_payments_total     - cash_tips
-    debit_sales    = debit_payments_total    - debit_tips
-    card_sales     = card_payments_total     - card_tips
-    transfer_sales = transfer_payments_total - transfer_tips
-    total_sales    = cash_sales + debit_sales + card_sales + transfer_sales
+    #
+    # CASO EDGE (Daniel 29/04/26 — split tips relacional): si la propina
+    # de un método X excede los payments del mismo método X, restar daría
+    # negativo (ej. cliente pagó cash $4.000 con tip $500, después dueño
+    # editó tip a "$200 transferencia + $300 cash" → payments siguen
+    # cash, pero tip transferencia $200 no tiene payment respaldo).
+    # Clamp a 0 para no mostrar -$200 al usuario. El exceso es propina
+    # "fuera de banda" (cliente la entregó por canal distinto al pago) y
+    # se ve correctamente en el widget de propinas.
+    cash_sales     = max(zero, cash_payments_total     - cash_tips)
+    debit_sales    = max(zero, debit_payments_total    - debit_tips)
+    card_sales     = max(zero, card_payments_total     - card_tips)
+    transfer_sales = max(zero, transfer_payments_total - transfer_tips)
+
+    # total_sales: usar el subtotal real de las ventas en rango, NO la suma
+    # de los _sales por método. Razón: con split tips libres puede haber
+    # inconsistencia entre tips_by_method y payments_by_method (ej. tip
+    # transferencia $200 sin payment de transferencia → clamped a 0). El
+    # subtotal real (Sale.total agregado) sigue siendo la fuente de verdad
+    # de cuánto vendió el local.
+    total_sales = sales_in_range.aggregate(
+        s=Coalesce(Sum("total"), zero),
+    )["s"]
 
     # expected_cash usa el total pagado en efectivo directo (ya incluye
     # propinas en cash). Esto evita la doble suma del bug original.
-    expected = session.initial_amount + cash_payments_total + movements_in - movements_out
+    #
+    # NOTA edge case split tips: si la propina cash declarada excede
+    # los payments cash, ese exceso es cash adicional que entró por fuera
+    # del payment registrado. Lo sumamos a expected_cash para que el
+    # cuadre refleje el cash físico real esperado en caja.
+    extra_cash_from_tips = max(zero, cash_tips - cash_payments_total)
+    expected = session.initial_amount + cash_payments_total + extra_cash_from_tips + movements_in - movements_out
     return {
         "initial_amount":  str(session.initial_amount),
         # Desglose por método de pago (ventas netas, sin propinas)

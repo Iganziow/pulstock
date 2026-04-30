@@ -222,7 +222,7 @@ export default function PurchaseDetailPage(){
             {/* Header */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 70px 120px 120px",columnGap:12,padding:mob?"10px 12px":"10px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:mob?480:undefined}}>
               <div>Producto</div>
-              <div style={{textAlign:"center"}}>Qty</div>
+              <div style={{textAlign:"center"}}>Cantidad</div>
               <div style={{textAlign:"right"}}>Costo unit.</div>
               <div style={{textAlign:"right"}}>Subtotal</div>
             </div>

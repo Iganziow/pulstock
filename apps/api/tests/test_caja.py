@@ -571,6 +571,52 @@ class TestTipsCashFlowReconciliation:
         assert Decimal(live["total_tips"]) == Decimal("200")
         assert Decimal(live["tips_by_method"]["cash"]) == Decimal("200")
 
+    def test_split_tip_method_diff_payments_no_negative_sales(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Daniel 29/04/26: caso real Marbrava — cliente paga cuenta de
+        $3.500 con $4.000 cash (incluye propina $500). Después el dueño
+        edita la propina a split: $300 cash + $200 transferencia. Los
+        payments siguen siendo cash $4.000, pero ahora hay propina por
+        transferencia $200 sin payment de transferencia.
+
+        Antes del fix: transfer_sales = 0 - 200 = -$200 (mostraba negativo).
+        Después: transfer_sales clamped a $0, transferencia $200 visible
+        en tips_by_method, total_sales toma sum(sale.total) directo.
+        """
+        from sales.models import Sale, SalePayment, SaleTip
+        from decimal import Decimal as D
+        session = CashSession.objects.get(id=open_session["id"])
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            cash_session=session,
+            status="COMPLETED",
+            sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D("3500"), total=D("3500"),
+            tip=D("500"),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        SalePayment.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("4000"))
+        # Tip split: 300 cash + 200 transferencia (sin payment de transferencia)
+        SaleTip.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("300"))
+        SaleTip.objects.create(tenant=tenant, sale=sale, method="transfer", amount=D("200"))
+
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        # NO debe ser negativo
+        assert Decimal(live["transfer_sales"]) >= 0
+        assert Decimal(live["transfer_sales"]) == Decimal("0")
+        # Cash sales: 4000 cash payment - 300 cash tip = 3700
+        assert Decimal(live["cash_sales"]) == Decimal("3700")
+        # Tips by method correctos
+        assert Decimal(live["tips_by_method"]["cash"]) == Decimal("300")
+        assert Decimal(live["tips_by_method"]["transfer"]) == Decimal("200")
+        # total_sales = subtotal real (3500), no derivado de payments
+        assert Decimal(live["total_sales"]) == Decimal("3500")
+        # expected_cash usa cash_payments_total (4000 cash) + initial (10000)
+        assert Decimal(live["expected_cash"]) == Decimal("14000.00")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # VOID — la propina debe limpiarse al anular venta (regresión 27/04/26)

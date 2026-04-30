@@ -173,7 +173,7 @@ export default function MovesPage(){
         <div style={{display:"grid",gridTemplateColumns:"150px 1fr 90px 130px 70px 80px 180px 1fr",columnGap:10,padding:"10px 18px",background:C.bg,borderBottom:`1px solid ${C.border}`,fontSize:10.5,fontWeight:700,color:C.mute,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:mob?900:undefined}}>
           <div>Fecha</div><div>Producto</div><div>SKU</div><div>Bodega</div>
           <div style={{textAlign:"center"}}>Tipo</div>
-          <div style={{textAlign:"right"}}>Qty</div>
+          <div style={{textAlign:"right"}}>Cantidad</div>
           <div>Ref</div><div>Nota</div>
         </div>
 

@@ -370,7 +370,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     textTransform:"uppercase", letterSpacing:"0.07em",
                   }}>
                     <div>Producto</div>
-                    <div style={{ textAlign:"center" }}>Qty</div>
+                    <div style={{ textAlign:"center" }}>Cantidad</div>
                     <div style={{ textAlign:"right" }}>P. Unit</div>
                     <div style={{ textAlign:"right" }}>Total</div>
                   </div>

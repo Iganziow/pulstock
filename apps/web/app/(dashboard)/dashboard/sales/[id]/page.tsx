@@ -237,7 +237,7 @@ export default function SaleDetailPage() {
               fontSize:10.5, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.08em",
             }}>
               <div>Producto</div>
-              <div style={{ textAlign:"center" }}>Qty</div>
+              <div style={{ textAlign:"center" }}>Cantidad</div>
               <div style={{ textAlign:"right" }}>Precio unit.</div>
               <div style={{ textAlign:"right" }}>Costo</div>
               <div style={{ textAlign:"right" }}>Subtotal</div>
