@@ -401,6 +401,49 @@ LOGGING = {
 }
 
 # ======================================================
+# CACHE (Redis para escalabilidad — Daniel 30/04/26)
+# ======================================================
+# Backend Redis nativo de Django 4+ (sin necesidad de django-redis).
+# REDIS_URL apunta a la BD 1 de Redis (la 0 la usa Celery como broker).
+#
+# Estrategia:
+# - DEBUG=True (dev local) → LocMemCache (no requiere Redis corriendo).
+# - DEBUG=False (prod) → Redis vía REDIS_URL (default localhost:6379/1).
+# - Si setear `REDIS_URL=` (vacío) explicito → fallback LocMemCache.
+#
+# Feature flag CACHE_DASHBOARD_ENABLED controla si el endpoint
+# /dashboard/summary/ usa cache. OFF por defecto en prod hasta que
+# Daniel lo active explícitamente. Permite rollback instantáneo
+# cambiando la env var sin redeploy de código.
+_REDIS_URL = os.getenv("REDIS_URL", "" if DEBUG else "redis://localhost:6379/1")
+if _REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+            "TIMEOUT": 60,  # default TTL global; cada cache.set() puede sobrescribir
+            "KEY_PREFIX": "pulstock",
+            "OPTIONS": {
+                # Si Redis cae, lanzar excepcion en cache ops; el codigo
+                # cliente la captura con try/except (ver dashboard/views.py).
+                "IGNORE_EXCEPTIONS": False,
+            },
+        }
+    }
+else:
+    # Fallback in-memory para entornos sin Redis (dev local con DEBUG=True,
+    # tests, contenedores stripped).
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "pulstock-fallback",
+        }
+    }
+
+CACHE_DASHBOARD_ENABLED = os.getenv("CACHE_DASHBOARD_ENABLED", "0") == "1"
+CACHE_DASHBOARD_TTL = int(os.getenv("CACHE_DASHBOARD_TTL", "30"))
+
+# ======================================================
 # CELERY
 # ======================================================
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
