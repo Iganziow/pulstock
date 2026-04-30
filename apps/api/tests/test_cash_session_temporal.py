@@ -86,21 +86,28 @@ class TestSessionSummaryTemporalRange:
         # Expected = inicial + cash_payments = 100000 + 5500
         assert Decimal(summary["expected_cash"]) == Decimal("105500.00")
 
-    def test_sales_before_open_excluded(
+    def test_sales_from_previous_day_excluded(
         self, tenant, store, warehouse, owner,
     ):
-        """Venta ANTES del opened_at NO entra al summary."""
+        """Venta del DÍA ANTERIOR (fuera del rango extendido) NO entra.
+
+        El rango se extiende hasta inicio del día local de opened_at.
+        Una venta de un día previo queda fuera.
+
+        Reescrito tras PR #94: antes el test usaba `hours=3` que es
+        flaky (puede caer mismo día u otro según hora). Ahora forzamos
+        ayer explícitamente."""
         register = _make_register(tenant, store)
         open_at = timezone.now() - timedelta(hours=1)
         session = _open_session(tenant, store, register, owner, "100000", at=open_at)
 
-        # Venta hace 3 horas (antes de abrir)
-        before = timezone.now() - timedelta(hours=3)
+        # Venta ayer al mediodía (claramente fuera del día actual)
+        before = timezone.now() - timedelta(days=1, hours=12)
         _make_sale(tenant, store, warehouse, owner, total="5000", tip="0",
                    method="cash", at=before)
 
         summary = _session_summary(session)
-        # No debe contar
+        # No debe contar (es de un día previo, fuera del rango extendido)
         assert Decimal(summary["cash_sales"]) == Decimal("0")
         assert Decimal(summary["expected_cash"]) == Decimal("100000.00")
 
@@ -279,6 +286,50 @@ class TestSessionRangeExtendsBackwards:
 
 
 @pytest.mark.django_db
+class TestTipMethodExplicit:
+    """Daniel 29/04/26: si Sale.tip_method está seteado, el cierre atribuye
+    100% de la propina a ese método. Si vacío, usa reparto proporcional."""
+
+    def test_explicit_tip_method_overrides_proportional(
+        self, tenant, store, warehouse, owner,
+    ):
+        register = _make_register(tenant, store)
+        open_at = timezone.now() - timedelta(hours=1)
+        session = _open_session(tenant, store, register, owner, "100000", at=open_at)
+
+        # Cliente paga $2000 débito (subtotal) + propina $500 cash explícita
+        sale = _make_sale(tenant, store, warehouse, owner, total="2000", tip="0",
+                          method="debit", at=timezone.now() - timedelta(minutes=30))
+        # Setear tip y tip_method directo
+        sale.tip = Decimal("500")
+        sale.tip_method = "cash"
+        sale.save(update_fields=["tip", "tip_method"])
+
+        summary = _session_summary(session)
+        # tips_by_method: 100% en cash (no proporcional al débito que es el único pago)
+        assert Decimal(summary["tips_by_method"]["cash"]) == Decimal("500")
+        assert Decimal(summary["tips_by_method"]["debit"]) == Decimal("0")
+
+    def test_empty_tip_method_uses_proportional(
+        self, tenant, store, warehouse, owner,
+    ):
+        """Si tip_method vacío, reparte proporcional (lógica histórica)."""
+        register = _make_register(tenant, store)
+        open_at = timezone.now() - timedelta(hours=1)
+        session = _open_session(tenant, store, register, owner, "100000", at=open_at)
+
+        sale = _make_sale(tenant, store, warehouse, owner, total="2000", tip="0",
+                          method="debit", at=timezone.now() - timedelta(minutes=30))
+        sale.tip = Decimal("500")
+        sale.tip_method = ""  # vacío → proporcional
+        sale.save(update_fields=["tip", "tip_method"])
+
+        summary = _session_summary(session)
+        # 100% al débito (único pago), por proporción
+        assert Decimal(summary["tips_by_method"]["debit"]) == Decimal("500")
+
+
+@pytest.mark.django_db
 class TestEmptyPrevSessionIgnored:
     """Sesiones cerradas SIN actividad real (sin sales ni movs) NO bloquean
     que la siguiente sesión absorba huérfanas hacia atrás. Caso real
@@ -389,9 +440,11 @@ class TestCloseSessionAdoptsOrphans:
         open_at = timezone.now() - timedelta(hours=1)
         session = _open_session(tenant, store, register, owner, "100000", at=open_at)
 
-        # 2 huérfanas dentro del rango + 1 fuera
+        # 2 huérfanas dentro del rango + 1 de AYER (fuera del rango extendido).
+        # Tras PR #94: el rango se extiende hasta inicio del día local. Por eso
+        # el "fuera de rango" tiene que ser de OTRO día, no solo hace 3 horas.
         in_range_when = timezone.now() - timedelta(minutes=30)
-        out_of_range_when = timezone.now() - timedelta(hours=3)
+        out_of_range_when = timezone.now() - timedelta(days=1, hours=12)
         s1 = _make_sale(tenant, store, warehouse, owner, total="1000", tip="0",
                         method="cash", at=in_range_when, cash_session=None)
         s2 = _make_sale(tenant, store, warehouse, owner, total="2000", tip="0",

@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
-from .models import Sale, SaleLine, SalePayment
+from .models import Sale, SaleLine, SalePayment, SaleTip
 from catalog.serializers import ProductReadSerializer
 from inventory.models import StockMove
 
@@ -227,9 +227,16 @@ class SalePaymentSerializer(serializers.ModelSerializer):
         fields = ["method", "amount"]
 
 
+class SaleTipSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SaleTip
+        fields = ["id", "method", "amount"]
+
+
 class SaleDetailSerializer(serializers.ModelSerializer):
     lines    = SaleLineSerializer(many=True, read_only=True)
     payments = SalePaymentSerializer(many=True, read_only=True)
+    tips     = SaleTipSerializer(many=True, read_only=True)
 
     class Meta:
         model = Sale
@@ -242,10 +249,12 @@ class SaleDetailSerializer(serializers.ModelSerializer):
             "subtotal",
             "total",
             "tip",
+            "tip_method",
             "total_cost",
             "gross_profit",
             "status",
             "sale_type",
             "payments",
+            "tips",
             "lines",
         ]

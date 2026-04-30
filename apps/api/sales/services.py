@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from catalog.models import Product
 from inventory.models import StockItem, StockMove
 
-from .models import Sale, SaleLine, SalePayment, TenantSaleCounter
+from .models import Sale, SaleLine, SalePayment, SaleTip, TenantSaleCounter
 from .promotions import resolve_active_promotions
 from .recipes import expand_recipes, compute_recipe_costs
 from .pricing import build_sale_lines
@@ -456,6 +456,55 @@ def create_sale(
 
     if payment_rows and total_paid < subtotal:
         logger.warning("Pago insuficiente: total_paid=%s subtotal=%s sale=%s", total_paid, subtotal, sale.id)
+
+    # ── 9.bis. Record tip rows (SaleTip relacional) ──────────────────
+    # Daniel 29/04/26: las propinas viven en su propia tabla para soportar
+    # split (ej. cliente paga $5000 débito + $200 propina cash + $300
+    # propina transferencia). En la creación inicial no llega split desde
+    # el POS — siempre 1 monto único de propina. Se asigna así:
+    #   - Si hay 1 solo pago: 100% al método de ese pago.
+    #   - Si hay split de pagos: reparto proporcional (última fila absorbe
+    #     el redondeo). Cubre el caso típico cafetería (1 método).
+    # Si después el dueño edita la propina vía PATCH /sales/{id}/tip/,
+    # puede dejar el reparto que quiera (split arbitrario).
+    if tip > 0 and payment_rows:
+        tip_amount_total = Decimal(str(tip)).quantize(Decimal("0.01"))
+        if len(payment_rows) == 1:
+            SaleTip.objects.create(
+                sale=sale, tenant_id=tenant_id,
+                method=payment_rows[0].method,
+                amount=tip_amount_total,
+            )
+        else:
+            total_pay_amounts = sum((p.amount for p in payment_rows), Decimal("0"))
+            if total_pay_amounts > 0:
+                tip_rows = []
+                running = Decimal("0")
+                for p in payment_rows[:-1]:
+                    share = (tip_amount_total * p.amount / total_pay_amounts).quantize(Decimal("0.01"))
+                    if share > 0:
+                        tip_rows.append(SaleTip(
+                            sale=sale, tenant_id=tenant_id,
+                            method=p.method, amount=share,
+                        ))
+                    running += share
+                last = payment_rows[-1]
+                last_share = (tip_amount_total - running).quantize(Decimal("0.01"))
+                if last_share > 0:
+                    tip_rows.append(SaleTip(
+                        sale=sale, tenant_id=tenant_id,
+                        method=last.method, amount=last_share,
+                    ))
+                if tip_rows:
+                    SaleTip.objects.bulk_create(tip_rows)
+    elif tip > 0 and not payment_rows:
+        # Tip sin payments (caso defensivo: solo debería pasar en CONSUMO_INTERNO,
+        # pero ahí tip=0 obligatorio. Si llega de algún flujo nuevo, atribuir a cash).
+        SaleTip.objects.create(
+            sale=sale, tenant_id=tenant_id,
+            method=SalePayment.METHOD_CASH,
+            amount=Decimal(str(tip)).quantize(Decimal("0.01")),
+        )
 
     # ── 10. Save final totals ────────────────────────────────────────
     sale.subtotal = subtotal

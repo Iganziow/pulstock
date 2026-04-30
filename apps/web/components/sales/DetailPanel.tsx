@@ -7,6 +7,7 @@ import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
 import { SaleStatusBadge } from "./SaleStatusBadge";
 import { VoidModal } from "./VoidModal";
+import { EditPaymentsModal, EditTipModal } from "./SaleEditModals";
 import { toNum, fCLP, fDateTime, profitPct } from "./helpers";
 import type { SaleDetail, Warehouse } from "./types";
 
@@ -21,6 +22,15 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr]         = useState<string|null>(null);
   const [showVoid, setShowVoid] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Modales de edición tipo Fudo. Solo pagos y propina son editables;
+  // la cantidad de items NO se permite editar (anti-fraude — ver
+  // comentario en la tabla de líneas).
+  const [showEditPayments, setShowEditPayments] = useState(false);
+  const [showEditTip, setShowEditTip]           = useState(false);
+
+  function refresh() { setRefreshKey(k => k + 1); }
 
   useEffect(() => {
     setSale(null); setLoading(true); setErr(null);
@@ -31,7 +41,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
       } catch (e:any) { setErr(e?.message ?? "Error cargando detalle"); }
       finally { setLoading(false); }
     })();
-  }, [saleId]);
+  }, [saleId, refreshKey]);
 
   const isVoid    = (sale?.status ?? "").toUpperCase() === "VOID";
   const pct       = sale ? profitPct(sale.gross_profit, sale.total) : null;
@@ -134,8 +144,27 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
               {/* Payments */}
               {sale.payments?.length > 0 && (
                 <div style={{ background:C.bg, borderRadius:C.r, padding:"12px 14px" }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
-                    Metodo de pago
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+                      Metodo de pago
+                    </div>
+                    {!isVoid && (
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPayments(true)}
+                        title="Editar pagos"
+                        className="xb"
+                        style={{
+                          background:"transparent", border:`1px solid ${C.border}`,
+                          borderRadius:4, padding:"3px 6px", cursor:"pointer",
+                          display:"inline-flex", alignItems:"center", color:C.mid,
+                        }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                        </svg>
+                      </button>
+                    )}
                   </div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                     {sale.payments.map((p, i) => {
@@ -165,36 +194,75 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                   la propina pero no sale si la dejaron en debito
                   efectivo credito transferencia, esto es importante
                   para validar el cierre de caja"). */}
+              {/* Si tip = 0 mostrar UI compacta con botón "Agregar" */}
+              {(!sale.tip || toNum(sale.tip) === 0) && !isVoid && (
+                <div style={{
+                  background: C.bg, borderRadius: C.r, padding: "10px 14px",
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>💵</span>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        Propina
+                      </div>
+                      <div style={{ fontSize: 12, color: C.mute, marginTop: 1 }}>Sin propina</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditTip(true)}
+                    className="xb"
+                    style={{
+                      background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBd}`,
+                      borderRadius: 4, padding: "4px 10px", cursor: "pointer",
+                      fontSize: 11, fontWeight: 600,
+                    }}
+                  >+ Agregar</button>
+                </div>
+              )}
+
               {sale.tip && toNum(sale.tip) > 0 && (() => {
-                // Calcular reparto proporcional de la propina por método
-                // de pago, IDÉNTICO al backend (caja/views.py): la última
-                // fila absorbe el resto del redondeo para que la suma
-                // cuadre exacto con sale.tip.
+                // Daniel 29/04/26: ahora `sale.tips` es la fuente de
+                // verdad (relacional). Una venta puede tener N filas,
+                // cada una con su método. Si está vacío (legacy), caemos
+                // al cálculo proporcional desde payments para no romper
+                // ventas viejas que no fueron migradas.
                 const tipNum = toNum(sale.tip);
-                const payments = sale.payments || [];
-                const totalPaid = payments.reduce((s, p) => s + toNum(p.amount), 0);
-                const tipByMethod: Record<string, number> = {};
-                if (payments.length > 0 && totalPaid > 0) {
-                  let running = 0;
-                  for (let i = 0; i < payments.length - 1; i++) {
-                    const p = payments[i];
-                    const share = Math.round(tipNum * toNum(p.amount) / totalPaid);
-                    tipByMethod[p.method] = (tipByMethod[p.method] || 0) + share;
-                    running += share;
-                  }
-                  const last = payments[payments.length - 1];
-                  const lastShare = tipNum - running;
-                  tipByMethod[last.method] = (tipByMethod[last.method] || 0) + lastShare;
-                }
                 const tipMethodLabels: Record<string, string> = {
                   cash: "Efectivo", debit: "Débito", card: "Crédito", transfer: "Transferencia",
                 };
                 const tipMethodIcons: Record<string, string> = {
                   cash: "💵", debit: "💳", card: "💳", transfer: "🏦",
                 };
-                const methodRows = Object.entries(tipByMethod)
-                  .filter(([_, amt]) => amt > 0)
-                  .sort((a, b) => b[1] - a[1]);
+
+                let tipRows: Array<{ method: string; amount: number }> = [];
+                if (Array.isArray(sale.tips) && sale.tips.length > 0) {
+                  tipRows = sale.tips
+                    .filter(t => toNum(t.amount) > 0)
+                    .map(t => ({ method: t.method, amount: toNum(t.amount) }));
+                } else {
+                  // Fallback legacy: reparto proporcional según payments
+                  const payments = sale.payments || [];
+                  const totalPaid = payments.reduce((s, p) => s + toNum(p.amount), 0);
+                  const tipByMethod: Record<string, number> = {};
+                  if (payments.length > 0 && totalPaid > 0) {
+                    let running = 0;
+                    for (let i = 0; i < payments.length - 1; i++) {
+                      const p = payments[i];
+                      const share = Math.round(tipNum * toNum(p.amount) / totalPaid);
+                      tipByMethod[p.method] = (tipByMethod[p.method] || 0) + share;
+                      running += share;
+                    }
+                    const last = payments[payments.length - 1];
+                    const lastShare = tipNum - running;
+                    tipByMethod[last.method] = (tipByMethod[last.method] || 0) + lastShare;
+                  }
+                  tipRows = Object.entries(tipByMethod)
+                    .filter(([_, amt]) => amt > 0)
+                    .map(([method, amount]) => ({ method, amount }));
+                }
+                tipRows.sort((a, b) => b.amount - a.amount);
 
                 return (
                   <div style={{
@@ -202,11 +270,30 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     padding: "12px 14px",
                     border: `1px solid ${C.amberBd}`,
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <span style={{ fontSize: 18 }}>💵</span>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                        Propina cobrada
+                    <div style={{ display: "flex", alignItems: "center", justifyContent:"space-between", gap: 8, marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 18 }}>💵</span>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Propina cobrada
+                        </div>
                       </div>
+                      {!isVoid && (
+                        <button
+                          type="button"
+                          onClick={() => setShowEditTip(true)}
+                          title="Editar propina"
+                          className="xb"
+                          style={{
+                            background:"transparent", border:`1px solid ${C.amberBd}`,
+                            borderRadius:4, padding:"3px 6px", cursor:"pointer",
+                            display:"inline-flex", alignItems:"center", color:C.amber,
+                          }}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                          </svg>
+                        </button>
+                      )}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid }}>
@@ -218,21 +305,19 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                         <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>+${fCLP(sale.tip)}</span>
                       </div>
 
-                      {/* Desglose por método: solo se muestra si la
-                          propina se pudo atribuir (al menos un payment
-                          válido). Si hay 1 método: una sola fila clara.
-                          Si hay split: varias filas con el reparto
-                          proporcional. */}
-                      {methodRows.length > 0 && (
+                      {/* Desglose por método. Cada SaleTip es una fila
+                          individual (split soportado). Si solo hay 1 fila
+                          mostramos "Pagada con X" para mejor legibilidad. */}
+                      {tipRows.length > 0 && (
                         <div style={{ marginTop: 4, paddingLeft: 12, borderLeft: `2px solid ${C.amberBd}`, display: "flex", flexDirection: "column", gap: 2 }}>
-                          {methodRows.map(([method, amt]) => (
-                            <div key={method} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.mid }}>
+                          {tipRows.map((row, idx) => (
+                            <div key={`${row.method}-${idx}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.mid }}>
                               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                <span style={{ fontSize: 12 }}>{tipMethodIcons[method] || "💰"}</span>
-                                {methodRows.length === 1 ? "Pagada con " : ""}{tipMethodLabels[method] || method}
+                                <span style={{ fontSize: 12 }}>{tipMethodIcons[row.method] || "💰"}</span>
+                                {tipRows.length === 1 ? "Pagada con " : ""}{tipMethodLabels[row.method] || row.method}
                               </span>
                               <span style={{ fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>
-                                ${fCLP(amt)}
+                                ${fCLP(row.amount)}
                               </span>
                             </div>
                           ))}
@@ -309,7 +394,20 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                             </div>
                           )}
                         </div>
-                        <div style={{ textAlign:"center", fontSize:13, fontWeight:600, color:C.mid }}>{l.qty}</div>
+                        <div style={{ textAlign:"center", fontSize:13, fontWeight:600, color:C.mid }}>
+                          {(() => {
+                            // Mostrar qty sin ceros decimales innecesarios.
+                            // "1.000" → "1", "1.500" → "1.5"
+                            const n = Number(l.qty);
+                            return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(3)));
+                          })()}
+                          {/* Anti-fraude (Daniel 29/04/26): NO se puede editar
+                              cantidad de líneas post-venta. Si se necesita
+                              corregir un error de cantidad, se anula la venta
+                              entera y se crea una nueva. Sin esta restricción
+                              una cajera podría vender 2, cobrar y luego editar
+                              a 1 quedándose con la diferencia. */}
+                        </div>
                         <div style={{ textAlign:"right", fontSize:12, color:C.mid, fontVariantNumeric:"tabular-nums" }}>
                           ${fCLP(l.unit_price)}
                         </div>
@@ -331,6 +429,40 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
           saleId={sale.id}
           onClose={() => setShowVoid(false)}
           onDone={() => { setShowVoid(false); onVoided(); }}
+        />
+      )}
+
+      {/* Edit modals — estilo Fudo: ✏️ inline en cada sección */}
+      {sale && (
+        <EditPaymentsModal
+          open={showEditPayments}
+          saleId={sale.id}
+          currentPayments={sale.payments?.map(p => ({ method: p.method as any, amount: p.amount })) ?? []}
+          total={toNum(sale.total)}
+          tip={toNum(sale.tip ?? "0")}
+          onClose={() => setShowEditPayments(false)}
+          onSaved={refresh}
+        />
+      )}
+      {sale && (
+        <EditTipModal
+          open={showEditTip}
+          saleId={sale.id}
+          currentTips={
+            // Si hay filas SaleTip, usarlas. Si no (legacy con sale.tip > 0),
+            // inicializar el modal con 1 fila cash con el monto total para
+            // que el dueño pueda editarlo y al guardar quede convertido a
+            // SaleTip relacional automáticamente.
+            Array.isArray(sale.tips) && sale.tips.length > 0
+              ? sale.tips.map(t => ({ method: t.method, amount: t.amount }))
+              : (toNum(sale.tip ?? "0") > 0
+                  ? [{ method: ((sale.tip_method as any) || "cash") as any, amount: String(sale.tip ?? "0") }]
+                  : [])
+          }
+          total={toNum(sale.total)}
+          totalPaid={(sale.payments ?? []).reduce((s, p) => s + toNum(p.amount), 0)}
+          onClose={() => setShowEditTip(false)}
+          onSaved={refresh}
         />
       )}
     </>

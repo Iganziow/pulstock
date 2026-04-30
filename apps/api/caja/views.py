@@ -5,7 +5,7 @@ import logging
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -112,13 +112,20 @@ def _sales_in_session_range(session):
     if start_dt > session.opened_at:
         start_dt = session.opened_at
 
+    # NOTA: usamos __lte (no __lt) para incluir ventas con created_at
+    # IDÉNTICO al end_dt. Esto cubre el caso edge de Windows con baja
+    # resolución de reloj donde `Sale.objects.create(default=now())` y
+    # `end_dt = timezone.now()` pueden colisionar al microsegundo,
+    # haciendo desaparecer la venta del cierre. En producción es muy
+    # raro pero en tests rápidos pasaba consistentemente. La venta hecha
+    # exactamente en el momento del cierre debería contar para esta sesión.
     return Sale.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status="COMPLETED",
         sale_type="VENTA",
         created_at__gte=start_dt,
-        created_at__lt=end_dt,
+        created_at__lte=end_dt,
     )
 
 
@@ -174,23 +181,55 @@ def _session_summary(session):
         return method
 
     # Mismo cambio que arriba: usar rango temporal en vez de FK.
-    sales_with_tips = sales_in_range.filter(
+    # Daniel 29/04/26: ahora `SaleTip` es la fuente de verdad. Cada venta
+    # con propina tiene N filas {method, amount}. Sumamos directo por método
+    # — sin reparto proporcional, sin redondeo, sin tip_method.
+    #
+    # Compat legacy: si una venta tiene Sale.tip > 0 pero NO filas SaleTip
+    # (datos previos al refactor que la migración no haya tocado, p.ej.
+    # ventas creadas en una transacción con la migración corriendo en otro
+    # nodo), caemos al cálculo histórico (tip_method explícito o reparto
+    # proporcional). En la práctica la migración ya creó las filas para
+    # todas las ventas existentes; este path es solo defensivo.
+    from sales.models import SaleTip
+
+    saletip_totals = (
+        SaleTip.objects
+        .filter(sale_id__in=sale_ids_in_range)
+        .values("method")
+        .annotate(total=Sum("amount"), count=Count("id"))
+    )
+    sales_with_saletips = set(
+        SaleTip.objects
+        .filter(sale_id__in=sale_ids_in_range)
+        .values_list("sale_id", flat=True)
+        .distinct()
+    )
+    for row in saletip_totals:
+        m = _bucket(row["method"])
+        tips_by_method[m] += row["total"]
+        tip_count_by_method[m] += row["count"]
+
+    # Path legacy para ventas con tip>0 pero sin filas SaleTip
+    legacy_sales = sales_in_range.filter(
         tip__gt=0,
-    ).prefetch_related("payments")
-    for sale in sales_with_tips:
+    ).exclude(id__in=sales_with_saletips).prefetch_related("payments")
+    for sale in legacy_sales:
+        explicit_method = (sale.tip_method or "").strip().lower()
+        if explicit_method:
+            m = _bucket(explicit_method)
+            tips_by_method[m] += sale.tip
+            tip_count_by_method[m] += 1
+            continue
+
         payments = list(sale.payments.all())
         if not payments:
-            # Tip sin payments — atribuir a "cash" por defecto. Caso raro
-            # (datos legacy o cobro mal registrado), pero evita que el
-            # total se descuadre vs. el desglose.
             tips_by_method["cash"] += sale.tip
             tip_count_by_method["cash"] += 1
             continue
         total_paid = sum((p.amount for p in payments), zero)
         if total_paid <= 0:
             continue
-        # Calcular shares de todos menos el último, luego asignar resto
-        # al último para que la suma cuadre exacto con sale.tip.
         running = zero
         for p in payments[:-1]:
             share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
@@ -199,7 +238,7 @@ def _session_summary(session):
             tip_count_by_method[m] += 1
             running += share
         last = payments[-1]
-        last_share = sale.tip - running  # absorbe el redondeo
+        last_share = sale.tip - running
         m = _bucket(last.method)
         if last_share > 0:
             tips_by_method[m] += last_share
@@ -535,11 +574,14 @@ class CloseSessionView(APIView):
         if start_dt > session.opened_at:
             start_dt = session.opened_at
 
+        # Mismo fix de boundary que `_sales_in_session_range`: __lte para
+        # incluir ventas con created_at == end_dt (caso edge de baja
+        # resolución de reloj en Windows).
         Sale.objects.filter(
             tenant_id=t_id, store_id=s_id,
             cash_session__isnull=True,
             created_at__gte=start_dt,
-            created_at__lt=end_dt,
+            created_at__lte=end_dt,
         ).update(cash_session=session)
 
         # Compute expected_cash usando el rango temporal extendido

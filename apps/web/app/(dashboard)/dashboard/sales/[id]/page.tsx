@@ -8,6 +8,7 @@ import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
+import { EditPaymentsModal, EditTipModal } from "@/components/sales/SaleEditModals";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,10 +19,11 @@ type SaleLine = {
   line_cost?: string | null;
   line_profit?: string | null;
 };
-type SalePayment = { method: "cash" | "card" | "transfer"; amount: string };
+type SalePayment = { method: "cash" | "card" | "debit" | "transfer"; amount: string };
 type Sale = {
   id: number; sale_number?: number | null; created_at: string; store_id: number; warehouse_id: number;
   subtotal: string; total: string; total_cost: string; gross_profit: string;
+  tip?: string; tip_method?: string;
   status: string; payments: SalePayment[]; lines: SaleLine[];
 };
 
@@ -98,6 +100,11 @@ export default function SaleDetailPage() {
   const [reason, setReason]     = useState("");
   const [voidBusy, setVoidBusy] = useState(false);
   const [voidErr, setVoidErr]   = useState<string|null>(null);
+
+  // Modales de edición. Solo pagos y propina (la cantidad NO se edita
+  // por anti-fraude — Daniel 29/04/26).
+  const [showEditPayments, setShowEditPayments] = useState(false);
+  const [showEditTip, setShowEditTip]           = useState(false);
 
   async function load() {
     if (!id) { setErr("ID inválido"); setLoading(false); return; }
@@ -254,7 +261,9 @@ export default function SaleDetailPage() {
                       </div>
                     )}
                   </div>
-                  <div style={{ textAlign:"center", fontWeight:600, fontSize:14, color:C.mid }}>{l.qty}</div>
+                  <div style={{ textAlign:"center", fontWeight:600, fontSize:14, color:C.mid }}>
+                    {l.qty}
+                  </div>
                   <div style={{ textAlign:"right", fontSize:13, fontVariantNumeric:"tabular-nums" }}>${fCLP(l.unit_price)}</div>
                   <div style={{ textAlign:"right", fontSize:12, color:C.mute, fontVariantNumeric:"tabular-nums" }}>
                     {l.line_cost != null ? `$${fCLP(l.line_cost)}` : "—"}
@@ -300,12 +309,24 @@ export default function SaleDetailPage() {
           {/* Payments */}
           {sale.payments?.length > 0 && (
             <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
-              <div style={{ padding:"12px 16px", background:C.bg, borderBottom:`1px solid ${C.border}` }}>
+              <div style={{ padding:"12px 16px", background:C.bg, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em" }}>Método de pago</div>
+                {!isVoid && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPayments(true)}
+                    title="Editar pagos"
+                    style={{
+                      background:"transparent", border:`1px solid ${C.border}`,
+                      borderRadius:4, padding:"2px 8px", cursor:"pointer",
+                      fontSize:11, color:C.mid, fontWeight:600,
+                    }}
+                  >Editar</button>
+                )}
               </div>
               <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:10 }}>
                 {sale.payments.map((p, i) => {
-                  const labels: Record<string, string> = { cash:"💵 Efectivo", card:"💳 Tarjeta", transfer:"🏦 Transferencia" };
+                  const labels: Record<string, string> = { cash:"💵 Efectivo", debit:"💳 Tarj. Débito", card:"💳 Tarj. Crédito", transfer:"🏦 Transferencia" };
                   return (
                     <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8 }}>
                       <span style={{ fontSize:13, color:C.mid }}>{labels[p.method] ?? p.method}</span>
@@ -324,6 +345,36 @@ export default function SaleDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Tip — sección separada porque la propina es del equipo, no del local */}
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
+            <div style={{ padding:"12px 16px", background:C.bg, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em" }}>💵 Propina</div>
+              {!isVoid && (
+                <button
+                  type="button"
+                  onClick={() => setShowEditTip(true)}
+                  title="Editar propina"
+                  style={{
+                    background:"transparent", border:`1px solid ${C.border}`,
+                    borderRadius:4, padding:"2px 8px", cursor:"pointer",
+                    fontSize:11, color:C.mid, fontWeight:600,
+                  }}
+                >Editar</button>
+              )}
+            </div>
+            <div style={{ padding:"14px 16px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8 }}>
+                <span style={{ fontSize:12, color:C.mute }}>Monto</span>
+                <span style={{ fontSize:14, fontWeight:800, color:toNum(sale.tip ?? 0) > 0 ? C.amber : C.mute, fontVariantNumeric:"tabular-nums" }}>
+                  ${fCLP(sale.tip ?? "0")}
+                </span>
+              </div>
+              <div style={{ fontSize:10.5, color:C.mute, marginTop:6, lineHeight:1.4 }}>
+                Las propinas no se mezclan con el ingreso del local.
+              </div>
+            </div>
+          </div>
 
           {/* Financials */}
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
@@ -396,6 +447,34 @@ export default function SaleDetailPage() {
           </div>
         </div>
       )}
+
+      {/* EDIT MODALS */}
+      <EditPaymentsModal
+        open={showEditPayments}
+        saleId={sale.id}
+        currentPayments={sale.payments?.map(p => ({ method: p.method as any, amount: p.amount })) ?? []}
+        total={toNum(sale.total)}
+        tip={toNum(sale.tip ?? "0")}
+        onClose={() => setShowEditPayments(false)}
+        onSaved={load}
+      />
+      <EditTipModal
+        open={showEditTip}
+        saleId={sale.id}
+        currentTips={
+          // SaleTip relacional → fuente de verdad. Fallback legacy si la
+          // venta tiene sale.tip > 0 pero no fue migrada (1 fila inicial).
+          Array.isArray((sale as any).tips) && (sale as any).tips.length > 0
+            ? (sale as any).tips.map((t: any) => ({ method: t.method, amount: t.amount }))
+            : (toNum(sale.tip ?? "0") > 0
+                ? [{ method: ((sale.tip_method as any) || "cash") as any, amount: String(sale.tip ?? "0") }]
+                : [])
+        }
+        total={toNum(sale.total)}
+        totalPaid={(sale.payments ?? []).reduce((s, p) => s + toNum(p.amount), 0)}
+        onClose={() => setShowEditTip(false)}
+        onSaved={load}
+      />
     </div>
   );
 }
