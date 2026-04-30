@@ -47,6 +47,19 @@ class CashSession(models.Model):
     difference   = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="counted - expected")
     note         = models.TextField(blank=True, default="")
 
+    # Snapshot inmutable del summary completo al momento del cierre.
+    # Daniel 29/04/26 — caso real Marbrava: si Mario cierra la caja con
+    # tip_total=$1.500 y al día siguiente edita la propina de una venta
+    # de ayer a $5.000, el ARQUEO HISTÓRICO debe seguir mostrando $1.500
+    # (lo que se contó al cierre). Sin este snapshot el `live` se
+    # recalcula con datos actuales y muta el reporte cerrado — eso es
+    # exactamente lo que Fudo blinda con "una vez cerrado el arqueo no
+    # se puede reabrir".
+    #
+    # Estructura: dict completo con todas las keys del _session_summary
+    # (cash_sales, debit_sales, ..., tips_by_method, expected_cash, etc.).
+    closing_snapshot = models.JSONField(default=dict, blank=True)
+
     class Meta:
         indexes = [models.Index(fields=["tenant", "store", "status"])]
         constraints = [

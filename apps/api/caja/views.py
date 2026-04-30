@@ -73,11 +73,14 @@ def _sales_in_session_range(session):
     # Limitamos la búsqueda a las últimas 10 sesiones para no degradar
     # performance — más que suficiente para cualquier caso real.
     prev_closed = None
+    # __lte: incluye prev_closed con closed_at == session.opened_at
+    # (caso: Ignacia abre exactamente cuando Mario cierra). Sin esto,
+    # el boundary __gt no aplica y la venta del segundo entra a las dos.
     candidates = CashSession.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status=CashSession.STATUS_CLOSED,
-        closed_at__lt=session.opened_at,
+        closed_at__lte=session.opened_at,
     ).exclude(id=session.id).order_by("-closed_at")[:10]
 
     for pc in candidates:
@@ -112,21 +115,30 @@ def _sales_in_session_range(session):
     if start_dt > session.opened_at:
         start_dt = session.opened_at
 
-    # NOTA: usamos __lte (no __lt) para incluir ventas con created_at
-    # IDÉNTICO al end_dt. Esto cubre el caso edge de Windows con baja
-    # resolución de reloj donde `Sale.objects.create(default=now())` y
-    # `end_dt = timezone.now()` pueden colisionar al microsegundo,
-    # haciendo desaparecer la venta del cierre. En producción es muy
-    # raro pero en tests rápidos pasaba consistentemente. La venta hecha
-    # exactamente en el momento del cierre debería contar para esta sesión.
-    return Sale.objects.filter(
+    # BOUNDARY (Daniel 29/04/26 — sesiones consecutivas):
+    # - end_dt: usamos __lte para incluir ventas con created_at idéntico
+    #   al cierre (caso edge Windows: baja resolución de reloj hace que
+    #   `Sale.create(default=now())` y `end_dt = now()` coincidan).
+    # - start_dt: si viene de prev_closed.closed_at, usamos __gt
+    #   (estrictamente mayor) para evitar DOBLE CONTEO cuando dos
+    #   sesiones se solapan en el mismo timestamp. Ej: Mario cierra
+    #   12:00:00, Ignacia abre 12:00:00 (mismo segundo), una venta hecha
+    #   12:00:00 entraría a las dos sesiones si usamos __gte.
+    #   Si start_dt viene del inicio del día (no hay prev_closed), no
+    #   hay riesgo de solapamiento → usamos __gte normal.
+    use_gt_start = prev_closed is not None and prev_closed.closed_at is not None
+    qs = Sale.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status="COMPLETED",
         sale_type="VENTA",
-        created_at__gte=start_dt,
         created_at__lte=end_dt,
     )
+    if use_gt_start:
+        qs = qs.filter(created_at__gt=start_dt)
+    else:
+        qs = qs.filter(created_at__gte=start_dt)
+    return qs
 
 
 def _session_summary(session):
@@ -361,14 +373,28 @@ def _session_data(session, include_movements=False, include_summary=False):
     }
     if include_movements:
         d["movements"] = [_movement_data(m) for m in session.movements.select_related("created_by").order_by("created_at")]
-    # Summary se computa para CUALQUIER estado (abierta o cerrada).
-    # Mario lo pidió en el historial: quiere ver el desglose por método
-    # de pago de un arqueo ya cerrado para reconciliar — antes la
-    # condición STATUS_OPEN dejaba las cerradas sin detalle. Las queries
-    # de _session_summary funcionan igual con sesiones cerradas porque
-    # session.sales mantiene el FK.
+    # Summary:
+    # - Sesión OPEN  → recalcular en vivo (en tiempo real refleja ventas
+    #   recién hechas, ediciones de propinas, anulaciones, etc.).
+    # - Sesión CLOSED → devolver el SNAPSHOT inmutable persistido al
+    #   cerrar (estilo Fudo: arqueo cerrado no puede mutar). Sin esto,
+    #   editar/anular una venta DESPUÉS del cierre cambia el reporte de
+    #   ayer y rompe la auditoría.
+    # - Sesión CLOSED legacy (sin snapshot) → fallback a recálculo y
+    #   marcamos `snapshot_legacy=True` para que el frontend pueda avisar
+    #   "este arqueo es anterior al snapshot inmutable, los valores se
+    #   recalculan con datos actuales y pueden no coincidir con el cierre
+    #   original".
     if include_summary:
-        d["live"] = _session_summary(session)
+        if session.status == CashSession.STATUS_CLOSED:
+            snap = session.closing_snapshot or {}
+            if snap:
+                d["live"] = snap
+            else:
+                d["live"] = _session_summary(session)
+                d["live"]["snapshot_legacy"] = True
+        else:
+            d["live"] = _session_summary(session)
     return d
 
 
@@ -576,7 +602,7 @@ class CloseSessionView(APIView):
         candidates = CashSession.objects.filter(
             tenant_id=t_id, store_id=s_id,
             status=CashSession.STATUS_CLOSED,
-            closed_at__lt=session.opened_at,
+            closed_at__lte=session.opened_at,
         ).exclude(id=session.id).order_by("-closed_at")[:10]
         for pc in candidates:
             has_sales = Sale.objects.filter(
@@ -598,15 +624,20 @@ class CloseSessionView(APIView):
         if start_dt > session.opened_at:
             start_dt = session.opened_at
 
-        # Mismo fix de boundary que `_sales_in_session_range`: __lte para
-        # incluir ventas con created_at == end_dt (caso edge de baja
-        # resolución de reloj en Windows).
-        Sale.objects.filter(
+        # Mismo fix de boundary que `_sales_in_session_range`:
+        # - end_dt usa __lte (incluye created_at exacto al cierre).
+        # - start_dt usa __gt si viene de prev_closed (evita doble FK);
+        #   __gte si viene de inicio del día (no hay riesgo).
+        sales_qs = Sale.objects.filter(
             tenant_id=t_id, store_id=s_id,
             cash_session__isnull=True,
-            created_at__gte=start_dt,
             created_at__lte=end_dt,
-        ).update(cash_session=session)
+        )
+        if prev_closed is not None and prev_closed.closed_at is not None:
+            sales_qs = sales_qs.filter(created_at__gt=start_dt)
+        else:
+            sales_qs = sales_qs.filter(created_at__gte=start_dt)
+        sales_qs.update(cash_session=session)
 
         # Compute expected_cash usando el rango temporal extendido
         live = _session_summary(session)
@@ -620,12 +651,20 @@ class CloseSessionView(APIView):
         session.expected_cash = expected
         session.difference   = difference
         session.note         = note
+        # Snapshot inmutable del summary completo. Si después editan/anulan
+        # ventas de esta sesión, el reporte de cierre histórico NO debe
+        # mutar (estilo Fudo). Ver `_session_data` para cómo se prefiere
+        # snapshot vs. recálculo en sesiones cerradas.
+        session.closing_snapshot = live
         session.save(update_fields=[
             "status", "closed_by", "closed_at",
             "counted_cash", "expected_cash", "difference", "note",
+            "closing_snapshot",
         ])
 
-        return Response(_session_data(session))
+        # Devolver el detail con summary para que el frontend muestre el
+        # cierre completo (incluyendo el snapshot recién persistido).
+        return Response(_session_data(session, include_movements=True, include_summary=True))
 
 
 class SessionHistoryView(APIView):
