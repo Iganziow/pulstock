@@ -1,8 +1,11 @@
+from django.utils.decorators import method_decorator
+
 from rest_framework import generics, serializers, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+from api.http_cache import browser_cache
 from core.permissions import HasTenant
 from .models import Store
 
@@ -13,11 +16,15 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "code", "is_active"]
 
 
+@method_decorator(browser_cache(max_age=120), name="get")
 class StoreList(generics.ListAPIView):
     """
     GET /api/stores/
     Lista los locales del tenant del usuario.
     Owners ven todos. Otros roles solo ven los asignados.
+
+    Browser cache 2min: stores cambian muy poco. Si el dueño crea uno
+    nuevo, lo ve cuando refresque o al cabo del TTL.
     """
     permission_classes = [IsAuthenticated, HasTenant]
     serializer_class = StoreSerializer

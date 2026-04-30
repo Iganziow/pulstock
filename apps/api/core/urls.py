@@ -1,9 +1,11 @@
 from django.urls import path
+from django.utils.decorators import method_decorator
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 
+from api.http_cache import browser_cache
 from stores.services import ensure_user_tenant_and_store
 from core.permissions import HasTenant, IsOwner, IsManager
 from core.models import Warehouse, User, AlertPreference
@@ -148,7 +150,11 @@ class WarehousesView(APIView):
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @method_decorator(browser_cache(max_age=120))
     def get(self, request):
+        # Browser cache 2min: warehouses cambian muy poco. Si el dueño
+        # crea uno via POST, el endpoint devuelve la lista actualizada y
+        # el browser invalida automáticamente (POST en mismo URL).
         tenant, store = ensure_user_tenant_and_store(request.user)
 
         qs = (

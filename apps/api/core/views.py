@@ -1,7 +1,10 @@
+from django.utils.decorators import method_decorator
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+from api.http_cache import browser_cache
 from stores.services import ensure_user_tenant_and_store
 from .permissions import HasTenant
 
@@ -38,6 +41,7 @@ ROLE_PERMISSIONS = {
 class MeView(APIView):
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @method_decorator(browser_cache(max_age=60))
     def get(self, request):
         tenant, store = ensure_user_tenant_and_store(request.user)
 
