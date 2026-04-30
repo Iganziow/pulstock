@@ -244,7 +244,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } catch (e) { console.error("Layout: error cargando resumen de stock bajo:", e); }
     };
     fetch();
-    const id = setInterval(fetch, 300_000);
+    // Daniel 30/04/26 — Fase 1: subido de 5min a 10min. Esto es solo
+    // para el badge de stock bajo del layout (sidebar/topbar).
+    const id = setInterval(fetch, 600_000);
     return () => { m = false; clearInterval(id); };
   }, []);
 

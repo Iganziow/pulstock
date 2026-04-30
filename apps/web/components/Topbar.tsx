@@ -6,7 +6,7 @@ import { apiFetch, clearTokens } from "@/lib/api";
 import { C } from "@/lib/theme";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-
+
 
 // ─── Route → breadcrumb mapping ───────────────────────────────────────────────
 
@@ -109,7 +109,10 @@ export default function Topbar() {
       } catch { /* silent */ }
     }
     fetchNotifs();
-    const id = setInterval(fetchNotifs, 300_000); // every 5 min
+    // Daniel 30/04/26 — Fase 1: subido de 5min a 10min. Notifs no son
+    // urgentes (alertas de stock bajo, etc.); el usuario las ve cuando
+    // entra al dashboard, no necesita ping permanente.
+    const id = setInterval(fetchNotifs, 600_000);
     return () => { mounted = false; clearInterval(id); };
   }, []);
 
