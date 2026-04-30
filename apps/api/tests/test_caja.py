@@ -863,6 +863,62 @@ class TestClosingSnapshotImmutable:
         # El snapshot persistido tiene total_sales=5000 (lo que pusimos)
         assert resp_mario.data["live"].get("total_sales") == "5000"
 
+    def test_legacy_closed_session_without_snapshot_returns_persisted_only(
+        self, api_client, owner, tenant, store, warehouse, register,
+    ):
+        """Caso real Marbrava 27-abr: sesión cerrada ANTES del refactor
+        closing_snapshot tiene `closing_snapshot = {}`. El `live` devuelto
+        debe contener SOLO valores persistidos al cierre (no recalcular
+        dinámicamente, porque la lógica de rango temporal puede haber
+        cambiado y dar números distintos al cierre original).
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        from sales.models import Sale, SalePayment
+
+        now = timezone.now()
+        # Sesión cerrada con valores persistidos pero SIN snapshot
+        sess = CashSession.objects.create(
+            tenant=tenant, store=store, register=register,
+            opened_by=owner,
+            initial_amount=Decimal("100000"),
+            status=CashSession.STATUS_CLOSED,
+            closed_by=owner,
+            closed_at=now - timedelta(days=2),
+            counted_cash=Decimal("100000"),
+            expected_cash=Decimal("100000"),
+            difference=Decimal("0"),
+            closing_snapshot={},  # legacy: vacío
+        )
+        CashSession.objects.filter(id=sess.id).update(opened_at=now - timedelta(days=2, hours=1))
+
+        # Crear ventas que, si se recalcula dinámicamente, alterarían el live
+        # (estas ventas no estaban en el cierre original, las simulamos como
+        # huérfanas que ahora caerían en el rango temporal del recálculo).
+        s = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            status="COMPLETED", sale_type="VENTA",
+            subtotal=Decimal("50000"), total=Decimal("50000"),
+            tip=Decimal("0"), total_cost=Decimal("0"), gross_profit=Decimal("0"),
+        )
+        Sale.objects.filter(id=s.id).update(created_at=now - timedelta(days=2, hours=2))
+        SalePayment.objects.create(tenant=tenant, sale=s, method="cash", amount=Decimal("50000"))
+
+        resp = api_client.get(detail_url(sess.id))
+        live = resp.data["live"]
+
+        # Debe ser snapshot_legacy + valores persistidos (no recalculados)
+        assert live.get("snapshot_legacy") is True
+        assert Decimal(live["expected_cash"]) == Decimal("100000")
+        assert Decimal(live["counted_cash"]) == Decimal("100000")
+        assert Decimal(live["difference"]) == Decimal("0")
+        # Los desgloses de venta NO deben mostrar la venta huérfana de $50k
+        # (eso sería el bug que arreglamos: recalcular muestra $50k que no
+        # estaba al cierre original).
+        assert Decimal(live["total_sales"]) == Decimal("0")
+        assert Decimal(live["cash_sales"]) == Decimal("0")
+
     def test_consecutive_sessions_boundary_exact_same_timestamp(
         self, api_client, owner, tenant, store, warehouse, register,
     ):
