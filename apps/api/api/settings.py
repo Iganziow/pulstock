@@ -419,7 +419,11 @@ _REDIS_URL = os.getenv("REDIS_URL", "" if DEBUG else "redis://localhost:6379/1")
 if _REDIS_URL:
     CACHES = {
         "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            # SafeRedisCache: wrapper que degrada a no-op si Redis cae.
+            # Crítico porque DRF throttling usa cache.get() sin try/except.
+            # Sin este wrapper, Redis caído = 500 en toda la app autenticada.
+            # Ver api/safe_cache.py para detalles.
+            "BACKEND": "api.safe_cache.SafeRedisCache",
             "LOCATION": _REDIS_URL,
             "TIMEOUT": 60,  # default TTL global; cada cache.set() puede sobrescribir
             "KEY_PREFIX": "pulstock",

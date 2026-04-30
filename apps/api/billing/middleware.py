@@ -74,7 +74,10 @@ class SubscriptionAccessMiddleware(MiddlewareMixin):
         if not user.tenant_id:
             return None
 
-        # Verificar suscripción (cacheado 60s para evitar query por request)
+        # Verificar suscripción (cacheado 60s para evitar query por request).
+        # Si Redis cae, SafeRedisCache (api/safe_cache.py) degrada a no-op:
+        # cache.get devuelve None, cache.set es no-op. La app sigue funcionando
+        # con 1 query extra por request hasta que Redis vuelva.
         cache_key = f"sub_access:{user.tenant_id}"
         cached = cache.get(cache_key)
 
