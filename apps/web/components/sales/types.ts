@@ -33,6 +33,15 @@ export type SaleLine = {
 
 export type SalePayment = { method: "cash" | "card" | "debit" | "transfer"; amount: string };
 
+/** Propina relacional (Daniel 29/04/26). Una venta puede tener N filas,
+    cada una con su propio método. Sale.tip se mantiene como suma
+    denormalizada para compat con queries agregadas. */
+export type SaleTip = {
+  id?: number;
+  method: "cash" | "card" | "debit" | "transfer";
+  amount: string;
+};
+
 export type SaleDetail = {
   id: number;
   sale_number?: number | null;
@@ -43,10 +52,12 @@ export type SaleDetail = {
   total: string;
   total_cost: string;
   gross_profit: string;
-  /** Propina (puede ser "0" o ausente). Se muestra en el detalle como
-      apartado separado para que Mario y los chicos puedan cuadrar el
-      cobro vs. lo que entró al banco/caja. */
+  /** Propina total (suma denormalizada de `tips[]`). */
   tip?: string | null;
+  /** Método legacy single-tip (deprecated, mantenido para compat). */
+  tip_method?: string | null;
+  /** Lista relacional de propinas split. Cada fila = monto + método. */
+  tips?: SaleTip[];
   status: string;
   payments: SalePayment[];
   lines: SaleLine[];

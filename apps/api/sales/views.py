@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 
 from django.db import transaction, IntegrityError
@@ -15,9 +15,10 @@ from rest_framework import status, generics
 
 from core.permissions import HasTenant, IsManager
 from core.models import Warehouse
+from catalog.models import Product
 from inventory.models import StockItem, StockMove
 
-from .models import Sale, SalePayment
+from .models import Sale, SalePayment, SaleLine, SaleTip
 from .serializers import (
     SaleCreateSerializer,
     SaleDetailSerializer,
@@ -221,7 +222,7 @@ class SaleDetail(generics.RetrieveAPIView):
                 store_id=store_id,
             )
             .select_related("warehouse", "created_by", "store")
-            .prefetch_related("lines__product", "payments")
+            .prefetch_related("lines__product", "payments", "tips")
         )
 
     def retrieve(self, request, *args, **kwargs):
@@ -367,6 +368,13 @@ class SaleVoid(APIView):
         # por método. Sin esto, una venta anulada seguía contando su
         # propina en queries que filtraran por `tip__gt=0` sin status.
         original_tip = sale.tip
+        # Limpiar también las filas SaleTip relacionales — sin esto el
+        # cierre de caja seguiría sumando las propinas de una venta anulada
+        # (caen al path "tiene saletips, suma directo"). El flag de status
+        # VOID solo se filtra al nivel `sales_in_range` que ya excluye no-COMPLETED,
+        # pero para queries directas sobre SaleTip (reportes futuros) la limpieza
+        # explícita evita basura.
+        SaleTip.objects.filter(sale=sale).delete()
         sale.total_cost = Decimal("0.000")
         sale.gross_profit = Decimal("0.000")
         sale.tip = Decimal("0.00")
@@ -388,6 +396,253 @@ class SaleVoid(APIView):
             {"id": sale.id, "status": sale.status, "lines_count": len(lines), "reversed_cost": str(total_cost_reversed)},
             status=status.HTTP_200_OK,
         )
+
+
+class SaleEditPayments(APIView):
+    """PATCH /api/sales/sales/<pk>/payments/
+
+    Reemplaza los pagos (SalePayment) de una venta COMPLETED.
+
+    Caso de uso: el cajero registró mal el método (cobró débito y marcó
+    efectivo, o viceversa). Solo manager/owner puede corregir.
+
+    Body:
+        {"payments": [{"method": "debit", "amount": "10600"}]}
+
+    Validaciones:
+    - Sale debe estar COMPLETED (no VOID).
+    - Cada method ∈ {cash, card, debit, transfer}.
+    - amount > 0.
+    - sum(amounts) >= total + tip (no se permite underpayment al editar).
+
+    NOTA: NO modifica `Sale.total` ni stock. Solo cambia cómo se cobró.
+    El cierre de caja recalcula breakdown por método porque
+    `_session_summary` usa SalePayment en runtime.
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    @transaction.atomic
+    def patch(self, request, pk: int):
+        t_id = _tenant_id(request)
+        s_id = _active_store_id(request)
+        if not s_id:
+            return Response({"detail": "User has no active_store"}, status=400)
+
+        sale = get_object_or_404(
+            Sale.objects.select_for_update(),
+            tenant_id=t_id, store_id=s_id, pk=pk,
+        )
+        if sale.status != Sale.STATUS_COMPLETED:
+            return Response(
+                {"detail": f"Solo se pueden editar pagos en ventas COMPLETED (estado actual: {sale.status})"},
+                status=400,
+            )
+
+        payments_in = request.data.get("payments")
+        if not isinstance(payments_in, list) or not payments_in:
+            return Response({"detail": "payments es requerido y debe ser una lista no vacía"}, status=400)
+
+        valid_methods = {
+            SalePayment.METHOD_CASH, SalePayment.METHOD_CARD,
+            SalePayment.METHOD_DEBIT, SalePayment.METHOD_TRANSFER,
+        }
+
+        # Validar y parsear los pagos nuevos
+        parsed = []
+        for i, p in enumerate(payments_in):
+            method = (p.get("method") or "").strip().lower()
+            if method not in valid_methods:
+                return Response(
+                    {"detail": f"Pago #{i+1}: método inválido '{method}'. Usar: cash/card/debit/transfer"},
+                    status=400,
+                )
+            try:
+                amount = Decimal(str(p.get("amount") or 0)).quantize(Decimal("0.01"))
+            except (ValueError, ArithmeticError, TypeError, InvalidOperation):
+                return Response({"detail": f"Pago #{i+1}: monto inválido"}, status=400)
+            if amount <= 0:
+                return Response({"detail": f"Pago #{i+1}: monto debe ser mayor a 0"}, status=400)
+            parsed.append({"method": method, "amount": amount})
+
+        # Regla simplificada (Daniel 29/04/26): la suma de pagos solo debe
+        # cubrir el SUBTOTAL del local. La propina se trata aparte y es
+        # libre — el cajero puede registrarla mayor, menor o igual a la
+        # diferencia entre pagos y subtotal sin afectar nada del cuadre
+        # del local. Caso típico: cliente paga $5000 débito por una
+        # cuenta de $3500 y deja $1000 cash de propina; sale.tip=1000 NO
+        # tiene por qué encajar matemáticamente con los payments.
+        total_paid = sum((p["amount"] for p in parsed), Decimal("0"))
+        required = sale.total.quantize(Decimal("0.01"))
+        if total_paid < required:
+            return Response(
+                {"detail": f"Pago insuficiente: {total_paid} < {required} (subtotal de la venta)"},
+                status=400,
+            )
+
+        # Aplicar: borrar pagos viejos, crear nuevos.
+        # En la misma transacción para que no quede inconsistente.
+        SalePayment.objects.filter(sale=sale).delete()
+        SalePayment.objects.bulk_create([
+            SalePayment(
+                sale=sale, tenant_id=t_id,
+                method=p["method"], amount=p["amount"],
+            )
+            for p in parsed
+        ])
+
+        return Response({
+            "id": sale.id,
+            "sale_number": sale.sale_number,
+            "payments": [{"method": p["method"], "amount": str(p["amount"])} for p in parsed],
+            "total_paid": str(total_paid),
+        }, status=200)
+
+
+class SaleEditTip(APIView):
+    """PATCH /api/sales/sales/<pk>/tip/
+
+    Actualiza la(s) propina(s) de una venta COMPLETED.
+
+    Body (formato nuevo, split — Daniel 29/04/26):
+        {"tips": [
+            {"method": "cash",  "amount": "300"},
+            {"method": "debit", "amount": "200"},
+        ]}
+
+    Body (formato legacy, soportado por compat):
+        {"tip": "500", "tip_method": "cash"}        ← se traduce a 1 fila
+        {"tip": "500"}                                ← reparto proporcional
+                                                       según SalePayments
+        {"tip": "0"}                                  ← elimina todas las propinas
+
+    NO modifica `Sale.total` ni `Sale.gross_profit` (la propina siempre
+    se trata separada del ingreso del local). Sí afecta el reporte de
+    propinas y el breakdown por método.
+
+    Daniel: la propina es libre, NO requiere validación cruzada con los
+    pagos. El subtotal del local ya está cubierto al momento de la venta.
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    @transaction.atomic
+    def patch(self, request, pk: int):
+        t_id = _tenant_id(request)
+        s_id = _active_store_id(request)
+        if not s_id:
+            return Response({"detail": "User has no active_store"}, status=400)
+
+        sale = get_object_or_404(
+            Sale.objects.select_for_update(),
+            tenant_id=t_id, store_id=s_id, pk=pk,
+        )
+        if sale.status != Sale.STATUS_COMPLETED:
+            return Response(
+                {"detail": f"Solo se puede editar propina en ventas COMPLETED (estado: {sale.status})"},
+                status=400,
+            )
+
+        valid_methods = {
+            SalePayment.METHOD_CASH, SalePayment.METHOD_CARD,
+            SalePayment.METHOD_DEBIT, SalePayment.METHOD_TRANSFER,
+        }
+
+        # Ramificación: nuevo (tips=lista) vs. legacy (tip=monto, tip_method=str).
+        tips_in = request.data.get("tips")
+        parsed_tips = []  # lista de {"method": str, "amount": Decimal}
+
+        if isinstance(tips_in, list):
+            # Formato nuevo split.
+            for i, t in enumerate(tips_in):
+                method = (t.get("method") or "").strip().lower() if isinstance(t, dict) else ""
+                if method not in valid_methods:
+                    return Response(
+                        {"detail": f"Propina #{i+1}: método inválido '{method}'. Usar: cash/card/debit/transfer"},
+                        status=400,
+                    )
+                try:
+                    amount = Decimal(str(t.get("amount") or 0)).quantize(Decimal("0.01"))
+                except (ValueError, ArithmeticError, TypeError, InvalidOperation):
+                    return Response({"detail": f"Propina #{i+1}: monto inválido"}, status=400)
+                if amount < 0:
+                    return Response({"detail": f"Propina #{i+1}: monto no puede ser negativo"}, status=400)
+                if amount > 0:
+                    # Filas con monto 0 simplemente se ignoran (UX: el usuario
+                    # puede haber dejado una fila vacía y no quiere persistirla).
+                    parsed_tips.append({"method": method, "amount": amount})
+        else:
+            # Formato legacy: tip + tip_method (single).
+            try:
+                legacy_tip = Decimal(str(request.data.get("tip", "0"))).quantize(Decimal("0.01"))
+            except (ValueError, ArithmeticError, TypeError, InvalidOperation):
+                return Response({"detail": "tip debe ser un número"}, status=400)
+            if legacy_tip < 0:
+                return Response({"detail": "tip no puede ser negativo"}, status=400)
+
+            legacy_method = (request.data.get("tip_method") or "").strip().lower()
+            if legacy_method and legacy_method not in valid_methods:
+                return Response(
+                    {"detail": f"tip_method inválido '{legacy_method}'. Usar: cash/card/debit/transfer o vacío"},
+                    status=400,
+                )
+
+            if legacy_tip > 0:
+                if legacy_method:
+                    parsed_tips.append({"method": legacy_method, "amount": legacy_tip})
+                else:
+                    # Reparto proporcional según SalePayments existentes.
+                    payments = list(sale.payments.all().order_by("id"))
+                    if not payments:
+                        # Sin payments → fallback a cash
+                        parsed_tips.append({"method": "cash", "amount": legacy_tip})
+                    else:
+                        total_paid = sum((p.amount for p in payments), Decimal("0"))
+                        if total_paid <= 0:
+                            parsed_tips.append({"method": "cash", "amount": legacy_tip})
+                        else:
+                            running = Decimal("0")
+                            for p in payments[:-1]:
+                                share = (legacy_tip * p.amount / total_paid).quantize(Decimal("0.01"))
+                                if share > 0:
+                                    parsed_tips.append({"method": p.method, "amount": share})
+                                running += share
+                            last = payments[-1]
+                            last_share = (legacy_tip - running).quantize(Decimal("0.01"))
+                            if last_share > 0:
+                                parsed_tips.append({"method": last.method, "amount": last_share})
+
+        # Aplicar: borrar SaleTips viejas, crear nuevas, recalcular Sale.tip
+        old_tip = sale.tip
+        SaleTip.objects.filter(sale=sale).delete()
+
+        if parsed_tips:
+            SaleTip.objects.bulk_create([
+                SaleTip(
+                    sale=sale, tenant_id=t_id,
+                    method=t["method"], amount=t["amount"],
+                )
+                for t in parsed_tips
+            ])
+
+        new_tip_total = sum((t["amount"] for t in parsed_tips), Decimal("0")).quantize(Decimal("0.01"))
+
+        # Actualizar el campo denormalizado Sale.tip + limpiar tip_method
+        # (queda obsoleto frente al modelo relacional; ya no se usa para
+        # cálculo, pero lo limpiamos para no inducir confusión en lecturas
+        # legacy y reportes).
+        sale.tip = new_tip_total
+        sale.tip_method = ""
+        sale.save(update_fields=["tip", "tip_method"])
+
+        return Response({
+            "id": sale.id, "sale_number": sale.sale_number,
+            "old_tip": str(old_tip),
+            "tip": str(new_tip_total),
+            "tips": [
+                {"method": t["method"], "amount": str(t["amount"])}
+                for t in parsed_tips
+            ],
+        }, status=200)
+
 
 
 class TipsSummaryView(APIView):
@@ -470,31 +725,44 @@ class TipsSummaryView(APIView):
         # llega a la caja por canales distintos (débito/crédito al banco,
         # efectivo a mano).
         #
-        # Repartición proporcional cuando hay múltiples pagos en una venta:
-        # si una venta de $8.000 + $1.000 propina se pagó con $5.000 cash
-        # + $3.000 card, atribuimos al cash 1000×5/8 = $625 y al card $375.
-        # Para el caso típico de cafetería (1 método por venta) coincide
-        # con 100% al método dominante.
-        #
-        # IMPORTANTE: la última fila absorbe el resto del redondeo, así
-        # la suma de by_payment_method = total_tips (headline) exacto.
-        # Sin esto, propinas como $1.000 split en 3 pagos iguales daban
-        # 333+333+333 = 999 ≠ 1.000 y Mario veía "discrepancia".
+        # Daniel 29/04/26: ahora `SaleTip` es la fuente de verdad. Sumamos
+        # directo por método sin reparto proporcional. Compat legacy:
+        # ventas con tip>0 y SIN filas SaleTip caen al cálculo histórico.
         method_totals = {}  # method -> {"total": Decimal, "count": int}
 
         def _bucket(method):
             return method_totals.setdefault(method, {"total": Decimal("0"), "count": 0})
 
-        sales_with_tips = (
-            qs.filter(tip__gt=0)
-              .prefetch_related("payments")
-              .only("id", "tip", "total")
+        sale_ids = list(qs.values_list("id", flat=True))
+        saletip_rows = (
+            SaleTip.objects
+            .filter(sale_id__in=sale_ids)
+            .values("method")
+            .annotate(total=Sum("amount"), count=Count("id"))
         )
-        for sale in sales_with_tips:
+        sales_with_saletips = set(
+            SaleTip.objects.filter(sale_id__in=sale_ids).values_list("sale_id", flat=True).distinct()
+        )
+        for r in saletip_rows:
+            b = _bucket(r["method"])
+            b["total"] += r["total"]
+            b["count"] += r["count"]
+
+        legacy_sales = (
+            qs.filter(tip__gt=0)
+              .exclude(id__in=sales_with_saletips)
+              .prefetch_related("payments")
+              .only("id", "tip", "tip_method")
+        )
+        for sale in legacy_sales:
+            explicit = (sale.tip_method or "").strip().lower()
+            if explicit:
+                b = _bucket(explicit)
+                b["total"] += sale.tip
+                b["count"] += 1
+                continue
             payments = list(sale.payments.all())
             if not payments:
-                # Tip sin payments — atribuir a "cash" por defecto.
-                # Caso raro (datos legacy) pero evita descuadre con headline.
                 b = _bucket("cash")
                 b["total"] += sale.tip
                 b["count"] += 1
@@ -510,7 +778,7 @@ class TipsSummaryView(APIView):
                 b["count"] += 1
                 running += share
             last = payments[-1]
-            last_share = sale.tip - running  # absorbe el redondeo
+            last_share = sale.tip - running
             b = _bucket(last.method)
             if last_share > 0:
                 b["total"] += last_share
@@ -632,7 +900,7 @@ class TipsListView(APIView):
         # Optimización: traer todo en 1 query con joins
         qs = qs.select_related(
             "created_by", "cash_session__register", "open_order__table",
-        ).prefetch_related("payments").order_by("-created_at")
+        ).prefetch_related("payments", "tips").order_by("-created_at")
 
         # Totales del filtro completo (antes de paginar)
         agg = qs.aggregate(
@@ -662,20 +930,35 @@ class TipsListView(APIView):
 
         results = []
         for sale in page_qs:
-            # Determinar método dominante: el pago de mayor monto.
-            # Si hay split y empate, gana cash > debit > card > transfer.
-            payments = list(sale.payments.all())
-            if not payments:
-                method, method_label = "cash", "Efectivo"  # legacy
-            else:
-                payments_sorted = sorted(
-                    payments, key=lambda x: (-float(x.amount), x.method)
-                )
-                method = payments_sorted[0].method
-                # Si todos los métodos son distintos → "mixto"
-                methods_set = {p.method for p in payments}
-                if len(methods_set) > 1:
+            # Daniel 29/04/26: el método de la PROPINA viene de SaleTip
+            # (no de SalePayment). Si hay 1 fila → ese método. Si hay N
+            # filas con métodos distintos → "mixed". Compat: si no hay
+            # filas SaleTip (legacy), caemos al método dominante de pagos
+            # como antes.
+            tip_rows = list(sale.tips.all())
+            if tip_rows:
+                methods_set = {t.method for t in tip_rows}
+                if len(methods_set) == 1:
+                    method = tip_rows[0].method
+                else:
                     method = "mixed"
+            else:
+                # Legacy: usar tip_method explícito o método dominante de pagos
+                explicit = (sale.tip_method or "").strip().lower()
+                if explicit:
+                    method = explicit
+                else:
+                    payments = list(sale.payments.all())
+                    if not payments:
+                        method = "cash"
+                    else:
+                        payments_sorted = sorted(
+                            payments, key=lambda x: (-float(x.amount), x.method)
+                        )
+                        method = payments_sorted[0].method
+                        methods_set = {p.method for p in payments}
+                        if len(methods_set) > 1:
+                            method = "mixed"
 
             method_labels = {
                 "cash": "Efectivo",
@@ -719,6 +1002,12 @@ class TipsListView(APIView):
                 "payment_method_label": method_label,
                 "total_sale": str(sale.total),
                 "tip_amount": str(sale.tip),
+                # Detalle relacional de propinas (split). Permite al frontend
+                # mostrar cada propina como fila separada (Fudo-style).
+                "tips": [
+                    {"id": t.id, "method": t.method, "amount": str(t.amount)}
+                    for t in tip_rows
+                ] if tip_rows else [],
                 "register_id": sale.cash_session.register_id if sale.cash_session_id else None,
                 "register_name": register_name,
                 "sale_type": sale.sale_type,

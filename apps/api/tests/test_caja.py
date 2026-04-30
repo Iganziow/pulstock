@@ -571,6 +571,52 @@ class TestTipsCashFlowReconciliation:
         assert Decimal(live["total_tips"]) == Decimal("200")
         assert Decimal(live["tips_by_method"]["cash"]) == Decimal("200")
 
+    def test_split_tip_method_diff_payments_no_negative_sales(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """Daniel 29/04/26: caso real Marbrava — cliente paga cuenta de
+        $3.500 con $4.000 cash (incluye propina $500). Después el dueño
+        edita la propina a split: $300 cash + $200 transferencia. Los
+        payments siguen siendo cash $4.000, pero ahora hay propina por
+        transferencia $200 sin payment de transferencia.
+
+        Antes del fix: transfer_sales = 0 - 200 = -$200 (mostraba negativo).
+        Después: transfer_sales clamped a $0, transferencia $200 visible
+        en tips_by_method, total_sales toma sum(sale.total) directo.
+        """
+        from sales.models import Sale, SalePayment, SaleTip
+        from decimal import Decimal as D
+        session = CashSession.objects.get(id=open_session["id"])
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            cash_session=session,
+            status="COMPLETED",
+            sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D("3500"), total=D("3500"),
+            tip=D("500"),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        SalePayment.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("4000"))
+        # Tip split: 300 cash + 200 transferencia (sin payment de transferencia)
+        SaleTip.objects.create(tenant=tenant, sale=sale, method="cash", amount=D("300"))
+        SaleTip.objects.create(tenant=tenant, sale=sale, method="transfer", amount=D("200"))
+
+        resp = api_client.get(detail_url(session.id))
+        live = resp.data["live"]
+        # NO debe ser negativo
+        assert Decimal(live["transfer_sales"]) >= 0
+        assert Decimal(live["transfer_sales"]) == Decimal("0")
+        # Cash sales: 4000 cash payment - 300 cash tip = 3700
+        assert Decimal(live["cash_sales"]) == Decimal("3700")
+        # Tips by method correctos
+        assert Decimal(live["tips_by_method"]["cash"]) == Decimal("300")
+        assert Decimal(live["tips_by_method"]["transfer"]) == Decimal("200")
+        # total_sales = subtotal real (3500), no derivado de payments
+        assert Decimal(live["total_sales"]) == Decimal("3500")
+        # expected_cash usa cash_payments_total (4000 cash) + initial (10000)
+        assert Decimal(live["expected_cash"]) == Decimal("14000.00")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # VOID — la propina debe limpiarse al anular venta (regresión 27/04/26)
@@ -620,3 +666,276 @@ class TestVoidClearsTip:
         assert sale.status == "VOID"
         assert sale.tip == Decimal("0.00"), \
             f"Tip debería quedar en 0 al anular, pero quedó en {sale.tip}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CIERRE INMUTABLE — Daniel 29/04/26 (estilo Fudo: arqueo cerrado no muta)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestClosingSnapshotImmutable:
+    """Casos vitales para el cierre de caja:
+
+    1. Editar propina DESPUÉS del cierre NO debe cambiar el reporte de la
+       sesión cerrada (snapshot inmutable).
+    2. Anular venta DESPUÉS del cierre NO debe cambiar el reporte cerrado.
+    3. Sesiones consecutivas: cada arqueo cuenta SOLO sus ventas, sin
+       solapamiento si dos sesiones comparten timestamp exacto.
+    """
+
+    def _create_sale_in_session(self, owner, tenant, store, warehouse, session,
+                                  total, tip_method, tip_amount, payment_method=None):
+        from sales.models import Sale, SalePayment, SaleTip
+        from decimal import Decimal as D
+        sale = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            cash_session=session,
+            status="COMPLETED",
+            sale_type=Sale.SALE_TYPE_VENTA,
+            subtotal=D(total), total=D(total),
+            tip=D(tip_amount),
+            total_cost=D("0"), gross_profit=D("0"),
+        )
+        pay_method = payment_method or tip_method
+        SalePayment.objects.create(
+            tenant=tenant, sale=sale,
+            method=pay_method, amount=D(total) + D(tip_amount),
+        )
+        if Decimal(str(tip_amount)) > 0:
+            SaleTip.objects.create(
+                tenant=tenant, sale=sale,
+                method=tip_method, amount=D(tip_amount),
+            )
+        return sale
+
+    def test_edit_tip_after_close_does_not_mutate_closed_session(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """CASO #1: Mario cierra caja con tip $500. Al día siguiente
+        edita la propina de esa venta a $5000. El reporte CERRADO debe
+        seguir mostrando $500 (snapshot inmutable). Solo lo "live" de
+        sesiones OPEN refleja cambios.
+        """
+        session = CashSession.objects.get(id=open_session["id"])
+        sale = self._create_sale_in_session(
+            owner, tenant, store, warehouse, session,
+            total="5000", tip_method="cash", tip_amount="500",
+        )
+
+        # Cerrar la sesión
+        close_resp = api_client.post(close_url(session.id), {"counted_cash": "15500"})
+        assert close_resp.status_code == 200, close_resp.data
+        snapshot_at_close = close_resp.data["live"]
+        assert Decimal(snapshot_at_close["total_tips"]) == Decimal("500")
+        assert Decimal(snapshot_at_close["tips_by_method"]["cash"]) == Decimal("500")
+
+        # Ahora editar la propina (POST cierre) — esto NO debe afectar el cierre
+        from sales.models import SaleTip
+        SaleTip.objects.filter(sale=sale).delete()
+        SaleTip.objects.create(tenant=tenant, sale=sale, method="cash", amount=Decimal("5000"))
+        sale.tip = Decimal("5000")
+        sale.save(update_fields=["tip"])
+
+        # Re-consultar el detalle de la sesión CERRADA
+        resp = api_client.get(detail_url(session.id))
+        assert resp.status_code == 200
+        live_after = resp.data["live"]
+        # CRÍTICO: el snapshot debe ser igual al del cierre, NO al recálculo actual
+        assert Decimal(live_after["total_tips"]) == Decimal("500"), (
+            f"INMUTABILIDAD ROTA: el reporte cerrado cambió tras editar propina. "
+            f"Esperado $500 (al cierre), obtenido ${live_after['total_tips']}."
+        )
+        assert Decimal(live_after["tips_by_method"]["cash"]) == Decimal("500")
+        # Y los campos persistidos también
+        assert Decimal(resp.data["expected_cash"]) == Decimal(snapshot_at_close["expected_cash"])
+
+    def test_void_sale_after_close_does_not_mutate_closed_session(
+        self, api_client, owner, tenant, store, warehouse, register, open_session,
+    ):
+        """CASO #2: Sesión cerrada con venta + propina $500. Después
+        anulan la venta. El cierre histórico NO debe perder esos $500.
+        """
+        session = CashSession.objects.get(id=open_session["id"])
+        sale = self._create_sale_in_session(
+            owner, tenant, store, warehouse, session,
+            total="3000", tip_method="cash", tip_amount="500",
+        )
+
+        # Cerrar
+        close_resp = api_client.post(close_url(session.id), {"counted_cash": "13500"})
+        assert close_resp.status_code == 200
+        tips_at_close = Decimal(close_resp.data["live"]["total_tips"])
+        sales_at_close = Decimal(close_resp.data["live"]["total_sales"])
+        assert tips_at_close == Decimal("500")
+
+        # Anular la venta DESPUÉS del cierre
+        void_resp = api_client.post(f"/api/sales/sales/{sale.id}/void/")
+        assert void_resp.status_code == 200
+
+        # Re-consultar el cierre — debe seguir mostrando los mismos valores
+        resp = api_client.get(detail_url(session.id))
+        live_after = resp.data["live"]
+        assert Decimal(live_after["total_tips"]) == tips_at_close, (
+            f"INMUTABILIDAD ROTA: al anular venta el cierre histórico perdió propinas. "
+            f"Antes ${tips_at_close}, ahora ${live_after['total_tips']}."
+        )
+        assert Decimal(live_after["total_sales"]) == sales_at_close
+
+    def test_consecutive_sessions_no_overlap_no_double_count(
+        self, api_client, owner, tenant, store, warehouse, register,
+    ):
+        """CASO #3: Dos sesiones consecutivas. Cada una debe contar SOLO
+        sus propias ventas — ni doble conteo ni huérfanas.
+
+        Mario abre 10:00, vende $5000 a las 11:00, cierra 12:00.
+        Ignacia abre 12:05, vende $3000 a las 13:00, cierra 14:00.
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        from sales.models import Sale, SalePayment
+
+        # Sesión Mario: opened 12 horas atrás, closed 10 horas atrás
+        now = timezone.now()
+        sess_mario = CashSession.objects.create(
+            tenant=tenant, store=store, register=register,
+            opened_by=owner,
+            initial_amount=Decimal("10000"),
+            status=CashSession.STATUS_CLOSED,
+            closed_by=owner,
+            closed_at=now - timedelta(hours=10),
+            counted_cash=Decimal("15000"),
+            expected_cash=Decimal("15000"),
+            difference=Decimal("0"),
+            closing_snapshot={"total_sales": "5000", "total_tips": "0", "_legacy_test": True},
+        )
+        # Override opened_at via update (auto_now_add no acepta seteo en create normal)
+        CashSession.objects.filter(id=sess_mario.id).update(
+            opened_at=now - timedelta(hours=12),
+        )
+        sess_mario.refresh_from_db()
+
+        # Venta de Mario: 11h atrás (durante su sesión)
+        s_mario = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner, cash_session=sess_mario,
+            status="COMPLETED", sale_type="VENTA",
+            subtotal=Decimal("5000"), total=Decimal("5000"),
+            tip=Decimal("0"), total_cost=Decimal("0"), gross_profit=Decimal("0"),
+        )
+        Sale.objects.filter(id=s_mario.id).update(created_at=now - timedelta(hours=11))
+        SalePayment.objects.create(tenant=tenant, sale=s_mario, method="cash", amount=Decimal("5000"))
+
+        # Sesión Ignacia: opened hace ~9.9h (5min después del cierre de Mario)
+        sess_ignacia = CashSession.objects.create(
+            tenant=tenant, store=store, register=register,
+            opened_by=owner,
+            initial_amount=Decimal("10000"),
+            status=CashSession.STATUS_OPEN,
+        )
+        CashSession.objects.filter(id=sess_ignacia.id).update(
+            opened_at=now - timedelta(hours=9, minutes=55),
+        )
+        sess_ignacia.refresh_from_db()
+
+        # Venta de Ignacia: 9h atrás (durante su sesión)
+        s_ignacia = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner, cash_session=sess_ignacia,
+            status="COMPLETED", sale_type="VENTA",
+            subtotal=Decimal("3000"), total=Decimal("3000"),
+            tip=Decimal("0"), total_cost=Decimal("0"), gross_profit=Decimal("0"),
+        )
+        Sale.objects.filter(id=s_ignacia.id).update(created_at=now - timedelta(hours=9))
+        SalePayment.objects.create(tenant=tenant, sale=s_ignacia, method="cash", amount=Decimal("3000"))
+
+        # Detail de la sesión actualmente OPEN (Ignacia) — debe ver SOLO $3000, no $8000
+        resp = api_client.get(detail_url(sess_ignacia.id))
+        live = resp.data["live"]
+        assert Decimal(live["total_sales"]) == Decimal("3000"), (
+            f"DOBLE CONTEO: la sesión de Ignacia ve ${live['total_sales']} "
+            f"(debería ver $3000). Probablemente está incluyendo la venta de Mario."
+        )
+        assert Decimal(live["cash_sales"]) == Decimal("3000")
+
+        # Y la sesión CERRADA de Mario debe seguir mostrando su snapshot ($5000)
+        resp_mario = api_client.get(detail_url(sess_mario.id))
+        # El snapshot persistido tiene total_sales=5000 (lo que pusimos)
+        assert resp_mario.data["live"].get("total_sales") == "5000"
+
+    def test_consecutive_sessions_boundary_exact_same_timestamp(
+        self, api_client, owner, tenant, store, warehouse, register,
+    ):
+        """CASO #3.bis: edge case de boundary. Mario cierra exactamente
+        en T. Ignacia abre exactamente en T. Una venta hecha en T debe
+        entrar a UNA sola sesión, no a las dos.
+
+        Con __gt en start_dt (cuando viene de prev_closed) + __lte en
+        end_dt, la venta hecha en T entra al cierre de Mario (no a la
+        sesión de Ignacia).
+
+        Importante: Mario debe tener actividad real (al menos 1 venta
+        previa) para ser considerado como prev_closed en la lógica de
+        "ignorar sesiones-fantasma sin actividad" (caso Marbrava 27-abr).
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        from sales.models import Sale, SalePayment
+
+        now = timezone.now()
+        boundary = now - timedelta(hours=5)  # T = momento exacto del solapamiento
+
+        sess_mario = CashSession.objects.create(
+            tenant=tenant, store=store, register=register,
+            opened_by=owner,
+            initial_amount=Decimal("10000"),
+            status=CashSession.STATUS_CLOSED,
+            closed_by=owner,
+            closed_at=boundary,
+            counted_cash=Decimal("11000"),
+            expected_cash=Decimal("11000"),
+            difference=Decimal("0"),
+            closing_snapshot={"total_sales": "1000", "total_tips": "0"},
+        )
+        CashSession.objects.filter(id=sess_mario.id).update(opened_at=now - timedelta(hours=8))
+
+        # Actividad de Mario (necesaria para que sess_mario califique como
+        # "prev_closed con actividad" en _sales_in_session_range).
+        s_mario_prev = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner, cash_session=sess_mario,
+            status="COMPLETED", sale_type="VENTA",
+            subtotal=Decimal("1000"), total=Decimal("1000"),
+            tip=Decimal("0"), total_cost=Decimal("0"), gross_profit=Decimal("0"),
+        )
+        Sale.objects.filter(id=s_mario_prev.id).update(created_at=now - timedelta(hours=7))
+        SalePayment.objects.create(tenant=tenant, sale=s_mario_prev, method="cash", amount=Decimal("1000"))
+
+        sess_ignacia = CashSession.objects.create(
+            tenant=tenant, store=store, register=register,
+            opened_by=owner,
+            initial_amount=Decimal("10000"),
+            status=CashSession.STATUS_OPEN,
+        )
+        CashSession.objects.filter(id=sess_ignacia.id).update(opened_at=boundary)
+        sess_ignacia.refresh_from_db()
+
+        # Venta hecha EXACTAMENTE en T (boundary) — sin FK explícito a sesión
+        s_boundary = Sale.objects.create(
+            tenant=tenant, store=store, warehouse=warehouse,
+            created_by=owner,
+            status="COMPLETED", sale_type="VENTA",
+            subtotal=Decimal("500"), total=Decimal("500"),
+            tip=Decimal("0"), total_cost=Decimal("0"), gross_profit=Decimal("0"),
+        )
+        Sale.objects.filter(id=s_boundary.id).update(created_at=boundary)
+        SalePayment.objects.create(tenant=tenant, sale=s_boundary, method="cash", amount=Decimal("500"))
+
+        # La sesión de Ignacia (open) debe NO incluir la venta del boundary
+        # (start_dt = T desde prev_closed.closed_at → filter __gt T excluye T exacto).
+        resp = api_client.get(detail_url(sess_ignacia.id))
+        live = resp.data["live"]
+        assert Decimal(live["total_sales"]) == Decimal("0"), (
+            f"BOUNDARY OVERLAP: venta en T={boundary} entró erróneamente a la "
+            f"sesión que arranca en T. total_sales={live['total_sales']}, esperado $0."
+        )

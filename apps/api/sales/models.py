@@ -64,6 +64,14 @@ class Sale(models.Model):
     # Propina voluntaria — NO incluida en total ni gross_profit
     tip = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
+    # Método con el que se pagó la propina. Si está seteado (ej. "cash"),
+    # el cierre de caja atribuye 100% de la propina a ese método. Si está
+    # vacío (default), usa el reparto proporcional según los SalePayments
+    # de la venta (lógica histórica). Se setea al editar la propina post
+    # cierre cuando el dueño quiere especificar el método explícitamente
+    # (ej. "el cliente pagó débito y dejó propina cash aparte").
+    tip_method = models.CharField(max_length=20, blank=True, default="")
+
     # Sesión de caja abierta al momento de la venta (nullable para compatibilidad)
     cash_session = models.ForeignKey(
         "caja.CashSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="sales"
@@ -143,6 +151,39 @@ class SalePayment(models.Model):
 
     def __str__(self):
         return f"SalePayment sale={self.sale_id} {self.method}={self.amount}"
+
+
+class SaleTip(models.Model):
+    """
+    Propinas relacionadas a una venta. Permite split: una venta puede
+    tener múltiples filas de propina, cada una con su propio método.
+
+    Daniel 29/04/26 (caso real Marbrava): "el cliente pagó cuenta con débito,
+    dejó $300 cash de propina, y otros $200 en transferencia". Antes eso
+    no cabía en `Sale.tip` (single Decimal). Ahora se modela como N filas:
+        SaleTip(method="cash", amount=300)
+        SaleTip(method="transfer", amount=200)
+
+    `Sale.tip` se mantiene como suma denormalizada (compat con queries
+    existentes y reportes agregados). El cierre de caja y el resumen de
+    propinas suman directo de SaleTip por método (sin reparto proporcional)
+    cuando hay filas; si no hay filas pero `Sale.tip > 0` (datos legacy),
+    cae al cálculo histórico (tip_method o reparto proporcional).
+    """
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="tips")
+    tenant = models.ForeignKey("core.Tenant", on_delete=models.PROTECT)
+    method = models.CharField(max_length=16, choices=SalePayment.METHOD_CHOICES)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["sale"]),
+            models.Index(fields=["tenant", "method"]),
+        ]
+
+    def __str__(self):
+        return f"SaleTip sale={self.sale_id} {self.method}={self.amount}"
 
 
 class SaleLine(models.Model):

@@ -5,7 +5,7 @@ import logging
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -73,11 +73,14 @@ def _sales_in_session_range(session):
     # Limitamos la búsqueda a las últimas 10 sesiones para no degradar
     # performance — más que suficiente para cualquier caso real.
     prev_closed = None
+    # __lte: incluye prev_closed con closed_at == session.opened_at
+    # (caso: Ignacia abre exactamente cuando Mario cierra). Sin esto,
+    # el boundary __gt no aplica y la venta del segundo entra a las dos.
     candidates = CashSession.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status=CashSession.STATUS_CLOSED,
-        closed_at__lt=session.opened_at,
+        closed_at__lte=session.opened_at,
     ).exclude(id=session.id).order_by("-closed_at")[:10]
 
     for pc in candidates:
@@ -112,14 +115,30 @@ def _sales_in_session_range(session):
     if start_dt > session.opened_at:
         start_dt = session.opened_at
 
-    return Sale.objects.filter(
+    # BOUNDARY (Daniel 29/04/26 — sesiones consecutivas):
+    # - end_dt: usamos __lte para incluir ventas con created_at idéntico
+    #   al cierre (caso edge Windows: baja resolución de reloj hace que
+    #   `Sale.create(default=now())` y `end_dt = now()` coincidan).
+    # - start_dt: si viene de prev_closed.closed_at, usamos __gt
+    #   (estrictamente mayor) para evitar DOBLE CONTEO cuando dos
+    #   sesiones se solapan en el mismo timestamp. Ej: Mario cierra
+    #   12:00:00, Ignacia abre 12:00:00 (mismo segundo), una venta hecha
+    #   12:00:00 entraría a las dos sesiones si usamos __gte.
+    #   Si start_dt viene del inicio del día (no hay prev_closed), no
+    #   hay riesgo de solapamiento → usamos __gte normal.
+    use_gt_start = prev_closed is not None and prev_closed.closed_at is not None
+    qs = Sale.objects.filter(
         tenant_id=session.tenant_id,
         store_id=session.store_id,
         status="COMPLETED",
         sale_type="VENTA",
-        created_at__gte=start_dt,
-        created_at__lt=end_dt,
+        created_at__lte=end_dt,
     )
+    if use_gt_start:
+        qs = qs.filter(created_at__gt=start_dt)
+    else:
+        qs = qs.filter(created_at__gte=start_dt)
+    return qs
 
 
 def _session_summary(session):
@@ -174,23 +193,55 @@ def _session_summary(session):
         return method
 
     # Mismo cambio que arriba: usar rango temporal en vez de FK.
-    sales_with_tips = sales_in_range.filter(
+    # Daniel 29/04/26: ahora `SaleTip` es la fuente de verdad. Cada venta
+    # con propina tiene N filas {method, amount}. Sumamos directo por método
+    # — sin reparto proporcional, sin redondeo, sin tip_method.
+    #
+    # Compat legacy: si una venta tiene Sale.tip > 0 pero NO filas SaleTip
+    # (datos previos al refactor que la migración no haya tocado, p.ej.
+    # ventas creadas en una transacción con la migración corriendo en otro
+    # nodo), caemos al cálculo histórico (tip_method explícito o reparto
+    # proporcional). En la práctica la migración ya creó las filas para
+    # todas las ventas existentes; este path es solo defensivo.
+    from sales.models import SaleTip
+
+    saletip_totals = (
+        SaleTip.objects
+        .filter(sale_id__in=sale_ids_in_range)
+        .values("method")
+        .annotate(total=Sum("amount"), count=Count("id"))
+    )
+    sales_with_saletips = set(
+        SaleTip.objects
+        .filter(sale_id__in=sale_ids_in_range)
+        .values_list("sale_id", flat=True)
+        .distinct()
+    )
+    for row in saletip_totals:
+        m = _bucket(row["method"])
+        tips_by_method[m] += row["total"]
+        tip_count_by_method[m] += row["count"]
+
+    # Path legacy para ventas con tip>0 pero sin filas SaleTip
+    legacy_sales = sales_in_range.filter(
         tip__gt=0,
-    ).prefetch_related("payments")
-    for sale in sales_with_tips:
+    ).exclude(id__in=sales_with_saletips).prefetch_related("payments")
+    for sale in legacy_sales:
+        explicit_method = (sale.tip_method or "").strip().lower()
+        if explicit_method:
+            m = _bucket(explicit_method)
+            tips_by_method[m] += sale.tip
+            tip_count_by_method[m] += 1
+            continue
+
         payments = list(sale.payments.all())
         if not payments:
-            # Tip sin payments — atribuir a "cash" por defecto. Caso raro
-            # (datos legacy o cobro mal registrado), pero evita que el
-            # total se descuadre vs. el desglose.
             tips_by_method["cash"] += sale.tip
             tip_count_by_method["cash"] += 1
             continue
         total_paid = sum((p.amount for p in payments), zero)
         if total_paid <= 0:
             continue
-        # Calcular shares de todos menos el último, luego asignar resto
-        # al último para que la suma cuadre exacto con sale.tip.
         running = zero
         for p in payments[:-1]:
             share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
@@ -199,7 +250,7 @@ def _session_summary(session):
             tip_count_by_method[m] += 1
             running += share
         last = payments[-1]
-        last_share = sale.tip - running  # absorbe el redondeo
+        last_share = sale.tip - running
         m = _bucket(last.method)
         if last_share > 0:
             tips_by_method[m] += last_share
@@ -238,15 +289,39 @@ def _session_summary(session):
 
     # Display: ventas NETAS (sin propinas) por método. La propina se
     # muestra aparte en el widget "Propinas del turno".
-    cash_sales     = cash_payments_total     - cash_tips
-    debit_sales    = debit_payments_total    - debit_tips
-    card_sales     = card_payments_total     - card_tips
-    transfer_sales = transfer_payments_total - transfer_tips
-    total_sales    = cash_sales + debit_sales + card_sales + transfer_sales
+    #
+    # CASO EDGE (Daniel 29/04/26 — split tips relacional): si la propina
+    # de un método X excede los payments del mismo método X, restar daría
+    # negativo (ej. cliente pagó cash $4.000 con tip $500, después dueño
+    # editó tip a "$200 transferencia + $300 cash" → payments siguen
+    # cash, pero tip transferencia $200 no tiene payment respaldo).
+    # Clamp a 0 para no mostrar -$200 al usuario. El exceso es propina
+    # "fuera de banda" (cliente la entregó por canal distinto al pago) y
+    # se ve correctamente en el widget de propinas.
+    cash_sales     = max(zero, cash_payments_total     - cash_tips)
+    debit_sales    = max(zero, debit_payments_total    - debit_tips)
+    card_sales     = max(zero, card_payments_total     - card_tips)
+    transfer_sales = max(zero, transfer_payments_total - transfer_tips)
+
+    # total_sales: usar el subtotal real de las ventas en rango, NO la suma
+    # de los _sales por método. Razón: con split tips libres puede haber
+    # inconsistencia entre tips_by_method y payments_by_method (ej. tip
+    # transferencia $200 sin payment de transferencia → clamped a 0). El
+    # subtotal real (Sale.total agregado) sigue siendo la fuente de verdad
+    # de cuánto vendió el local.
+    total_sales = sales_in_range.aggregate(
+        s=Coalesce(Sum("total"), zero),
+    )["s"]
 
     # expected_cash usa el total pagado en efectivo directo (ya incluye
     # propinas en cash). Esto evita la doble suma del bug original.
-    expected = session.initial_amount + cash_payments_total + movements_in - movements_out
+    #
+    # NOTA edge case split tips: si la propina cash declarada excede
+    # los payments cash, ese exceso es cash adicional que entró por fuera
+    # del payment registrado. Lo sumamos a expected_cash para que el
+    # cuadre refleje el cash físico real esperado en caja.
+    extra_cash_from_tips = max(zero, cash_tips - cash_payments_total)
+    expected = session.initial_amount + cash_payments_total + extra_cash_from_tips + movements_in - movements_out
     return {
         "initial_amount":  str(session.initial_amount),
         # Desglose por método de pago (ventas netas, sin propinas)
@@ -298,14 +373,28 @@ def _session_data(session, include_movements=False, include_summary=False):
     }
     if include_movements:
         d["movements"] = [_movement_data(m) for m in session.movements.select_related("created_by").order_by("created_at")]
-    # Summary se computa para CUALQUIER estado (abierta o cerrada).
-    # Mario lo pidió en el historial: quiere ver el desglose por método
-    # de pago de un arqueo ya cerrado para reconciliar — antes la
-    # condición STATUS_OPEN dejaba las cerradas sin detalle. Las queries
-    # de _session_summary funcionan igual con sesiones cerradas porque
-    # session.sales mantiene el FK.
+    # Summary:
+    # - Sesión OPEN  → recalcular en vivo (en tiempo real refleja ventas
+    #   recién hechas, ediciones de propinas, anulaciones, etc.).
+    # - Sesión CLOSED → devolver el SNAPSHOT inmutable persistido al
+    #   cerrar (estilo Fudo: arqueo cerrado no puede mutar). Sin esto,
+    #   editar/anular una venta DESPUÉS del cierre cambia el reporte de
+    #   ayer y rompe la auditoría.
+    # - Sesión CLOSED legacy (sin snapshot) → fallback a recálculo y
+    #   marcamos `snapshot_legacy=True` para que el frontend pueda avisar
+    #   "este arqueo es anterior al snapshot inmutable, los valores se
+    #   recalculan con datos actuales y pueden no coincidir con el cierre
+    #   original".
     if include_summary:
-        d["live"] = _session_summary(session)
+        if session.status == CashSession.STATUS_CLOSED:
+            snap = session.closing_snapshot or {}
+            if snap:
+                d["live"] = snap
+            else:
+                d["live"] = _session_summary(session)
+                d["live"]["snapshot_legacy"] = True
+        else:
+            d["live"] = _session_summary(session)
     return d
 
 
@@ -513,7 +602,7 @@ class CloseSessionView(APIView):
         candidates = CashSession.objects.filter(
             tenant_id=t_id, store_id=s_id,
             status=CashSession.STATUS_CLOSED,
-            closed_at__lt=session.opened_at,
+            closed_at__lte=session.opened_at,
         ).exclude(id=session.id).order_by("-closed_at")[:10]
         for pc in candidates:
             has_sales = Sale.objects.filter(
@@ -535,12 +624,20 @@ class CloseSessionView(APIView):
         if start_dt > session.opened_at:
             start_dt = session.opened_at
 
-        Sale.objects.filter(
+        # Mismo fix de boundary que `_sales_in_session_range`:
+        # - end_dt usa __lte (incluye created_at exacto al cierre).
+        # - start_dt usa __gt si viene de prev_closed (evita doble FK);
+        #   __gte si viene de inicio del día (no hay riesgo).
+        sales_qs = Sale.objects.filter(
             tenant_id=t_id, store_id=s_id,
             cash_session__isnull=True,
-            created_at__gte=start_dt,
-            created_at__lt=end_dt,
-        ).update(cash_session=session)
+            created_at__lte=end_dt,
+        )
+        if prev_closed is not None and prev_closed.closed_at is not None:
+            sales_qs = sales_qs.filter(created_at__gt=start_dt)
+        else:
+            sales_qs = sales_qs.filter(created_at__gte=start_dt)
+        sales_qs.update(cash_session=session)
 
         # Compute expected_cash usando el rango temporal extendido
         live = _session_summary(session)
@@ -554,12 +651,20 @@ class CloseSessionView(APIView):
         session.expected_cash = expected
         session.difference   = difference
         session.note         = note
+        # Snapshot inmutable del summary completo. Si después editan/anulan
+        # ventas de esta sesión, el reporte de cierre histórico NO debe
+        # mutar (estilo Fudo). Ver `_session_data` para cómo se prefiere
+        # snapshot vs. recálculo en sesiones cerradas.
+        session.closing_snapshot = live
         session.save(update_fields=[
             "status", "closed_by", "closed_at",
             "counted_cash", "expected_cash", "difference", "note",
+            "closing_snapshot",
         ])
 
-        return Response(_session_data(session))
+        # Devolver el detail con summary para que el frontend muestre el
+        # cierre completo (incluyendo el snapshot recién persistido).
+        return Response(_session_data(session, include_movements=True, include_summary=True))
 
 
 class SessionHistoryView(APIView):
