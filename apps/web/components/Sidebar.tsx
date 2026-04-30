@@ -8,7 +8,7 @@ import { C } from "@/lib/theme";
 import { LogoIcon } from "@/components/ui/Logo";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-
+
 
 // ─── SVG Icons (inline, no deps) ─────────────────────────────────────────────
 
@@ -134,7 +134,9 @@ export default function Sidebar() {
     }
 
     fetchData();
-    const id = setInterval(fetchData, 300_000);
+    // Daniel 30/04/26 — Fase 1: subido de 5min a 10min. El badge de
+    // stock bajo en el sidebar no necesita refresh agresivo.
+    const id = setInterval(fetchData, 600_000);
     return () => { mounted = false; clearInterval(id); };
   }, []);
 

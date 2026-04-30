@@ -346,9 +346,12 @@ export default function DashboardPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Auto-refresh cada 2 minutos
+  // Auto-refresh cada 5 minutos (Daniel 30/04/26 — Fase 1 escalabilidad).
+  // Subido de 2min para reducir tráfico al endpoint más caliente
+  // (/api/dashboard/summary/). Dashboard no es real-time crítico — para
+  // operación inmediata el cajero usa POS/caja, no este overview.
   useEffect(() => {
-    const id = setInterval(load, 120_000);
+    const id = setInterval(load, 300_000);
     return () => clearInterval(id);
   }, [load]);
 
