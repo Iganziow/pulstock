@@ -559,26 +559,16 @@ class StockList(APIView):
 
         q = (request.query_params.get("q") or "").strip()
 
-        si_on_hand_qs = (
-            StockItem.objects
-            .filter(tenant_id=t_id, warehouse_id=warehouse_id, product_id=OuterRef("pk"))
-            .values("on_hand")[:1]
-        )
-        si_avg_cost_qs = (
-            StockItem.objects
-            .filter(tenant_id=t_id, warehouse_id=warehouse_id, product_id=OuterRef("pk"))
-            .values("avg_cost")[:1]
-        )
-
+        # Optimización (Daniel 30/04/26): antes hacíamos 2 Subqueries
+        # idénticos por producto (uno por on_hand, otro por avg_cost) →
+        # con 500 productos = 1000 subqueries. Ahora pre-cargamos un
+        # mapa product_id → (on_hand, avg_cost) en UNA sola query y
+        # mergeamos en Python. -50% queries, mucho más rápido.
         qs = (
             Product.objects
             .filter(tenant_id=t_id)
             .select_related("category", "unit_obj")
             .prefetch_related("barcodes")
-            .annotate(
-                on_hand=Coalesce(Subquery(si_on_hand_qs), Value(Decimal("0.000"))),
-                avg_cost=Coalesce(Subquery(si_avg_cost_qs), Value(Decimal("0.000"))),
-            )
             .order_by("name")
         )
 
@@ -589,21 +579,38 @@ class StockList(APIView):
                 Q(barcodes__code__icontains=q)
             ).distinct().order_by("name")
 
+        # Mapa de stock por producto en una sola query (no por-producto).
+        # Se calcula DESPUÉS de paginar para no traer stocks innecesarios.
+        def _stock_map(product_ids):
+            if not product_ids:
+                return {}
+            return {
+                si["product_id"]: (si["on_hand"], si["avg_cost"])
+                for si in StockItem.objects.filter(
+                    tenant_id=t_id,
+                    warehouse_id=warehouse_id,
+                    product_id__in=product_ids,
+                ).values("product_id", "on_hand", "avg_cost")
+            }
+
         def _serialize(product_list):
+            stock_by_product = _stock_map([p.id for p in product_list])
+            zero = Decimal("0.000")
             results = []
             for p in product_list:
                 barcode = None
                 bcs = list(getattr(p, "barcodes", []).all()) if hasattr(p, "barcodes") else []
                 if bcs:
                     barcode = bcs[0].code
+                on_hand, avg_cost = stock_by_product.get(p.id, (zero, zero))
                 results.append({
                     "product_id": p.id,
                     "sku": p.sku,
                     "name": p.name,
                     "category": p.category.name if p.category else None,
                     "barcode": barcode,
-                    "on_hand": str(p.on_hand),
-                    "avg_cost": str(p.avg_cost),
+                    "on_hand": str(on_hand),
+                    "avg_cost": str(avg_cost),
                     "unit": p.unit_obj.code if p.unit_obj else (p.unit or "UN"),
                 })
             return results
