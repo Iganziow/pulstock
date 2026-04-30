@@ -1,12 +1,26 @@
-# dashboard/views.py
+# dashboard/__init__.py
 """
 GET /api/dashboard/summary/
 Devuelve KPIs + datos para el dashboard principal.
 Store-aware: todo filtrado por active_store.
+
+Cache (Daniel 30/04/26 — Fase 1 escalabilidad):
+- Si `settings.CACHE_DASHBOARD_ENABLED=True`, el resultado se cachea
+  en Redis por `CACHE_DASHBOARD_TTL` segundos (default 30s).
+- Cache key incluye tenant_id + store_id + fecha local — multi-tenant
+  safe + invalidación natural al cambio de día.
+- TTL corto (30s) → datos máximo 30s desactualizados. Aceptable para
+  un overview (no es real-time crítico, para eso está caja/POS).
+- Para activar/desactivar sin redeploy: env var `CACHE_DASHBOARD_ENABLED=1`
+  y reload gunicorn (HUP).
+- Si Redis cae, fallback transparente al cómputo en vivo (try/except).
 """
+import logging
 from decimal import Decimal
 from datetime import timedelta
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import (
     Sum, Count, Q, F, Value, DecimalField,
     Case, When,
@@ -24,6 +38,8 @@ from sales.models import Sale, SaleLine
 from purchases.models import Purchase
 from inventory.models import StockItem, StockMove
 from catalog.models import Product
+
+_logger = logging.getLogger(__name__)
 
 
 def _tenant_id(request):
@@ -59,6 +75,26 @@ class DashboardSummaryView(APIView):
         now = timezone.localtime(timezone.now())
         today = now.date()
         week_ago = today - timedelta(days=6)  # últimos 7 días incluyendo hoy
+
+        # ─── Cache lookup (feature flag) ─────────────────────────
+        # Si CACHE_DASHBOARD_ENABLED=False, comportamiento idéntico al
+        # anterior (sin cache). Si True, intenta servir desde Redis.
+        # Si Redis cae, fallback transparente al cómputo en vivo (NO
+        # rompe el endpoint).
+        cache_enabled = getattr(settings, "CACHE_DASHBOARD_ENABLED", False)
+        cache_key = None
+        if cache_enabled:
+            cache_key = f"dashboard:summary:t{t_id}:s{s_id}:{today.isoformat()}"
+            try:
+                cached = cache.get(cache_key)
+            except Exception as exc:
+                _logger.warning("Cache GET failed (Redis down?): %s", exc)
+                cached = None
+                cache_key = None  # disable cache.set también
+            if cached is not None:
+                resp = Response(cached)
+                resp["X-Cache"] = "HIT"
+                return resp
 
         # ──────────────────────────────────────────────
         # 1) KPI: Ventas de hoy (COMPLETED)
@@ -230,7 +266,7 @@ class DashboardSummaryView(APIView):
             tenant_id=t_id, is_active=True
         ).count()
 
-        return Response({
+        response_data = {
             "generated_at": now.isoformat(),
             "store_id": s_id,
 
@@ -261,4 +297,16 @@ class DashboardSummaryView(APIView):
                 "has_products": products_count > 0,
                 "products_count": products_count,
             },
-        })
+        }
+        # Persistir en cache si está habilitado. Si Redis cae, ignoramos
+        # silenciosamente (endpoint sigue funcionando).
+        if cache_enabled and cache_key:
+            try:
+                ttl = getattr(settings, "CACHE_DASHBOARD_TTL", 30)
+                cache.set(cache_key, response_data, timeout=ttl)
+            except Exception as exc:
+                _logger.warning("Cache SET failed (Redis down?): %s", exc)
+        resp = Response(response_data)
+        if cache_enabled:
+            resp["X-Cache"] = "MISS"
+        return resp
