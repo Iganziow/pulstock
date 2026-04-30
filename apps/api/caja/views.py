@@ -389,10 +389,41 @@ def _session_data(session, include_movements=False, include_summary=False):
         if session.status == CashSession.STATUS_CLOSED:
             snap = session.closing_snapshot or {}
             if snap:
+                # Snapshot persistido al cierre — fuente de verdad inmutable.
                 d["live"] = snap
             else:
-                d["live"] = _session_summary(session)
-                d["live"]["snapshot_legacy"] = True
+                # Legacy: sesión cerrada ANTES del refactor closing_snapshot.
+                # NO recalcular dinámicamente — el rango temporal puede haber
+                # cambiado (ej. fix PR #93 "ignorar sesiones-fantasma") y dar
+                # números distintos a los del cierre original. Caso real
+                # Marbrava 27-abr: sesión #14 se cerró con expected=$100k,
+                # recálculo hoy daría $150k → confunde al dueño.
+                # Devolvemos solo los valores persistidos en BD (autoritativos
+                # del momento del cierre) + flag para que el frontend muestre
+                # un aviso "este arqueo no tiene desglose detallado".
+                zero_str = "0"
+                d["live"] = {
+                    "initial_amount":   str(session.initial_amount),
+                    "expected_cash":    str(session.expected_cash) if session.expected_cash is not None else zero_str,
+                    "counted_cash":     str(session.counted_cash) if session.counted_cash is not None else zero_str,
+                    "difference":       str(session.difference) if session.difference is not None else zero_str,
+                    # Desglose por método NO disponible para sesiones legacy.
+                    # Frontend debe mostrar "Detalle no disponible para arqueos
+                    # cerrados antes de la actualización del 30/04/26".
+                    "snapshot_legacy":  True,
+                    # Estos campos quedan vacíos para no inducir cifras falsas.
+                    "cash_sales":       zero_str,
+                    "debit_sales":      zero_str,
+                    "card_sales":       zero_str,
+                    "transfer_sales":   zero_str,
+                    "total_sales":      zero_str,
+                    "cash_tips":        zero_str,
+                    "total_tips":       zero_str,
+                    "tips_by_method":   {"cash": zero_str, "debit": zero_str, "card": zero_str, "transfer": zero_str},
+                    "tip_count_by_method": {"cash": 0, "debit": 0, "card": 0, "transfer": 0},
+                    "movements_in":     zero_str,
+                    "movements_out":    zero_str,
+                }
         else:
             d["live"] = _session_summary(session)
     return d
