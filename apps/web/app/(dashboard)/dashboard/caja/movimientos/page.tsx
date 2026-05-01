@@ -168,7 +168,7 @@ export default function MovimientosCajaPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
           <KpiCard label="Ingresos del periodo" value={`$${fmtCLP(totals?.in || 0)}`} color={C.green} />
           <KpiCard label="Egresos del periodo" value={`$${fmtCLP(totals?.out || 0)}`} color={C.red} />
-          <KpiCard label="Neto" value={`$${fmtCLP(totals?.net || 0)}`} color={Number(totals?.net || 0) >= 0 ? C.green : C.red} />
+          <KpiCard label="Balance" value={`$${fmtCLP(totals?.net || 0)}`} color={Number(totals?.net || 0) >= 0 ? C.green : C.red} subtitle="ingresos − egresos" />
           <KpiCard label="Total movimientos" value={String(totals?.count || 0)} color={C.accent} />
         </div>
 
@@ -370,11 +370,14 @@ function DeleteConfirmModal({
 
 // ─── helpers UI ────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, color }: { label: string; value: string; color: string }) {
+function KpiCard({ label, value, color, subtitle }: { label: string; value: string; color: string; subtitle?: string }) {
   return (
     <div style={{ background: C.surface, padding: 14, borderRadius: C.rMd, border: `1px solid ${C.border}` }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 800, color, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {subtitle && (
+        <div style={{ fontSize: 10, color: C.mute, marginTop: 3, fontStyle: "italic" }}>{subtitle}</div>
+      )}
     </div>
   );
 }
