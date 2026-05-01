@@ -4,7 +4,7 @@ caja/views.py — Cash register management API
 import logging
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import transaction, models
 from django.db.models import Sum, Q, Count
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -361,12 +361,27 @@ def _session_summary(session):
 
 
 def _movement_data(m):
-    cat_label = dict(CashMovement.CATEGORY_CHOICES).get(m.category or "", "Sin categoría")
+    """Serialización del movimiento.
+
+    Daniel 01/05/26: ahora soporta categoría custom (FK) además del
+    enum legacy. Prioridad: si hay FK, usar su label/icon. Sino,
+    fallback al enum hardcoded para compat con datos pre-migración.
+    """
+    if m.category_fk_id:
+        cat_label = m.category_fk.label
+        cat_icon = m.category_fk.icon or ""
+        cat_id = m.category_fk_id
+    else:
+        cat_label = dict(CashMovement.CATEGORY_CHOICES).get(m.category or "", "Sin categoría")
+        cat_icon = ""
+        cat_id = None
     return {
         "id":             m.id,
         "type":           m.type,
         "category":       m.category or "",
+        "category_id":    cat_id,
         "category_label": cat_label,
+        "category_icon":  cat_icon,
         "amount":         str(m.amount),
         "description":    m.description,
         "created_by":     m.created_by.get_full_name() or m.created_by.email,
@@ -600,23 +615,58 @@ class AddMovementView(APIView):
         if not description:
             return Response({"detail": "description required"}, status=400)
 
-        # Categoría opcional (Daniel 01/05/26). Si vacía → "Sin categoría".
-        # Validamos que sea un valor válido del enum, pero NO forzamos la
-        # coherencia con `type` (frontend ya filtra). Esto permite a un
-        # admin re-categorizar después si se equivocó.
-        category = (request.data.get("category") or "").strip()
-        valid_cats = {c[0] for c in CashMovement.CATEGORY_CHOICES}
-        if category and category not in valid_cats:
-            return Response(
-                {"detail": f"category inválida. Usar: {', '.join(sorted(valid_cats - {''}))}"},
-                status=400,
-            )
+        # Categoría: 2 formatos soportados (Daniel 01/05/26):
+        # - category_id (int): FK a MovementCategory del tenant — fuente de verdad
+        # - category (string): legacy CharField hardcoded
+        # Si se pasa category_id, lo resolvemos a MovementCategory + sincronizamos
+        # `category` string para compat con código antiguo.
+        from .models import MovementCategory
+        category_fk = None
+        category_str = ""
+
+        category_id_raw = request.data.get("category_id")
+        if category_id_raw:
+            try:
+                category_fk = MovementCategory.objects.get(
+                    id=int(category_id_raw), tenant_id=t_id, is_active=True,
+                )
+                category_str = category_fk.code  # sync para compat
+            except (ValueError, MovementCategory.DoesNotExist):
+                return Response(
+                    {"detail": f"category_id inválido o categoría inactiva"},
+                    status=400,
+                )
+        else:
+            # Legacy: category string. Si match con código de MovementCategory
+            # del tenant, también sincronizamos FK.
+            category_str = (request.data.get("category") or "").strip()
+            valid_cats = {c[0] for c in CashMovement.CATEGORY_CHOICES}
+            if category_str and category_str not in valid_cats:
+                # Quizás es un code custom del tenant — chequear DB
+                try:
+                    category_fk = MovementCategory.objects.get(
+                        tenant_id=t_id, code=category_str, is_active=True,
+                    )
+                except MovementCategory.DoesNotExist:
+                    return Response(
+                        {"detail": f"category '{category_str}' inválida"},
+                        status=400,
+                    )
+            elif category_str:
+                # Es un code hardcoded — buscar el FK matching
+                try:
+                    category_fk = MovementCategory.objects.get(
+                        tenant_id=t_id, code=category_str,
+                    )
+                except MovementCategory.DoesNotExist:
+                    pass  # OK — el seeder ya debería haberlo creado pero defensivo
 
         m = CashMovement.objects.create(
             tenant_id=t_id,
             session=session,
             type=mov_type,
-            category=category,
+            category=category_str,
+            category_fk=category_fk,
             amount=amount,
             description=description,
             created_by=request.user,
@@ -702,23 +752,36 @@ class CashMovementListView(APIView):
             "count": totals["count"] or 0,
         }
 
-        # Totales por categoría (para el pie chart)
+        # Totales por categoría (para el pie chart). Daniel 01/05/26:
+        # ahora agrupa por category_fk_id (FK) Y category (string legacy)
+        # — combinamos ambos en `code` para mostrar el label correcto.
         cat_totals = list(
-            qs.values("type", "category")
+            qs.values("type", "category", "category_fk_id")
               .annotate(total=Sum("amount"), count=Count("id"))
               .order_by("-total")
         )
-        cat_labels = dict(CashMovement.CATEGORY_CHOICES)
-        totals_by_category = [
-            {
+        # Pre-load labels de FK del tenant
+        from .models import MovementCategory
+        fk_labels = {
+            mc.id: mc.label
+            for mc in MovementCategory.objects.filter(tenant_id=t_id)
+        }
+        # Labels hardcoded fallback (data legacy sin FK)
+        legacy_labels = dict(CashMovement.CATEGORY_CHOICES)
+        totals_by_category = []
+        for row in cat_totals:
+            if row["category_fk_id"]:
+                label = fk_labels.get(row["category_fk_id"], "Sin categoría")
+            else:
+                label = legacy_labels.get(row["category"] or "", "Sin categoría")
+            totals_by_category.append({
                 "type": row["type"],
                 "category": row["category"] or "",
-                "category_label": cat_labels.get(row["category"] or "", "Sin categoría"),
+                "category_id": row["category_fk_id"],
+                "category_label": label,
                 "total": str(row["total"] or zero),
                 "count": row["count"],
-            }
-            for row in cat_totals
-        ]
+            })
 
         # Paginación manual
         try:
@@ -735,16 +798,28 @@ class CashMovementListView(APIView):
         offset = (page - 1) * page_size
         page_qs = qs[offset:offset + page_size]
 
+        # Pre-fetch FK labels para evitar N+1
+        page_qs = page_qs.select_related("session__register", "created_by", "category_fk")
         results = []
         for m in page_qs:
+            if m.category_fk_id:
+                cat_label = m.category_fk.label
+                cat_icon = m.category_fk.icon or ""
+                cat_id = m.category_fk_id
+            else:
+                cat_label = legacy_labels.get(m.category or "", "Sin categoría")
+                cat_icon = ""
+                cat_id = None
             results.append({
                 "id": m.id,
                 "session_id": m.session_id,
-                "register_id": m.session.register_id,
-                "register_name": m.session.register.name,
+                "register_id": m.session.register_id if m.session else None,
+                "register_name": m.session.register.name if m.session else None,
                 "type": m.type,
                 "category": m.category or "",
-                "category_label": cat_labels.get(m.category or "", "Sin categoría"),
+                "category_id": cat_id,
+                "category_label": cat_label,
+                "category_icon": cat_icon,
                 "amount": str(m.amount),
                 "description": m.description,
                 "created_by": m.created_by.get_full_name() or m.created_by.email,
@@ -771,27 +846,206 @@ class CashMovementListView(APIView):
 
 
 class CashMovementCategoriesView(APIView):
-    """GET /caja/movements/categories/ — devuelve choices para el frontend.
+    """GET /caja/movements/categories/ — categorías ACTIVAS del tenant.
 
-    Para que el frontend no tenga que duplicar la lista de categorías.
+    Daniel 01/05/26: ahora son personalizables por tenant (tabla
+    MovementCategory). Frontend usa este endpoint para popular dropdowns.
+
+    Devuelve agrupado por tipo (income/expense). Solo categorías
+    is_active=True. La categoría TYPE_BOTH aparece en ambos grupos.
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def get(self, request):
-        in_cats = []
-        out_cats = []
-        for code, label in CashMovement.CATEGORY_CHOICES:
-            if not code:  # skip uncategorized
-                continue
-            entry = {"code": code, "label": label}
-            if code in CashMovement.CATEGORIES_IN:
-                in_cats.append(entry)
-            elif code in CashMovement.CATEGORIES_OUT:
-                out_cats.append(entry)
-        return Response({
-            "income": in_cats,
-            "expense": out_cats,
-        })
+        from .models import MovementCategory
+        t_id = _t(request)
+        cats = MovementCategory.objects.filter(
+            tenant_id=t_id, is_active=True,
+        ).order_by("type", "order", "label")
+
+        income = []
+        expense = []
+        for c in cats:
+            entry = {
+                "id": c.id,
+                "code": c.code,
+                "label": c.label,
+                "icon": c.icon or "",
+                "color": c.color or "",
+                "order": c.order,
+            }
+            if c.type in ("IN", "BOTH"):
+                income.append(entry)
+            if c.type in ("OUT", "BOTH"):
+                expense.append(entry)
+        return Response({"income": income, "expense": expense})
+
+
+class MovementCategoryListCreateView(APIView):
+    """
+    GET    /api/caja/categories/             — lista TODAS (incluye inactivas)
+    POST   /api/caja/categories/             — crear nueva
+
+    GET es para la página de configuración (Mario ve activas + inactivas
+    para poder reactivar). Para dropdowns usar /caja/movements/categories/.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        from .models import MovementCategory
+        t_id = _t(request)
+        # ?include_inactive=1 para mostrar también las desactivadas
+        include_inactive = request.query_params.get("include_inactive") == "1"
+        qs = MovementCategory.objects.filter(tenant_id=t_id)
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+        qs = qs.order_by("type", "order", "label")
+        results = [_category_data(c) for c in qs]
+        return Response({"results": results, "count": len(results)})
+
+    @transaction.atomic
+    def post(self, request):
+        from .models import MovementCategory
+        from django.utils.text import slugify
+        t_id = _t(request)
+        data = request.data
+
+        label = (data.get("label") or "").strip()
+        if not label:
+            return Response({"detail": "label es requerido"}, status=400)
+        if len(label) > 80:
+            return Response({"detail": "label máximo 80 caracteres"}, status=400)
+
+        type_ = (data.get("type") or "OUT").upper()
+        if type_ not in ("IN", "OUT", "BOTH"):
+            return Response({"detail": "type debe ser IN, OUT o BOTH"}, status=400)
+
+        # Auto-generar code del label si no viene. Manejar conflictos.
+        code_raw = (data.get("code") or "").strip()
+        if not code_raw:
+            code_raw = slugify(label).upper().replace("-", "_")[:40] or "CUSTOM"
+        code = code_raw[:40]
+
+        # Si ya existe el code en el tenant, agregar sufijo numérico
+        original_code = code
+        suffix = 2
+        while MovementCategory.objects.filter(tenant_id=t_id, code=code).exists():
+            code = f"{original_code[:36]}_{suffix}"
+            suffix += 1
+
+        # Order: auto al final del tipo
+        max_order = (
+            MovementCategory.objects
+            .filter(tenant_id=t_id, type=type_)
+            .aggregate(m=models.Max("order"))["m"] or 0
+        )
+
+        cat = MovementCategory.objects.create(
+            tenant_id=t_id,
+            code=code,
+            label=label,
+            type=type_,
+            icon=(data.get("icon") or "")[:8],
+            color=(data.get("color") or "")[:9],
+            order=max_order + 1,
+            is_default_template=False,
+            is_active=True,
+        )
+        return Response(_category_data(cat), status=201)
+
+
+class MovementCategoryDetailView(APIView):
+    """
+    PATCH  /api/caja/categories/<id>/  — editar (label, icon, color, type, order, is_active)
+    DELETE /api/caja/categories/<id>/  — soft delete (is_active=False)
+
+    Soft-delete protege historia: movimientos viejos siguen apuntando
+    a la categoría aunque "no aparezca" en dropdowns nuevos.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def _get_obj(self, request, pk):
+        from .models import MovementCategory
+        t_id = _t(request)
+        try:
+            return MovementCategory.objects.get(id=pk, tenant_id=t_id)
+        except MovementCategory.DoesNotExist:
+            return None
+
+    @transaction.atomic
+    def patch(self, request, pk: int):
+        cat = self._get_obj(request, pk)
+        if not cat:
+            return Response({"detail": "Categoría no encontrada"}, status=404)
+        data = request.data
+        update_fields = []
+
+        if "label" in data:
+            label = (data.get("label") or "").strip()
+            if not label:
+                return Response({"detail": "label no puede ser vacío"}, status=400)
+            if len(label) > 80:
+                return Response({"detail": "label máximo 80 caracteres"}, status=400)
+            cat.label = label
+            update_fields.append("label")
+
+        if "type" in data:
+            type_ = (data.get("type") or "").upper()
+            if type_ not in ("IN", "OUT", "BOTH"):
+                return Response({"detail": "type debe ser IN, OUT o BOTH"}, status=400)
+            cat.type = type_
+            update_fields.append("type")
+
+        if "icon" in data:
+            cat.icon = (data.get("icon") or "")[:8]
+            update_fields.append("icon")
+
+        if "color" in data:
+            cat.color = (data.get("color") or "")[:9]
+            update_fields.append("color")
+
+        if "order" in data:
+            try:
+                cat.order = int(data.get("order") or 0)
+                update_fields.append("order")
+            except (ValueError, TypeError):
+                return Response({"detail": "order debe ser número"}, status=400)
+
+        if "is_active" in data:
+            cat.is_active = bool(data.get("is_active"))
+            update_fields.append("is_active")
+
+        if update_fields:
+            update_fields.append("updated_at")
+            cat.save(update_fields=update_fields)
+        return Response(_category_data(cat))
+
+    @transaction.atomic
+    def delete(self, request, pk: int):
+        """Soft delete: is_active=False. NO borra movimientos asociados."""
+        cat = self._get_obj(request, pk)
+        if not cat:
+            return Response({"detail": "Categoría no encontrada"}, status=404)
+        if not cat.is_active:
+            return Response({"detail": "Ya estaba desactivada"}, status=200)
+        cat.is_active = False
+        cat.save(update_fields=["is_active", "updated_at"])
+        return Response({"detail": "Categoría desactivada", "id": cat.id}, status=200)
+
+
+def _category_data(c):
+    return {
+        "id": c.id,
+        "code": c.code,
+        "label": c.label,
+        "type": c.type,
+        "icon": c.icon or "",
+        "color": c.color or "",
+        "is_default_template": c.is_default_template,
+        "is_active": c.is_active,
+        "order": c.order,
+        "created_at": c.created_at.isoformat(),
+    }
 
 
 class CashMovementDeleteView(APIView):

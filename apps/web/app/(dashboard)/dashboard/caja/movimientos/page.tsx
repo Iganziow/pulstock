@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
@@ -162,6 +163,16 @@ export default function MovimientosCajaPage() {
               Ingresos y egresos manuales (no ventas) — útil para auditar gastos por categoría
             </div>
           </div>
+          <Link
+            href="/dashboard/caja/categorias"
+            style={{
+              fontSize: 13, color: C.accent, textDecoration: "none", fontWeight: 600,
+              padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 6,
+              background: C.surface, display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >
+            ⚙️ Personalizar categorías
+          </Link>
         </div>
 
         {/* KPI cards */}
