@@ -1,24 +1,55 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { Btn, fmt, type LiveSummary } from "./CajaShared";
+import { apiFetch } from "@/lib/api";
 
 // ─── Add Movement Modal ─────────────────────────────────────────────────────
 interface AddMovementModalProps {
   moveType: "IN" | "OUT"; setMoveType: (v: "IN" | "OUT") => void;
   moveAmt: string; setMoveAmt: (v: string) => void;
   moveDesc: string; setMoveDesc: (v: string) => void;
+  // Daniel 01/05/26 - categoría opcional para clasificar movimientos.
+  moveCategory?: string;
+  setMoveCategory?: (v: string) => void;
   busy: boolean;
   onClose: () => void;
   onSubmit: () => void;
 }
 
-export function AddMovementModal({ moveType, setMoveType, moveAmt, setMoveAmt, moveDesc, setMoveDesc, busy, onClose, onSubmit }: AddMovementModalProps) {
+type CategoryOption = { code: string; label: string };
+
+export function AddMovementModal({
+  moveType, setMoveType, moveAmt, setMoveAmt, moveDesc, setMoveDesc,
+  moveCategory = "", setMoveCategory,
+  busy, onClose, onSubmit,
+}: AddMovementModalProps) {
+  // Cargar categorías del backend (1 sola vez, independiente del tipo)
+  const [allCats, setAllCats] = useState<{ income: CategoryOption[]; expense: CategoryOption[] }>({ income: [], expense: [] });
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/caja/movements/categories/")
+      .then((d: any) => { if (alive) setAllCats(d || { income: [], expense: [] }); })
+      .catch(() => { /* silent: feature degrada a sin dropdown */ });
+    return () => { alive = false; };
+  }, []);
+
+  // Mostrar solo categorías relevantes según moveType
+  const cats = moveType === "IN" ? allCats.income : allCats.expense;
+
+  // Si el usuario cambia tipo IN→OUT y la categoría no aplica, limpiarla
+  useEffect(() => {
+    if (!setMoveCategory || !moveCategory) return;
+    const validCodes = new Set(cats.map(c => c.code));
+    if (!validCodes.has(moveCategory)) setMoveCategory("");
+  }, [moveType, cats]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 400, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
         <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Agregar movimiento</div>
         <div style={{ display: "grid", gap: 12 }}>
           <div>
@@ -36,13 +67,32 @@ export function AddMovementModal({ moveType, setMoveType, moveAmt, setMoveAmt, m
               ))}
             </div>
           </div>
+          {/* Categoría — solo si hay opciones cargadas y el callback se proveyó */}
+          {setMoveCategory && cats.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>
+                Categoría <span style={{ fontWeight: 400, color: C.mute }}>(opcional)</span>
+              </div>
+              <select
+                value={moveCategory}
+                onChange={e => setMoveCategory(e.target.value)}
+                disabled={busy}
+                style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14, boxSizing: "border-box", background: C.surface, color: C.text, cursor: "pointer" }}
+              >
+                <option value="">Sin categoría</option>
+                {cats.map(c => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Monto</div>
             <input value={moveAmt} onChange={e => setMoveAmt(e.target.value)} placeholder="$0" inputMode="decimal"
               style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14, boxSizing: "border-box" }} />
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Descripcion</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Descripción</div>
             <input value={moveDesc} onChange={e => setMoveDesc(e.target.value)} placeholder="Ej: Compra de gas, Retiro para banco..."
               style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14, boxSizing: "border-box" }} />
           </div>

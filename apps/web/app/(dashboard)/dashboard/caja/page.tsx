@@ -36,6 +36,7 @@ export default function CajaPage() {
   const [moveType, setMoveType] = useState<"IN" | "OUT">("IN");
   const [moveAmt, setMoveAmt] = useState("");
   const [moveDesc, setMoveDesc] = useState("");
+  const [moveCategory, setMoveCategory] = useState("");
 
   // New register modal
   const [showNewRegister, setShowNewRegister] = useState(false);
@@ -104,9 +105,17 @@ export default function CajaPage() {
     if (!session) return;
     setBusy(true); setErr(null);
     try {
-      await apiFetch(`/caja/sessions/${session.id}/movements/`, { method: "POST", body: JSON.stringify({ type: moveType, amount: Number(moveAmt), description: moveDesc }) });
+      await apiFetch(`/caja/sessions/${session.id}/movements/`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: moveType,
+          amount: Number(moveAmt),
+          description: moveDesc,
+          category: moveCategory || undefined,
+        }),
+      });
       const s = await apiFetch(`/caja/sessions/${session.id}/`); setSession(s as Session);
-      setShowMove(false); setMoveAmt(""); setMoveDesc("");
+      setShowMove(false); setMoveAmt(""); setMoveDesc(""); setMoveCategory("");
     } catch (e: any) { setErr(e?.message ?? "Error agregando movimiento"); }
     finally { setBusy(false); }
   };
@@ -255,7 +264,7 @@ export default function CajaPage() {
       {tab === "tips" && <CajaTipsTab />}
 
       {/* MODALS */}
-      {showMove && <AddMovementModal moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
+      {showMove && <AddMovementModal moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} moveCategory={moveCategory} setMoveCategory={setMoveCategory} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
       {showClose && session?.live && <CloseSessionModal live={session.live} countedCash={countedCash} setCountedCash={setCountedCash} closeNote={closeNote} setCloseNote={setCloseNote} busy={busy} onClose={() => setShowClose(false)} onSubmit={closeSession} />}
 
       {/* New register modal */}

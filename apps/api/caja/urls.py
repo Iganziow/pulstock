@@ -7,6 +7,8 @@ from .views import (
     AddMovementView,
     CloseSessionView,
     SessionHistoryView,
+    CashMovementListView,
+    CashMovementCategoriesView,
 )
 
 urlpatterns = [
@@ -17,4 +19,7 @@ urlpatterns = [
     path("sessions/<int:pk>/",                  SessionDetailView.as_view(),   name="caja-session-detail"),
     path("sessions/<int:pk>/movements/",        AddMovementView.as_view(),     name="caja-session-movements"),
     path("sessions/<int:pk>/close/",            CloseSessionView.as_view(),    name="caja-session-close"),
+    # Listado cross-session de movimientos (Daniel 01/05/26)
+    path("movements/",                          CashMovementListView.as_view(),       name="caja-movements-list"),
+    path("movements/categories/",               CashMovementCategoriesView.as_view(), name="caja-movements-categories"),
 ]
