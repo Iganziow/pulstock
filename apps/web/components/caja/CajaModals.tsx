@@ -8,6 +8,10 @@ import { apiFetch } from "@/lib/api";
 
 // ─── Add Movement Modal ─────────────────────────────────────────────────────
 interface AddMovementModalProps {
+  // Daniel 01/05/26 — el botón "+ Movimiento" ahora SIEMPRE visible (estilo
+  // Fudo). Si no hay caja abierta, el modal muestra mensaje claro en vez
+  // del formulario (no puede crear movs sin sesión activa).
+  hasOpenSession?: boolean;
   moveType: "IN" | "OUT"; setMoveType: (v: "IN" | "OUT") => void;
   moveAmt: string; setMoveAmt: (v: string) => void;
   moveDesc: string; setMoveDesc: (v: string) => void;
@@ -22,6 +26,7 @@ interface AddMovementModalProps {
 type CategoryOption = { code: string; label: string };
 
 export function AddMovementModal({
+  hasOpenSession = true,
   moveType, setMoveType, moveAmt, setMoveAmt, moveDesc, setMoveDesc,
   moveCategory = "", setMoveCategory,
   busy, onClose, onSubmit,
@@ -46,6 +51,27 @@ export function AddMovementModal({
     const validCodes = new Set(cats.map(c => c.code));
     if (!validCodes.has(moveCategory)) setMoveCategory("");
   }, [moveType, cats]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Si no hay caja abierta, mostrar mensaje en vez del formulario.
+  if (!hasOpenSession) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 8 }}>
+            No hay caja abierta
+          </div>
+          <div style={{ fontSize: 13, color: C.mute, lineHeight: 1.5, marginBottom: 22 }}>
+            Para registrar un ingreso o egreso necesitás abrir un arqueo primero.
+            Los movimientos quedan asociados a la sesión activa.
+          </div>
+          <Btn variant="primary" onClick={onClose}>
+            Entendido
+          </Btn>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
