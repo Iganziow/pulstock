@@ -122,10 +122,32 @@ export function AddMovementModal({
             <input value={moveDesc} onChange={e => setMoveDesc(e.target.value)} placeholder="Ej: Compra de gas, Retiro para banco..."
               style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14, boxSizing: "border-box" }} />
           </div>
+          {/* Aviso fat-finger Daniel 01/05/26: monto > $50k pide doble check */}
+          {Number(moveAmt) > 50000 && (
+            <div style={{
+              padding: "8px 12px", background: C.amberBg, border: `1px solid ${C.amberBd}`,
+              borderRadius: 6, fontSize: 12, color: C.amber, lineHeight: 1.4,
+            }}>
+              ⚠️ Monto alto: <b>${Math.round(Number(moveAmt)).toLocaleString("es-CL")}</b>.
+              Verificá que esté correcto y que sea {moveType === "IN" ? "INGRESO" : "EGRESO"}.
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Btn>
-          <Btn variant="primary" onClick={onSubmit} disabled={busy || !moveAmt || !moveDesc}>
+          <Btn
+            variant="primary"
+            onClick={() => {
+              if (Number(moveAmt) > 50000) {
+                const ok = window.confirm(
+                  `Vas a registrar un ${moveType === "IN" ? "INGRESO" : "EGRESO"} de $${Math.round(Number(moveAmt)).toLocaleString("es-CL")}.\n\n¿Confirmás?`
+                );
+                if (!ok) return;
+              }
+              onSubmit();
+            }}
+            disabled={busy || !moveAmt || !moveDesc}
+          >
             {busy ? <Spinner size={14} /> : "Agregar"}
           </Btn>
         </div>
