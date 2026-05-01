@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { useBreakpoint } from "@/hooks/useIsMobile";
+import { AddMovementModal } from "@/components/caja/CajaModals";
 
 type Movement = {
   id: number;
@@ -91,6 +92,47 @@ export default function MovimientosCajaPage() {
   const [delBusy, setDelBusy] = useState(false);
   const [delErr, setDelErr] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Crear movimiento (Daniel 01/05/26)
+  const [activeSession, setActiveSession] = useState<{ id: number } | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addType, setAddType] = useState<"IN" | "OUT">("OUT");
+  const [addAmt, setAddAmt] = useState("");
+  const [addDesc, setAddDesc] = useState("");
+  const [addCategory, setAddCategory] = useState("");
+
+  // Fetch sesión activa para saber si se puede crear movimiento
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/caja/sessions/current/")
+      .then((s: any) => { if (alive) setActiveSession(s ? { id: s.id } : null); })
+      .catch(() => { if (alive) setActiveSession(null); });
+    return () => { alive = false; };
+  }, [refreshKey]);
+
+  async function handleAddMovement() {
+    if (!activeSession) return;
+    setAddBusy(true);
+    try {
+      await apiFetch(`/caja/sessions/${activeSession.id}/movements/`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: addType,
+          amount: Number(addAmt),
+          description: addDesc,
+          category: addCategory || undefined,
+        }),
+      });
+      setShowAdd(false);
+      setAddAmt(""); setAddDesc(""); setAddCategory("");
+      setRefreshKey(k => k + 1); // refrescar la lista
+    } catch (e: any) {
+      alert(e?.message ?? "Error al crear movimiento");
+    } finally {
+      setAddBusy(false);
+    }
+  }
 
   async function handleDelete() {
     if (!delTarget) return;
@@ -184,17 +226,32 @@ export default function MovimientosCajaPage() {
               Ingresos y egresos manuales (no ventas) — útil para auditar gastos por categoría
             </div>
           </div>
-          <Link
-            href="/dashboard/caja/categorias"
-            style={{
-              fontSize: 13, color: C.accent, textDecoration: "none", fontWeight: 600,
-              padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 6,
-              background: C.surface, display: "inline-flex", alignItems: "center", gap: 4,
-              alignSelf: isMobile ? "flex-start" : "auto",
-            }}
-          >
-            ⚙️ Personalizar categorías
-          </Link>
+          <div style={{ display: "flex", gap: 8, alignSelf: isMobile ? "flex-start" : "auto", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              title={activeSession ? "Crear ingreso/egreso" : "Necesitás abrir una caja primero"}
+              style={{
+                padding: "7px 14px", borderRadius: 6,
+                background: C.accent, color: "#fff", border: "none",
+                fontSize: 13, fontWeight: 600, cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: 4,
+                opacity: activeSession ? 1 : 0.85,
+              }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Movimiento
+            </button>
+            <Link
+              href="/dashboard/caja/categorias"
+              style={{
+                fontSize: 13, color: C.accent, textDecoration: "none", fontWeight: 600,
+                padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 6,
+                background: C.surface, display: "inline-flex", alignItems: "center", gap: 4,
+              }}
+            >
+              ⚙️ Personalizar categorías
+            </Link>
+          </div>
         </div>
 
         {/* KPI cards */}
@@ -356,6 +413,24 @@ export default function MovimientosCajaPage() {
           err={delErr}
           onCancel={() => { setDelTarget(null); setDelErr(null); }}
           onConfirm={handleDelete}
+        />
+      )}
+
+      {/* Modal de crear movimiento (Daniel 01/05/26) */}
+      {showAdd && (
+        <AddMovementModal
+          hasOpenSession={!!activeSession}
+          moveType={addType}
+          setMoveType={setAddType}
+          moveAmt={addAmt}
+          setMoveAmt={setAddAmt}
+          moveDesc={addDesc}
+          setMoveDesc={setAddDesc}
+          moveCategory={addCategory}
+          setMoveCategory={setAddCategory}
+          busy={addBusy}
+          onClose={() => setShowAdd(false)}
+          onSubmit={handleAddMovement}
         />
       )}
     </div>
