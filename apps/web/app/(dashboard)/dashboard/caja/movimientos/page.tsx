@@ -15,6 +15,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
+import { useBreakpoint } from "@/hooks/useIsMobile";
 
 type Movement = {
   id: number;
@@ -72,6 +73,7 @@ function daysAgoIso(n: number) {
 }
 
 export default function MovimientosCajaPage() {
+  const { isMobile, isTablet } = useBreakpoint();
   const [data, setData] = useState<ListResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -153,13 +155,32 @@ export default function MovimientosCajaPage() {
   const incomesByCategory = (data?.totals_by_category || []).filter(c => c.type === "IN");
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", padding: "24px 28px" }}>
+    <div style={{ background: C.bg, minHeight: "100vh", padding: isMobile ? "16px 12px" : "24px 28px" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+        {/* Botón volver atrás */}
+        <Link
+          href="/dashboard/caja"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: 13, color: C.mid, textDecoration: "none",
+            marginBottom: 14, fontWeight: 500,
+          }}
+        >
+          ← Volver a Caja
+        </Link>
+
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: isMobile ? "stretch" : "baseline",
+          marginBottom: 24,
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 12 : 0,
+        }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>Movimientos de caja</h1>
-            <div style={{ fontSize: 13, color: C.mute, marginTop: 4 }}>
+            <h1 style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800, color: C.text, margin: 0 }}>Movimientos de caja</h1>
+            <div style={{ fontSize: isMobile ? 12 : 13, color: C.mute, marginTop: 4 }}>
               Ingresos y egresos manuales (no ventas) — útil para auditar gastos por categoría
             </div>
           </div>
@@ -169,6 +190,7 @@ export default function MovimientosCajaPage() {
               fontSize: 13, color: C.accent, textDecoration: "none", fontWeight: 600,
               padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 6,
               background: C.surface, display: "inline-flex", alignItems: "center", gap: 4,
+              alignSelf: isMobile ? "flex-start" : "auto",
             }}
           >
             ⚙️ Personalizar categorías
@@ -185,7 +207,12 @@ export default function MovimientosCajaPage() {
 
         {/* Filtros */}
         <div style={{ background: C.surface, padding: 14, borderRadius: C.rMd, border: `1px solid ${C.border}`, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1.5fr", gap: 10, alignItems: "end" }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr 1fr" : (isTablet ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1.5fr"),
+            gap: 10,
+            alignItems: "end",
+          }}>
             <FilterField label="Desde">
               <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} style={inputStyle} />
             </FilterField>
@@ -213,7 +240,12 @@ export default function MovimientosCajaPage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, alignItems: "flex-start" }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: isMobile || isTablet ? "1fr" : "1fr 320px",
+          gap: 16,
+          alignItems: "flex-start",
+        }}>
           {/* Tabla */}
           <div style={{ background: C.surface, borderRadius: C.rMd, border: `1px solid ${C.border}`, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.07em" }}>
@@ -337,8 +369,8 @@ function DeleteConfirmModal({
   onCancel: () => void; onConfirm: () => void;
 }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 440, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
         <div style={{ fontSize: 36, marginBottom: 12, textAlign: "center" }}>⚠️</div>
         <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 12, textAlign: "center" }}>
           ¿Borrar este movimiento?

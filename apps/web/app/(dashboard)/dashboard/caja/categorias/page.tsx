@@ -9,9 +9,11 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
+import { useBreakpoint } from "@/hooks/useIsMobile";
 
 type Category = {
   id: number;
@@ -33,6 +35,7 @@ const TYPE_LABELS: Record<Category["type"], string> = {
 };
 
 export default function MovementCategoriesPage() {
+  const { isMobile } = useBreakpoint();
   const [data, setData] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -73,15 +76,34 @@ export default function MovementCategoriesPage() {
   const incomes = data.filter(c => c.type === "IN" || c.type === "BOTH");
 
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", padding: "24px 28px" }}>
+    <div style={{ background: C.bg, minHeight: "100vh", padding: isMobile ? "16px 12px" : "24px 28px" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        {/* Botón volver atrás */}
+        <Link
+          href="/dashboard/caja/movimientos"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: 13, color: C.mid, textDecoration: "none",
+            marginBottom: 14, fontWeight: 500,
+          }}
+        >
+          ← Volver a Movimientos
+        </Link>
+
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24 }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: isMobile ? "stretch" : "baseline",
+          marginBottom: 24,
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 12 : 0,
+        }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: C.text, margin: 0 }}>
+            <h1 style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800, color: C.text, margin: 0 }}>
               Categorías de movimientos
             </h1>
-            <div style={{ fontSize: 13, color: C.mute, marginTop: 4 }}>
+            <div style={{ fontSize: isMobile ? 12 : 13, color: C.mute, marginTop: 4 }}>
               Personalizá las categorías de ingresos/egresos. Las desactivadas no aparecen al crear movimientos pero conservan los registros viejos.
             </div>
           </div>
@@ -91,6 +113,7 @@ export default function MovementCategoriesPage() {
               padding: "8px 14px", borderRadius: C.r,
               background: C.accent, color: "#fff", border: "none",
               fontSize: 13, fontWeight: 600, cursor: "pointer",
+              alignSelf: isMobile ? "flex-start" : "auto",
             }}
           >
             + Nueva categoría
@@ -118,7 +141,11 @@ export default function MovementCategoriesPage() {
         {loading ? (
           <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+            gap: 16,
+          }}>
             <CategoryColumn
               title="Egresos"
               color={C.red}
@@ -265,8 +292,8 @@ function CategoryFormModal({
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 460, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 460, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 16 }}>
           {mode === "create" ? "Nueva categoría" : "Editar categoría"}
         </div>
