@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { C } from "@/lib/theme";
 import { Btn, FlowRow, fmt, fmtDate, type Session } from "./CajaShared";
 
@@ -98,7 +99,21 @@ export function CajaLiveSession({ session, busy, onShowMove, onShowClose }: Caja
       {/* Cash flow */}
       {live && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden" }}>
-          <div style={{ padding: "12px 20px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 13 }}>Flujo de caja (efectivo fisico)</div>
+          <div style={{ padding: "12px 20px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Flujo de caja (efectivo fisico)</span>
+            {/* Daniel 01/05/26: link al historial de movimientos donde Mario
+                puede ver TODOS los registros y borrarlos individualmente. */}
+            <Link
+              href="/dashboard/caja/movimientos"
+              style={{
+                fontSize: 11, fontWeight: 600, color: C.accent,
+                textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4,
+              }}
+              title="Ver historial completo de ingresos y egresos"
+            >
+              Ver historial →
+            </Link>
+          </div>
           <div style={{ padding: "8px 20px" }}>
             <FlowRow label="Fondo inicial" amount={live.initial_amount} color={C.green} />
             <div style={{ borderTop: `1px solid ${C.border}` }} />

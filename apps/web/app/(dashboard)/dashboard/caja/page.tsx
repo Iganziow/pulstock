@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
@@ -197,7 +198,7 @@ export default function CajaPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0, overflowX: "auto", alignItems: "center" }}>
         {(["live", "history", "tips"] as const).map(t => {
           const labels = { live: "Arqueo activo", history: "Historial", tips: "Propinas" };
           return (
@@ -213,6 +214,20 @@ export default function CajaPage() {
             </button>
           );
         })}
+        {/* Daniel 01/05/26: tab "Movimientos" navega a la pagina de
+            historial cross-session donde Mario puede ver TODOS los
+            movimientos (con caja abierta o no) y borrarlos. */}
+        <Link
+          href="/dashboard/caja/movimientos"
+          style={{
+            padding: "8px 16px", fontSize: 13, fontWeight: 600,
+            color: C.mid, textDecoration: "none", whiteSpace: "nowrap",
+            borderBottom: "2px solid transparent", marginBottom: -1,
+            display: "inline-flex", alignItems: "center", gap: 4,
+          }}
+        >
+          Movimientos <span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+        </Link>
       </div>
 
       {err && (
