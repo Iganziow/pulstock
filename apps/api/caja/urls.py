@@ -9,6 +9,7 @@ from .views import (
     SessionHistoryView,
     CashMovementListView,
     CashMovementCategoriesView,
+    CashMovementDeleteView,
 )
 
 urlpatterns = [
@@ -22,4 +23,6 @@ urlpatterns = [
     # Listado cross-session de movimientos (Daniel 01/05/26)
     path("movements/",                          CashMovementListView.as_view(),       name="caja-movements-list"),
     path("movements/categories/",               CashMovementCategoriesView.as_view(), name="caja-movements-categories"),
+    # Eliminar movimiento (Mario 01/05/26)
+    path("movements/<int:pk>/",                 CashMovementDeleteView.as_view(),     name="caja-movement-delete"),
 ]

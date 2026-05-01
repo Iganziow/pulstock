@@ -794,6 +794,96 @@ class CashMovementCategoriesView(APIView):
         })
 
 
+class CashMovementDeleteView(APIView):
+    """DELETE /caja/movements/<id>/ — borrar movimiento manual.
+
+    Daniel/Mario 01/05/26: caso real Marbrava — Mario marcó por error un
+    pago a Covili como INGRESO en vez de EGRESO. No pudo eliminarlo y
+    tuvo que agregar 2 egresos extras para compensar matemáticamente
+    (3 movimientos en vez de 1, reportes inflados).
+
+    REGLAS DE PROTECCIÓN:
+    - Caja OPEN o huérfano (sin sesión)  → manager+ puede borrar.
+    - Caja CLOSED                        → solo OWNER, con audit log.
+
+    Por qué la protección en CLOSED: si una caja se cerró con
+    expected=$108k = counted=$108k, borrar un movimiento histórico
+    desbalancea retroactivamente ese cuadre. Solo el dueño debe poder
+    hacerlo (con conciencia del impacto auditoría).
+
+    NOTA: el `closing_snapshot` (PR #97) preserva los valores históricos
+    del cierre incluso si después se borra un movimiento — el reporte
+    histórico no muta. Pero el listado live SÍ refleja el borrado.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    @transaction.atomic
+    def delete(self, request, pk: int):
+        t_id = _t(request); s_id = _s(request)
+        if not s_id:
+            return Response({"detail": "User has no active_store"}, status=400)
+
+        # Buscar el movimiento. Filtramos por tenant y por store de la sesión
+        # (si la tiene). Movimientos huérfanos (session=NULL) usan tenant solo.
+        try:
+            mov = CashMovement.objects.select_related("session").get(
+                id=pk, tenant_id=t_id,
+            )
+        except CashMovement.DoesNotExist:
+            return Response({"detail": "Movimiento no encontrado"}, status=404)
+
+        # Verificar store: si tiene sesión, debe ser del store del usuario.
+        if mov.session and mov.session.store_id != s_id:
+            return Response({"detail": "Movimiento de otro local"}, status=403)
+
+        # Permisos por estado:
+        is_closed = (
+            mov.session is not None
+            and mov.session.status == CashSession.STATUS_CLOSED
+        )
+        if is_closed:
+            # Solo OWNER puede borrar movimientos de cajas cerradas
+            user_role = (getattr(request.user, "role", "") or "").lower()
+            is_owner = user_role == "owner" or request.user.is_superuser
+            if not is_owner:
+                return Response(
+                    {
+                        "detail": "Solo el dueño puede borrar movimientos de arqueos cerrados.",
+                        "code": "closed_session_owner_only",
+                    },
+                    status=403,
+                )
+
+        # Snapshot para audit log
+        mov_snapshot = {
+            "id": mov.id,
+            "type": mov.type,
+            "category": mov.category,
+            "amount": str(mov.amount),
+            "description": mov.description,
+            "session_id": mov.session_id,
+            "session_status": mov.session.status if mov.session else None,
+            "created_at": mov.created_at.isoformat(),
+        }
+
+        mov.delete()
+
+        # Audit log (si está disponible)
+        try:
+            from core.models import log_audit
+            log_audit(
+                request,
+                "cash_movement_delete",
+                "cash_movement",
+                pk,
+                {**mov_snapshot, "deleted_by": request.user.email},
+            )
+        except (ImportError, AttributeError):
+            pass
+
+        return Response({"detail": "Movimiento eliminado", "deleted": mov_snapshot}, status=200)
+
+
 class CloseSessionView(APIView):
     """POST /caja/sessions/<id>/close/ — close an open session with counted cash."""
     permission_classes = [IsAuthenticated, HasTenant]

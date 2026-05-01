@@ -83,6 +83,27 @@ export default function MovimientosCajaPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
 
+  // Borrar
+  const [delTarget, setDelTarget] = useState<Movement | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  async function handleDelete() {
+    if (!delTarget) return;
+    setDelBusy(true);
+    setDelErr(null);
+    try {
+      await apiFetch(`/caja/movements/${delTarget.id}/`, { method: "DELETE" });
+      setDelTarget(null);
+      setRefreshKey(k => k + 1);
+    } catch (e: any) {
+      setDelErr(e?.message ?? "Error al borrar");
+    } finally {
+      setDelBusy(false);
+    }
+  }
+
   // Categorías para el dropdown
   const [allCats, setAllCats] = useState<{ income: CategoryOption[]; expense: CategoryOption[] }>({ income: [], expense: [] });
 
@@ -117,7 +138,7 @@ export default function MovimientosCajaPage() {
       .catch((e: any) => { if (alive) setErr(e?.message ?? "Error"); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [from, to, type, category, q, page]);
+  }, [from, to, type, category, q, page, refreshKey]);
 
   // Si cambia type, resetear categoría si ya no aplica
   useEffect(() => {
@@ -198,17 +219,18 @@ export default function MovimientosCajaPage() {
                     <Th align="right">Monto</Th>
                     <Th>Caja</Th>
                     <Th>Usuario</Th>
+                    <Th align="center">Acciones</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && (
-                    <tr><td colSpan={7} style={{ padding: 32, textAlign: "center" }}><Spinner size={16} /></td></tr>
+                    <tr><td colSpan={8} style={{ padding: 32, textAlign: "center" }}><Spinner size={16} /></td></tr>
                   )}
                   {err && !loading && (
-                    <tr><td colSpan={7} style={{ padding: 16, color: C.red, textAlign: "center" }}>{err}</td></tr>
+                    <tr><td colSpan={8} style={{ padding: 16, color: C.red, textAlign: "center" }}>{err}</td></tr>
                   )}
                   {!loading && !err && data?.results.length === 0 && (
-                    <tr><td colSpan={7} style={{ padding: 32, color: C.mute, textAlign: "center" }}>Sin movimientos en este rango</td></tr>
+                    <tr><td colSpan={8} style={{ padding: 32, color: C.mute, textAlign: "center" }}>Sin movimientos en este rango</td></tr>
                   )}
                   {!loading && data?.results.map(m => (
                     <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
@@ -237,6 +259,17 @@ export default function MovimientosCajaPage() {
                       </Td>
                       <Td><span style={{ fontSize: 12, color: C.mid }}>{m.register_name}</span></Td>
                       <Td><span style={{ fontSize: 12, color: C.mute }}>{m.created_by}</span></Td>
+                      <Td align="center">
+                        <button
+                          onClick={() => setDelTarget(m)}
+                          title="Borrar movimiento"
+                          aria-label="Borrar"
+                          style={{
+                            background: "none", border: `1px solid ${C.border}`, borderRadius: 4,
+                            padding: "3px 7px", cursor: "pointer", color: C.red, fontSize: 12,
+                          }}
+                        >🗑️</button>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -269,6 +302,66 @@ export default function MovimientosCajaPage() {
               emptyMessage="Sin ingresos en este periodo"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Modal de confirmación al borrar */}
+      {delTarget && (
+        <DeleteConfirmModal
+          movement={delTarget}
+          busy={delBusy}
+          err={delErr}
+          onCancel={() => { setDelTarget(null); setDelErr(null); }}
+          onConfirm={handleDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteConfirmModal({
+  movement, busy, err, onCancel, onConfirm,
+}: {
+  movement: Movement; busy: boolean; err: string | null;
+  onCancel: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 440, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+        <div style={{ fontSize: 36, marginBottom: 12, textAlign: "center" }}>⚠️</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 12, textAlign: "center" }}>
+          ¿Borrar este movimiento?
+        </div>
+        <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.mute, marginBottom: 4 }}>
+            {movement.type === "IN" ? "↑ Ingreso" : "↓ Egreso"} · {movement.category_label}
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: movement.type === "IN" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+            {movement.type === "IN" ? "+" : "-"}${fmtCLP(movement.amount)}
+          </div>
+          <div style={{ fontSize: 13, color: C.text, marginTop: 4 }}>{movement.description}</div>
+          <div style={{ fontSize: 11, color: C.mute, marginTop: 6 }}>
+            {movement.register_name} · {fmtDate(movement.created_at)}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: C.mute, lineHeight: 1.5, marginBottom: 16, textAlign: "center" }}>
+          Esta acción es <b>irreversible</b>. Si el arqueo asociado ya está cerrado, solo el dueño puede eliminar.
+        </div>
+        {err && (
+          <div style={{ padding: "8px 12px", background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 6, color: C.red, fontSize: 12, marginBottom: 14 }}>
+            {err}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onCancel} disabled={busy} style={{
+            padding: "9px 18px", border: `1px solid ${C.border}`, borderRadius: 6,
+            background: C.surface, color: C.mid, cursor: "pointer", fontSize: 13,
+          }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={busy} style={{
+            padding: "9px 18px", border: "none", borderRadius: 6,
+            background: C.red, color: "#fff", cursor: busy ? "not-allowed" : "pointer",
+            opacity: busy ? 0.6 : 1, fontSize: 13, fontWeight: 600,
+          }}>{busy ? "Borrando..." : "Sí, borrar"}</button>
         </div>
       </div>
     </div>
