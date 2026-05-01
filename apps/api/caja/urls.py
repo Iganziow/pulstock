@@ -10,6 +10,8 @@ from .views import (
     CashMovementListView,
     CashMovementCategoriesView,
     CashMovementDeleteView,
+    MovementCategoryListCreateView,
+    MovementCategoryDetailView,
 )
 
 urlpatterns = [
@@ -25,4 +27,7 @@ urlpatterns = [
     path("movements/categories/",               CashMovementCategoriesView.as_view(), name="caja-movements-categories"),
     # Eliminar movimiento (Mario 01/05/26)
     path("movements/<int:pk>/",                 CashMovementDeleteView.as_view(),     name="caja-movement-delete"),
+    # Categorías personalizables CRUD (Daniel 01/05/26)
+    path("categories/",                         MovementCategoryListCreateView.as_view(), name="caja-categories-listcreate"),
+    path("categories/<int:pk>/",                MovementCategoryDetailView.as_view(),    name="caja-category-detail"),
 ]
