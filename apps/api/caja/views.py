@@ -361,13 +361,16 @@ def _session_summary(session):
 
 
 def _movement_data(m):
+    cat_label = dict(CashMovement.CATEGORY_CHOICES).get(m.category or "", "Sin categoría")
     return {
-        "id":          m.id,
-        "type":        m.type,
-        "amount":      str(m.amount),
-        "description": m.description,
-        "created_by":  m.created_by.get_full_name() or m.created_by.email,
-        "created_at":  m.created_at.isoformat(),
+        "id":             m.id,
+        "type":           m.type,
+        "category":       m.category or "",
+        "category_label": cat_label,
+        "amount":         str(m.amount),
+        "description":    m.description,
+        "created_by":     m.created_by.get_full_name() or m.created_by.email,
+        "created_at":     m.created_at.isoformat(),
     }
 
 
@@ -597,15 +600,198 @@ class AddMovementView(APIView):
         if not description:
             return Response({"detail": "description required"}, status=400)
 
+        # Categoría opcional (Daniel 01/05/26). Si vacía → "Sin categoría".
+        # Validamos que sea un valor válido del enum, pero NO forzamos la
+        # coherencia con `type` (frontend ya filtra). Esto permite a un
+        # admin re-categorizar después si se equivocó.
+        category = (request.data.get("category") or "").strip()
+        valid_cats = {c[0] for c in CashMovement.CATEGORY_CHOICES}
+        if category and category not in valid_cats:
+            return Response(
+                {"detail": f"category inválida. Usar: {', '.join(sorted(valid_cats - {''}))}"},
+                status=400,
+            )
+
         m = CashMovement.objects.create(
             tenant_id=t_id,
             session=session,
             type=mov_type,
+            category=category,
             amount=amount,
             description=description,
             created_by=request.user,
         )
         return Response(_movement_data(m), status=201)
+
+
+class CashMovementListView(APIView):
+    """GET /caja/movements/ — listado paginado con filtros.
+
+    Daniel 01/05/26: vista cross-session de movimientos para auditoría.
+    Mario quiere ver "todos los pagos a proveedores del mes" sin tener
+    que abrir cada arqueo manualmente.
+
+    Query params:
+      - from=YYYY-MM-DD             — fecha desde (default: hace 30 días)
+      - to=YYYY-MM-DD               — fecha hasta (default: hoy)
+      - type=IN|OUT                 — filtrar por tipo
+      - category=SUPPLIER|...       — filtrar por categoría
+      - register_id=N               — filtrar por caja específica
+      - q=texto                     — buscar en description
+      - page, page_size             — paginación
+
+    Response:
+      results, count, page, page_size, total_pages, totals_by_type, totals_by_category
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        from datetime import timedelta
+        from django.utils.dateparse import parse_date
+        from django.db.models import Sum
+
+        t_id = _t(request); s_id = _s(request)
+        if not s_id:
+            return Response({"detail": "User has no active_store"}, status=400)
+
+        p = request.query_params
+
+        date_from = parse_date(p.get("from") or "")
+        date_to = parse_date(p.get("to") or "")
+        if not date_from:
+            date_from = (timezone.now() - timedelta(days=30)).date()
+        if not date_to:
+            date_to = timezone.now().date()
+
+        qs = CashMovement.objects.filter(
+            tenant_id=t_id,
+            session__store_id=s_id,
+            created_at__date__gte=date_from,
+            created_at__date__lte=date_to,
+        ).select_related("session__register", "created_by").order_by("-created_at")
+
+        mov_type = (p.get("type") or "").upper()
+        if mov_type in (CashMovement.TYPE_IN, CashMovement.TYPE_OUT):
+            qs = qs.filter(type=mov_type)
+
+        category = (p.get("category") or "").strip()
+        if category:
+            valid = {c[0] for c in CashMovement.CATEGORY_CHOICES}
+            if category in valid:
+                qs = qs.filter(category=category)
+
+        register_id = p.get("register_id")
+        if register_id and str(register_id).isdigit():
+            qs = qs.filter(session__register_id=int(register_id))
+
+        q = (p.get("q") or "").strip()
+        if q:
+            qs = qs.filter(description__icontains=q)
+
+        # Totales del filtro completo (antes de paginar)
+        totals = qs.aggregate(
+            total_in=Sum("amount", filter=Q(type="IN")),
+            total_out=Sum("amount", filter=Q(type="OUT")),
+            count=Count("id"),
+        )
+        zero = Decimal("0")
+        totals_by_type = {
+            "in":  str(totals["total_in"] or zero),
+            "out": str(totals["total_out"] or zero),
+            "net": str((totals["total_in"] or zero) - (totals["total_out"] or zero)),
+            "count": totals["count"] or 0,
+        }
+
+        # Totales por categoría (para el pie chart)
+        cat_totals = list(
+            qs.values("type", "category")
+              .annotate(total=Sum("amount"), count=Count("id"))
+              .order_by("-total")
+        )
+        cat_labels = dict(CashMovement.CATEGORY_CHOICES)
+        totals_by_category = [
+            {
+                "type": row["type"],
+                "category": row["category"] or "",
+                "category_label": cat_labels.get(row["category"] or "", "Sin categoría"),
+                "total": str(row["total"] or zero),
+                "count": row["count"],
+            }
+            for row in cat_totals
+        ]
+
+        # Paginación manual
+        try:
+            page = max(1, int(p.get("page") or 1))
+        except (ValueError, TypeError):
+            page = 1
+        try:
+            page_size = min(200, max(1, int(p.get("page_size") or 50)))
+        except (ValueError, TypeError):
+            page_size = 50
+
+        total_count = totals["count"] or 0
+        total_pages = (total_count + page_size - 1) // page_size if total_count else 1
+        offset = (page - 1) * page_size
+        page_qs = qs[offset:offset + page_size]
+
+        results = []
+        for m in page_qs:
+            results.append({
+                "id": m.id,
+                "session_id": m.session_id,
+                "register_id": m.session.register_id,
+                "register_name": m.session.register.name,
+                "type": m.type,
+                "category": m.category or "",
+                "category_label": cat_labels.get(m.category or "", "Sin categoría"),
+                "amount": str(m.amount),
+                "description": m.description,
+                "created_by": m.created_by.get_full_name() or m.created_by.email,
+                "created_at": m.created_at.isoformat(),
+            })
+
+        return Response({
+            "results": results,
+            "count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "totals_by_type": totals_by_type,
+            "totals_by_category": totals_by_category,
+            "filters": {
+                "from": str(date_from),
+                "to": str(date_to),
+                "type": mov_type or None,
+                "category": category or None,
+                "register_id": int(register_id) if register_id and str(register_id).isdigit() else None,
+                "q": q or None,
+            },
+        })
+
+
+class CashMovementCategoriesView(APIView):
+    """GET /caja/movements/categories/ — devuelve choices para el frontend.
+
+    Para que el frontend no tenga que duplicar la lista de categorías.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        in_cats = []
+        out_cats = []
+        for code, label in CashMovement.CATEGORY_CHOICES:
+            if not code:  # skip uncategorized
+                continue
+            entry = {"code": code, "label": label}
+            if code in CashMovement.CATEGORIES_IN:
+                in_cats.append(entry)
+            elif code in CashMovement.CATEGORIES_OUT:
+                out_cats.append(entry)
+        return Response({
+            "income": in_cats,
+            "expense": out_cats,
+        })
 
 
 class CloseSessionView(APIView):

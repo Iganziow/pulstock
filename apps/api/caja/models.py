@@ -76,21 +76,71 @@ class CashSession(models.Model):
 
 
 class CashMovement(models.Model):
-    """Non-sale cash in/out during a session (e.g. expenses, fund additions)."""
+    """Non-sale cash in/out during a session (e.g. expenses, fund additions).
+
+    Daniel 01/05/26 — agregado `category` para clasificar gastos/ingresos
+    y poder mostrar reportes "en qué se va la plata". Fudo no tiene esto
+    (solo permite descripción libre); con categorías Pulstock puede dar
+    al dueño un breakdown automático de gastos por tipo.
+    """
     TYPE_IN  = "IN"
     TYPE_OUT = "OUT"
     TYPE_CHOICES = [(TYPE_IN, "Ingreso"), (TYPE_OUT, "Egreso")]
 
+    # Categorías opcionales para clasificar movimientos.
+    # Cada categoría aplica naturalmente a un tipo (IN/OUT), pero NO se
+    # valida cross-fielde — el frontend muestra solo las relevantes según
+    # el `type` que el usuario eligió.
+    CAT_SUPPLIER       = "SUPPLIER"        # OUT: Pago a proveedor
+    CAT_SALARY         = "SALARY"          # OUT: Sueldo / pago al equipo
+    CAT_SERVICE        = "SERVICE"         # OUT: Servicios (luz, agua, internet)
+    CAT_OWNER_DRAW     = "OWNER_DRAW"      # OUT: Retiro del dueño
+    CAT_REFUND         = "REFUND"          # OUT: Devolución a cliente
+    CAT_OTHER_OUT      = "OTHER_OUT"       # OUT: Otro egreso
+    CAT_CAPITAL        = "CAPITAL"         # IN:  Aporte de capital del dueño
+    CAT_EXTRA_INCOME   = "EXTRA_INCOME"    # IN:  Recaudación adicional / cobro extra
+    CAT_LOAN           = "LOAN"            # IN:  Préstamo recibido
+    CAT_OTHER_IN       = "OTHER_IN"        # IN:  Otro ingreso
+    CAT_UNCATEGORIZED  = ""                # Default — para compat con movs viejos
+
+    CATEGORY_CHOICES = [
+        (CAT_UNCATEGORIZED, "Sin categoría"),
+        # Egresos
+        (CAT_SUPPLIER,     "Pago a proveedor"),
+        (CAT_SALARY,       "Sueldo"),
+        (CAT_SERVICE,      "Servicio (luz/agua/internet)"),
+        (CAT_OWNER_DRAW,   "Retiro del dueño"),
+        (CAT_REFUND,       "Devolución a cliente"),
+        (CAT_OTHER_OUT,    "Otro egreso"),
+        # Ingresos
+        (CAT_CAPITAL,      "Aporte de capital"),
+        (CAT_EXTRA_INCOME, "Recaudación adicional"),
+        (CAT_LOAN,         "Préstamo"),
+        (CAT_OTHER_IN,     "Otro ingreso"),
+    ]
+
+    # Mapeo helper: qué categorías son IN vs OUT
+    CATEGORIES_IN = {CAT_CAPITAL, CAT_EXTRA_INCOME, CAT_LOAN, CAT_OTHER_IN}
+    CATEGORIES_OUT = {CAT_SUPPLIER, CAT_SALARY, CAT_SERVICE, CAT_OWNER_DRAW, CAT_REFUND, CAT_OTHER_OUT}
+
     tenant      = models.ForeignKey("core.Tenant", on_delete=models.PROTECT, related_name="cash_movements")
     session     = models.ForeignKey(CashSession, on_delete=models.CASCADE, related_name="movements")
     type        = models.CharField(max_length=3, choices=TYPE_CHOICES)
+    category    = models.CharField(
+        max_length=20, choices=CATEGORY_CHOICES, blank=True, default="",
+        help_text="Categoría opcional. Permite reportes de gastos/ingresos por tipo.",
+    )
     amount      = models.DecimalField(max_digits=12, decimal_places=2)
     description = models.CharField(max_length=255)
     created_by  = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="cash_movements")
     created_at  = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["tenant", "session"])]
+        indexes = [
+            models.Index(fields=["tenant", "session"]),
+            models.Index(fields=["tenant", "created_at"]),
+            models.Index(fields=["tenant", "type", "category"]),
+        ]
 
     def __str__(self):
         return f"CashMovement #{self.id} {self.type} {self.amount}"
