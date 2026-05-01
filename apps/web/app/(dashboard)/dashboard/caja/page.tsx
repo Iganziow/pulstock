@@ -141,6 +141,25 @@ export default function CajaPage() {
           <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Caja</div>
           <div style={{ fontSize: 13, color: C.mute, marginTop: 2 }}>Gestion de arqueos y flujo de efectivo</div>
         </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          {/* Daniel 01/05/26: el boton "+ Movimiento" SIEMPRE esta visible
+              (estilo Fudo). Si no hay caja abierta, el modal explica que
+              hay que abrir una primero. */}
+          <button
+            type="button"
+            onClick={() => setShowMove(true)}
+            title={session ? "Agregar ingreso/egreso a la caja" : "Necesitas abrir una caja primero"}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", borderRadius: C.r,
+              background: C.accent, color: "#fff", border: "none",
+              fontSize: 13, fontWeight: 600, cursor: "pointer",
+              opacity: session ? 1 : 0.85,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Movimiento
+          </button>
+        </div>
         {/* Timestamp + refresh manual. Auto-refresh cada 30s, pero el
             cajero a veces necesita "ver el monto AHORA" (ej: justo
             después de una venta). */}
@@ -264,7 +283,7 @@ export default function CajaPage() {
       {tab === "tips" && <CajaTipsTab />}
 
       {/* MODALS */}
-      {showMove && <AddMovementModal moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} moveCategory={moveCategory} setMoveCategory={setMoveCategory} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
+      {showMove && <AddMovementModal hasOpenSession={!!session} moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} moveCategory={moveCategory} setMoveCategory={setMoveCategory} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
       {showClose && session?.live && <CloseSessionModal live={session.live} countedCash={countedCash} setCountedCash={setCountedCash} closeNote={closeNote} setCloseNote={setCloseNote} busy={busy} onClose={() => setShowClose(false)} onSubmit={closeSession} />}
 
       {/* New register modal */}
