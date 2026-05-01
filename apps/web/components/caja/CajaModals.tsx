@@ -55,8 +55,8 @@ export function AddMovementModal({
   // Si no hay caja abierta, mostrar mensaje en vez del formulario.
   if (!hasOpenSession) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", textAlign: "center" }}>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", textAlign: "center" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 8 }}>
             No hay caja abierta
@@ -74,8 +74,8 @@ export function AddMovementModal({
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
         <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Agregar movimiento</div>
         <div style={{ display: "grid", gap: 12 }}>
           <div>
@@ -170,8 +170,8 @@ export function CloseSessionModal({ live, countedCash, setCountedCash, closeNote
   const difference = countedCash !== "" ? Number(countedCash) - Number(live.expected_cash) : null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: 440, boxShadow: "0 20px 52px rgba(0,0,0,0.18)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
         <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 6 }}>Cerrar arqueo</div>
         <div style={{ fontSize: 13, color: C.mute, marginBottom: 18 }}>Cuenta el efectivo en caja e ingresa el monto real.</div>
         <div style={{ display: "grid", gap: 12 }}>
