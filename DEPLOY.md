@@ -1,176 +1,139 @@
 # Guía de despliegue — Pulstock
 
-**Arquitectura:**
-- Frontend (Next.js) → **Vercel**
-- Backend (Django + Celery + Redis + PostgreSQL) → **Hetzner**
-- Dominio: `pulstock.cl` (DNS: dnsmisitio.net)
+**Arquitectura actual:**
+- **Todo en un servidor Hetzner** (`65.108.148.200`, dominio `pulstock.cl`)
+  - Frontend Next.js → corre como proceso Node bajo PM2 (`pulstock-web`, puerto 3000)
+  - Backend Django → Gunicorn (3 workers) sirviendo `/api/`
+  - Celery worker + beat → tareas programadas (renewals de billing, forecasts diarios, etc.)
+  - PostgreSQL + Redis (locales en el servidor)
+  - Nginx → reverse proxy + SSL (Let's Encrypt) → proxy a `pulstock-web` y a Gunicorn
+- **NO usamos Vercel** (lo migramos a Hetzner para tener todo en un solo lugar)
+- DNS: `dnsmisitio.net` → `pulstock.cl` y `www.pulstock.cl` apuntan a la IP del servidor
 
 ---
 
-## 1. DNS — Configurar en dnsmisitio.net
+## Deploy de cambios (procedimiento normal)
 
-Ingresar al panel de dnsmisitio.net y agregar estos registros para `pulstock.cl`:
+Después de pushear a `main`, conectarse al servidor y correr el alias correspondiente:
 
-| Tipo  | Nombre            | Valor                  | TTL  |
-|-------|-------------------|------------------------|------|
-| A     | `@` (raíz)        | `76.76.21.21`          | 3600 |
-| CNAME | `www`             | `cname.vercel-dns.com` | 3600 |
-| A     | `api`             | `<IP_HETZNER>`         | 3600 |
+```bash
+ssh ignacio@65.108.148.200
+pdeploy           # deploy completo (api + web)
+# o más rápido si sólo cambió uno:
+pdeploy-api       # solo backend (~10 s)
+pdeploy-web       # solo frontend (~1-2 min por el next build)
+```
 
-> **Notas:**
-> - `76.76.21.21` es la IP de Vercel para dominios apex
-> - `<IP_HETZNER>` es la IP pública del servidor Hetzner (se obtiene en la consola de Hetzner Cloud)
-> - Los cambios DNS pueden demorar hasta 24h en propagarse
+> El detalle completo del script (`~/deploy.sh`) y troubleshooting está en
+> [`docs/ops/04-deploy.md`](docs/ops/04-deploy.md). Lee ese archivo si algo falla.
+
+`pdeploy` hace en orden:
+1. Asegura ownership del repo a `ignacio`.
+2. `git pull origin main` (auto-checkout a main si estabas en otra rama).
+3. Recrea el merge migration local `0018_merge_*.py` (ver "migraciones huérfanas" en `04-deploy.md`).
+4. **Backend**: `migrate` + `sudo kill -HUP` al gunicorn master (workers se reciclan sin downtime).
+5. **Frontend**: `next build` + `sudo pm2 stop pulstock-web` + `sudo pkill -KILL -f next-server` + `sudo pm2 start pulstock-web`.
+6. Verificación final con curls a `pulstock.cl`, `api.pulstock.cl`, y `/api/printing/print/`.
+
+Es idempotente: si dudas, corré `pdeploy` dos veces y nada se rompe.
 
 ---
 
-## 2. Hetzner — Configuración inicial del servidor
-
-### Servidor recomendado
-- **CPX21** (3 vCPU, 4 GB RAM, 80 GB SSD) — suficiente para empezar
-- **OS:** Ubuntu 24.04 LTS
-- **Región:** Falkenstein (EU) o Helsinki
-
-### Setup inicial (ejecutar como root)
+## Verificar después del deploy
 
 ```bash
-# Actualizar sistema
-apt update && apt upgrade -y
-
-# Instalar Docker
-curl -fsSL https://get.docker.com | sh
-apt install -y docker-compose-plugin
-
-# Crear usuario de deploy
-useradd -m -s /bin/bash deploy
-usermod -aG docker deploy
-
-# Clonar el repo
-su - deploy
-git clone <URL_REPO> /home/deploy/pulstock
-cd /home/deploy/pulstock
-
-# Configurar variables de entorno
-cp .env.production.example .env.production
-nano .env.production   # completar todos los valores
+pstatus
 ```
 
-### SSL — Obtener certificado (primera vez)
-
-Antes de levantar el stack completo, obtener el certificado SSL:
-
-```bash
-# Levantar solo nginx en modo HTTP (sin SSL todavía)
-docker compose up -d nginx
-
-# Solicitar certificado
-docker compose run --rm certbot certonly \
-  --webroot -w /var/www/certbot \
-  -d api.pulstock.cl \
-  --email tu@email.com \
-  --agree-tos --no-eff-email
-
-# Verificar que se obtuvo el certificado
-ls /etc/letsencrypt/live/api.pulstock.cl/
-
-# Levantar el stack completo
-docker compose up -d
+Salida esperada:
 ```
-
-### Levantar el stack completo
-
-```bash
-docker compose up -d
-docker compose logs -f api   # verificar que levantó bien
-```
-
-### Crear superusuario Django (primera vez)
-
-```bash
-docker compose exec api python manage.py createsuperuser
-```
-
-### Renovación automática de SSL
-
-Agregar a crontab del usuario `deploy`:
-
-```bash
-crontab -e
-# Agregar:
-0 3 * * * cd /home/deploy/pulstock && docker compose run --rm certbot renew --quiet && docker compose exec nginx nginx -s reload
+=== gunicorn ===
+... 3 workers ...
+=== pm2 ===
+... pulstock-web online ...
+=== puerto 3000 ===
+LISTEN ... users:(("next-server (v1",pid=...,fd=18))
+=== health ===
+pulstock.cl: 200  api: 200
 ```
 
 ---
 
-## 3. Vercel — Configuración
+## Aliases útiles (configurados en `~/.bashrc` del usuario `ignacio`)
 
-### Conectar el repositorio
-
-1. Ir a [vercel.com](https://vercel.com) → New Project
-2. Importar el repositorio de GitHub
-3. Vercel detecta automáticamente el `vercel.json` → root directory `apps/web`
-4. En **"Environment Variables"**, agregar:
-
-| Variable              | Valor                          | Entornos         |
-|-----------------------|--------------------------------|------------------|
-| `NEXT_PUBLIC_API_URL` | `https://api.pulstock.cl/api`  | Production       |
-| `NEXT_PUBLIC_API_URL` | `https://api.pulstock.cl/api`  | Preview          |
-
-5. Click en **Deploy**
-
-### Agregar dominio personalizado
-
-1. En el proyecto de Vercel → **Settings → Domains**
-2. Agregar `pulstock.cl` y `www.pulstock.cl`
-3. Vercel verificará automáticamente los registros DNS (ya configurados en paso 1)
-
----
-
-## 4. Deploys futuros
-
-### Backend (Hetzner)
-```bash
-# En el servidor Hetzner
-cd /home/deploy/pulstock
-./deploy.sh
 ```
-
-### Frontend (Vercel)
-El frontend **se despliega automáticamente** cuando se hace push a `main` en GitHub. No requiere ninguna acción manual.
-
----
-
-## 5. Comandos útiles en producción
-
-```bash
-# Ver logs de la API
-docker compose logs api -f --tail=100
-
-# Ver logs de Celery
-docker compose logs celery-worker -f
-
-# Reiniciar solo la API (sin downtime de DB/Redis)
-docker compose restart api
-
-# Ejecutar comando Django
-docker compose exec api python manage.py <comando>
-
-# Backup de la base de datos
-docker compose exec db pg_dump -U pulstock pulstock > backup_$(date +%Y%m%d).sql
-
-# Estado de todos los servicios
-docker compose ps
+pdeploy        # deploy completo
+pdeploy-api    # solo backend
+pdeploy-web    # solo frontend
+pstatus        # estado rápido (gunicorn, pm2, puerto 3000, health curls)
+plogs-api      # tail logs de gunicorn
+plogs-web      # tail logs del frontend (sudo pm2 logs)
+plogs-nginx    # tail logs de nginx
+pcd            # cd al repo (/var/www/pulstock)
+pcd-api        # cd a apps/api
+pcd-web        # cd a apps/web
+pvenv          # source del venv del backend
+pshell         # python manage.py shell con venv ya activado
+pmanage <cmd>  # python manage.py <cmd> con venv ya activado
+ppm2           # sudo pm2
 ```
 
 ---
 
-## 6. Variables de entorno críticas (resumen)
+## Rollback (si algo salió mal)
 
-| Variable | Dónde configurar | Notas |
+```bash
+pcd
+git log --oneline -5      # encontrar el commit estable previo
+git checkout <hash-estable>
+pdeploy                   # corre el deploy desde ese commit
+```
+
+O bien `git reset --hard HEAD~1 && pdeploy` si el problema fue el último commit.
+
+---
+
+## Setup inicial del servidor
+
+Si alguna vez hay que reconstruir el servidor desde cero, los pasos están en
+[`docs/ops/01-acceso-servidor.md`](docs/ops/01-acceso-servidor.md) y
+[`docs/ops/02-arquitectura.md`](docs/ops/02-arquitectura.md). Resumen:
+
+1. Ubuntu 24.04 LTS en Hetzner (CPX21 o superior).
+2. Crear usuario `ignacio` con sudo.
+3. Instalar Python 3.12, Node 22, PostgreSQL 16, Redis 7, Nginx, Certbot.
+4. Clonar repo en `/var/www/pulstock`.
+5. Backend: `pip install -r requirements.txt` en venv, configurar `.env`, `migrate`, `collectstatic`.
+6. Gunicorn como systemd service (3 workers).
+7. Frontend: `npm ci && npm run build` en `apps/web`, levantar con PM2 (`pulstock-web`).
+8. Nginx con SSL Let's Encrypt → proxy a `localhost:8000` (api) y `localhost:3000` (web).
+9. Cron de Celery beat + worker (ver `docs/ops/pulstock-crontab.txt`).
+
+---
+
+## Variables de entorno críticas
+
+Todas viven en el servidor (no en Vercel ni en CI):
+
+| Variable | Archivo | Notas |
 |---|---|---|
-| `DJANGO_SECRET_KEY` | `.env.production` en Hetzner | Generar aleatoriamente |
-| `DATABASE_URL` | `.env.production` en Hetzner | Apunta al contenedor `db` |
-| `WEB_ORIGIN` | `.env.production` en Hetzner | `https://pulstock.cl,https://www.pulstock.cl` |
-| `FLOW_API_KEY` / `FLOW_SECRET_KEY` | `.env.production` en Hetzner | Credenciales Flow.cl |
-| `EMAIL_HOST_PASSWORD` | `.env.production` en Hetzner | App password de Gmail |
-| `NEXT_PUBLIC_API_URL` | Dashboard de Vercel | `https://api.pulstock.cl/api` |
+| `DJANGO_SECRET_KEY` | `apps/api/.env` | Generar aleatoriamente |
+| `DATABASE_URL` | `apps/api/.env` | `postgresql://...` |
+| `WEB_ORIGIN` | `apps/api/.env` | `https://pulstock.cl,https://www.pulstock.cl` |
+| `FLOW_API_KEY` / `FLOW_SECRET_KEY` | `apps/api/.env` | Credenciales Flow.cl |
+| `EMAIL_HOST_PASSWORD` | `apps/api/.env` | App password de Gmail / Brevo |
+| `NEXT_PUBLIC_API_URL` | `apps/web/.env.production` | `https://pulstock.cl/api` |
+
+---
+
+## Documentación operacional adicional
+
+- [`docs/ops/01-acceso-servidor.md`](docs/ops/01-acceso-servidor.md) — SSH, sudo, llaves
+- [`docs/ops/02-arquitectura.md`](docs/ops/02-arquitectura.md) — diagrama y servicios
+- [`docs/ops/03-comandos-diarios.md`](docs/ops/03-comandos-diarios.md) — cosas que se hacen seguido
+- [`docs/ops/04-deploy.md`](docs/ops/04-deploy.md) — deploy detallado + troubleshooting
+- [`docs/ops/05-logs.md`](docs/ops/05-logs.md) — dónde ver qué
+- [`docs/ops/06-backups.md`](docs/ops/06-backups.md) — pg_dump + retención
+- [`docs/ops/07-errores-comunes.md`](docs/ops/07-errores-comunes.md) — recetas para los errores recurrentes
+- [`docs/ops/08-emergencias.md`](docs/ops/08-emergencias.md) — qué hacer si se cae todo
+- [`docs/ops/CHEATSHEET.md`](docs/ops/CHEATSHEET.md) — comandos copy-paste

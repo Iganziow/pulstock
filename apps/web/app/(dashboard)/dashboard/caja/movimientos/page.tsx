@@ -10,7 +10,7 @@
  * por categoría predefinida, no solo texto libre.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
@@ -70,14 +70,45 @@ const fmtDate = (iso: string) => {
   return `${dd}/${mm} · ${hh}:${mi}`;
 };
 
+// Usamos zona local del navegador (no UTC) para que "hoy" coincida con
+// el día calendario del usuario en Chile.
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 function daysAgoIso(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+// Clave de día (yyyy-mm-dd) en zona local — para agrupar movimientos.
+function dayKeyLocal(iso: string): string {
+  const d = new Date(iso);
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+// "Hoy", "Ayer" o "Lun 28 abr" (compacto y útil para encabezados de día).
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const MONTH_NAMES_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, today)) return "Hoy";
+  if (sameDay(d, yesterday)) return "Ayer";
+  return `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES_SHORT[d.getMonth()]}`;
 }
 
 export default function MovimientosCajaPage() {
@@ -87,8 +118,9 @@ export default function MovimientosCajaPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Filtros
-  const [from, setFrom] = useState(daysAgoIso(30));
+  // Filtros — por defecto sólo HOY (los chicos de la cafetería suelen
+  // mirar movimientos del día; antes el default eran 30 días y se mezclaba todo).
+  const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(todayIso());
   const [type, setType] = useState<"" | "IN" | "OUT">("");
   const [category, setCategory] = useState("");
@@ -204,6 +236,45 @@ export default function MovimientosCajaPage() {
   const expensesByCategory = (data?.totals_by_category || []).filter(c => c.type === "OUT");
   const incomesByCategory = (data?.totals_by_category || []).filter(c => c.type === "IN");
 
+  // Agrupación por día (los movimientos vienen ordenados desc por created_at).
+  // Cada grupo trae su subtotal de ingresos/egresos para que se vea "por día".
+  const groupedByDay = useMemo(() => {
+    if (!data?.results?.length) return [] as { day: string; label: string; items: Movement[]; totalIn: number; totalOut: number }[];
+    const groups: { day: string; label: string; items: Movement[]; totalIn: number; totalOut: number }[] = [];
+    for (const m of data.results) {
+      const day = dayKeyLocal(m.created_at);
+      let g = groups[groups.length - 1];
+      if (!g || g.day !== day) {
+        g = { day, label: dayLabel(m.created_at), items: [], totalIn: 0, totalOut: 0 };
+        groups.push(g);
+      }
+      g.items.push(m);
+      const amt = Number(m.amount);
+      if (m.type === "IN") g.totalIn += amt; else g.totalOut += amt;
+    }
+    return groups;
+  }, [data]);
+
+  // Atajos de rango — Hoy / Ayer / Últimos 7 días / Últimos 30 días.
+  // Aplican from y to en un solo click; resetean la página.
+  function applyQuickRange(kind: "today" | "yesterday" | "7d" | "30d") {
+    const today = todayIso();
+    if (kind === "today") { setFrom(today); setTo(today); }
+    else if (kind === "yesterday") { const y = daysAgoIso(1); setFrom(y); setTo(y); }
+    else if (kind === "7d") { setFrom(daysAgoIso(6)); setTo(today); }
+    else if (kind === "30d") { setFrom(daysAgoIso(29)); setTo(today); }
+    setPage(1);
+  }
+  // Para resaltar el chip activo, comparamos contra los rangos canónicos.
+  const activeQuick = useMemo(() => {
+    const today = todayIso();
+    if (from === today && to === today) return "today";
+    if (from === daysAgoIso(1) && to === daysAgoIso(1)) return "yesterday";
+    if (from === daysAgoIso(6) && to === today) return "7d";
+    if (from === daysAgoIso(29) && to === today) return "30d";
+    return null;
+  }, [from, to]);
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: isMobile ? "16px 12px" : "24px 28px" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
@@ -289,14 +360,44 @@ export default function MovimientosCajaPage() {
 
         {/* KPI cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
-          <KpiCard label="Ingresos del periodo" value={`$${fmtCLP(totals?.in || 0)}`} color={C.green} />
-          <KpiCard label="Egresos del periodo" value={`$${fmtCLP(totals?.out || 0)}`} color={C.red} />
+          <KpiCard label={from === to ? "Ingresos del día" : "Ingresos"} value={`$${fmtCLP(totals?.in || 0)}`} color={C.green} />
+          <KpiCard label={from === to ? "Egresos del día" : "Egresos"} value={`$${fmtCLP(totals?.out || 0)}`} color={C.red} />
           <KpiCard label="Balance" value={`$${fmtCLP(totals?.net || 0)}`} color={Number(totals?.net || 0) >= 0 ? C.green : C.red} subtitle="ingresos − egresos" />
           <KpiCard label="Total movimientos" value={String(totals?.count || 0)} color={C.accent} />
         </div>
 
         {/* Filtros */}
         <div style={{ background: C.surface, padding: 14, borderRadius: C.rMd, border: `1px solid ${C.border}`, marginBottom: 16 }}>
+          {/* Atajos rápidos de rango — los chicos eligen un día con un click */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {([
+              { k: "today", label: "Hoy" },
+              { k: "yesterday", label: "Ayer" },
+              { k: "7d", label: "Últimos 7 días" },
+              { k: "30d", label: "Últimos 30 días" },
+            ] as const).map(opt => {
+              const active = activeQuick === opt.k;
+              return (
+                <button
+                  key={opt.k}
+                  type="button"
+                  onClick={() => applyQuickRange(opt.k)}
+                  style={{
+                    padding: card ? "8px 14px" : "5px 12px",
+                    borderRadius: 99,
+                    border: `1px solid ${active ? C.accent : C.border}`,
+                    background: active ? C.accent : C.surface,
+                    color: active ? "#fff" : C.mid,
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 600,
+                    cursor: "pointer",
+                    minHeight: card ? 36 : "auto",
+                    whiteSpace: "nowrap",
+                  }}
+                >{opt.label}</button>
+              );
+            })}
+          </div>
           <div style={{
             display: "grid",
             gridTemplateColumns: isMobile ? "1fr 1fr" : (isTablet ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr 1.5fr"),
@@ -368,45 +469,63 @@ export default function MovimientosCajaPage() {
                     {!loading && !err && data?.results.length === 0 && (
                       <tr><td colSpan={8} style={{ padding: 32, color: C.mute, textAlign: "center" }}>Sin movimientos en este rango</td></tr>
                     )}
-                    {!loading && data?.results.map(m => (
-                      <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                        <Td>{fmtDate(m.created_at)}</Td>
-                        <Td>
-                          <span style={{
-                            display: "inline-block",
-                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-                            background: m.type === "IN" ? C.greenBg : C.redBg,
-                            color: m.type === "IN" ? C.green : C.red,
-                            border: `1px solid ${m.type === "IN" ? C.greenBd : C.redBd}`,
-                          }}>
-                            {m.type === "IN" ? "↑ Ingreso" : "↓ Egreso"}
-                          </span>
-                        </Td>
-                        <Td>
-                          <span style={{ fontSize: 12, color: m.category ? C.text : C.mute, fontStyle: m.category ? "normal" : "italic" }}>
-                            {m.category_label}
-                          </span>
-                        </Td>
-                        <Td>{m.description}</Td>
-                        <Td align="right">
-                          <span style={{ fontWeight: 700, color: m.type === "IN" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
-                            {m.type === "IN" ? "+" : "-"}${fmtCLP(m.amount)}
-                          </span>
-                        </Td>
-                        <Td><span style={{ fontSize: 12, color: C.mid }}>{m.register_name}</span></Td>
-                        <Td><span style={{ fontSize: 12, color: C.mute }}>{m.created_by}</span></Td>
-                        <Td align="center">
-                          <button
-                            onClick={() => setDelTarget(m)}
-                            title="Borrar movimiento"
-                            aria-label="Borrar"
-                            style={{
-                              background: "none", border: `1px solid ${C.border}`, borderRadius: 4,
-                              padding: "3px 7px", cursor: "pointer", color: C.red, fontSize: 12,
-                            }}
-                          >🗑️</button>
-                        </Td>
-                      </tr>
+                    {!loading && groupedByDay.map(g => (
+                      <React.Fragment key={g.day}>
+                        {/* Encabezado de día con subtotales */}
+                        <tr style={{ background: C.bg, borderTop: `2px solid ${C.border}` }}>
+                          <td colSpan={8} style={{ padding: "8px 12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                              <span style={{ fontWeight: 800, color: C.text, fontSize: 13 }}>{g.label}</span>
+                              <span style={{ color: C.mute }}>·</span>
+                              <span style={{ color: C.mute }}>{g.items.length} movimiento{g.items.length === 1 ? "" : "s"}</span>
+                              <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontVariantNumeric: "tabular-nums" }}>
+                                {g.totalIn > 0 && <span style={{ color: C.green, fontWeight: 700 }}>+${fmtCLP(g.totalIn)}</span>}
+                                {g.totalOut > 0 && <span style={{ color: C.red, fontWeight: 700 }}>−${fmtCLP(g.totalOut)}</span>}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {g.items.map(m => (
+                          <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                            <Td>{fmtDate(m.created_at)}</Td>
+                            <Td>
+                              <span style={{
+                                display: "inline-block",
+                                padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                                background: m.type === "IN" ? C.greenBg : C.redBg,
+                                color: m.type === "IN" ? C.green : C.red,
+                                border: `1px solid ${m.type === "IN" ? C.greenBd : C.redBd}`,
+                              }}>
+                                {m.type === "IN" ? "↑ Ingreso" : "↓ Egreso"}
+                              </span>
+                            </Td>
+                            <Td>
+                              <span style={{ fontSize: 12, color: m.category ? C.text : C.mute, fontStyle: m.category ? "normal" : "italic" }}>
+                                {m.category_label}
+                              </span>
+                            </Td>
+                            <Td>{m.description}</Td>
+                            <Td align="right">
+                              <span style={{ fontWeight: 700, color: m.type === "IN" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                                {m.type === "IN" ? "+" : "-"}${fmtCLP(m.amount)}
+                              </span>
+                            </Td>
+                            <Td><span style={{ fontSize: 12, color: C.mid }}>{m.register_name}</span></Td>
+                            <Td><span style={{ fontSize: 12, color: C.mute }}>{m.created_by}</span></Td>
+                            <Td align="center">
+                              <button
+                                onClick={() => setDelTarget(m)}
+                                title="Borrar movimiento"
+                                aria-label="Borrar"
+                                style={{
+                                  background: "none", border: `1px solid ${C.border}`, borderRadius: 4,
+                                  padding: "3px 7px", cursor: "pointer", color: C.red, fontSize: 12,
+                                }}
+                              >🗑️</button>
+                            </Td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -425,7 +544,27 @@ export default function MovimientosCajaPage() {
                 {!loading && !err && data?.results.length === 0 && (
                   <div style={{ padding: 32, color: C.mute, textAlign: "center", fontSize: 13 }}>Sin movimientos en este rango</div>
                 )}
-                {!loading && data?.results.map((m, i) => {
+                {!loading && groupedByDay.map(g => (
+                  <React.Fragment key={g.day}>
+                    {/* Encabezado de día */}
+                    <div style={{
+                      padding: "9px 14px",
+                      background: C.bg,
+                      borderTop: `1px solid ${C.border}`,
+                      borderBottom: `1px solid ${C.border}`,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: C.text }}>{g.label}</span>
+                      <span style={{ color: C.mute, fontSize: 12 }}>· {g.items.length} mov{g.items.length === 1 ? "" : "s"}</span>
+                      <span style={{ marginLeft: "auto", display: "flex", gap: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                        {g.totalIn > 0 && <span style={{ color: C.green, fontWeight: 700 }}>+${fmtCLP(g.totalIn)}</span>}
+                        {g.totalOut > 0 && <span style={{ color: C.red, fontWeight: 700 }}>−${fmtCLP(g.totalOut)}</span>}
+                      </span>
+                    </div>
+                    {g.items.map((m, i) => {
                   const isIn = m.type === "IN";
                   // Sólo mostramos categoría si es una real (no "Sin categoría")
                   const hasRealCategory = !!m.category;
@@ -508,6 +647,8 @@ export default function MovimientosCajaPage() {
                     </div>
                   );
                 })}
+                  </React.Fragment>
+                ))}
               </div>
             )}
 
