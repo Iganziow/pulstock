@@ -18,7 +18,19 @@ export default function StockPage() {
   useGlobalStyles();
   const { isMobile, isTablet } = useBreakpoint();
   const mob = isMobile;
-  const card = isMobile || isTablet; // layout de tarjetas (no tabla) en móvil y tablet
+  // Esta tabla tiene 7 columnas (Producto/SKU/Cat/Barcode/Stock/Costo/Acciones)
+  // y la fija necesita ~1058px sólo para que el nombre del producto se vea
+  // sin truncar. Con sidebar (~250px), eso significa que viewports <1280px
+  // muestran la columna "Producto" demasiado angosta. Por eso aquí elevamos
+  // el threshold de cards más alto que el isTablet por defecto (1100).
+  const [narrowDesktop, setNarrowDesktop] = useState(false);
+  useEffect(() => {
+    const fn = () => setNarrowDesktop(window.innerWidth < 1280);
+    fn();
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  const card = isMobile || isTablet || narrowDesktop;
   const router = useRouter();
 
   const [meErr, setMeErr] = useState<string | null>(null);
@@ -284,7 +296,11 @@ export default function StockPage() {
               return (
                 <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent" }}>
                   <div style={{minWidth:0}}>
-                    <div style={{ fontWeight: 600, fontSize: 13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                    {/* Defensa por si el viewport queda entre 1280-1366 (ya muy raro
+                        pero posible en algunas tablets en landscape): permitimos que
+                        el nombre del producto se envuelva en 2 líneas en vez de
+                        cortarse a "Caja..." / "Torta...". */}
+                    <div style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, wordBreak: "break-word" }}>{r.name}</div>
                     {(isZero || isLow) && <div style={{ fontSize: 10, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 2 }}>{isZero ? "Sin stock" : "Stock bajo"}</div>}
                   </div>
                   <div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>
