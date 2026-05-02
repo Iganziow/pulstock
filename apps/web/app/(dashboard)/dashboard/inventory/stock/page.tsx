@@ -7,7 +7,7 @@ import { C } from "@/lib/theme";
 import type { Me } from "@/lib/me";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { Spinner, SkeletonPage } from "@/components/ui";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBreakpoint } from "@/hooks/useIsMobile";
 import {
   Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos,
   type Warehouse, type StockRow,
@@ -16,7 +16,9 @@ import { ReceiveModal, IssueModal, AdjustModal, TransferModal } from "@/componen
 
 export default function StockPage() {
   useGlobalStyles();
-  const mob = useIsMobile();
+  const { isMobile, isTablet } = useBreakpoint();
+  const mob = isMobile;
+  const card = isMobile || isTablet; // layout de tarjetas (no tabla) en móvil y tablet
   const router = useRouter();
 
   const [meErr, setMeErr] = useState<string | null>(null);
@@ -254,53 +256,116 @@ export default function StockPage() {
         </div>
       </div>
 
-      {/* TABLE */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden", boxShadow: C.sh }}>
-        <div style={{ overflowX: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: mob?"1fr 80px 140px":"1fr 100px 110px 130px 100px 110px 200px", columnGap: mob?6:12, padding: mob?"10px 10px":"10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em", minWidth: mob ? 340 : undefined }}>
-            <div>Producto</div>{!mob&&<div>SKU</div>}{!mob&&<div>Categoria</div>}{!mob&&<div>Barcode</div>}
-            <div style={{ textAlign: "right" }}>Stock</div>
-            {!mob&&<div style={{ textAlign: "right" }}>Costo prom.</div>}
-            <div style={{ textAlign: "right" }}>Acciones</div>
-          </div>
-
-          {loading && <SkeletonPage cards={0} rows={8} />}
-          {err && <div style={{ padding: "18px" }}><div style={{ padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.redBd}`, background: C.redBg, color: C.red, fontSize: 13 }}>{err}</div></div>}
-          {!loading && !err && items.length === 0 && !meErr && (
-            <div style={{ padding: "52px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>📦</div>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Sin stock registrado</div>
-              <div style={{ fontSize: 13, color: C.mute }}>Usa &quot;Recibir&quot; en cualquier producto para cargar inventario inicial</div>
+      {/* TABLE / CARDS */}
+      <div style={{ background: card ? "transparent" : C.surface, border: card ? "none" : `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden", boxShadow: card ? "none" : C.sh }}>
+        {!card && (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div>Producto</div><div>SKU</div><div>Categoria</div><div>Barcode</div>
+              <div style={{ textAlign: "right" }}>Stock</div>
+              <div style={{ textAlign: "right" }}>Costo prom.</div>
+              <div style={{ textAlign: "right" }}>Acciones</div>
             </div>
-          )}
 
-          {!loading && !err && items.map((r, i) => {
-            const n = toNum(r.on_hand);
-            const isLow = !isNaN(n) && n > 0 && n <= 5;
-            const isZero = !isNaN(n) && n <= 0;
-            return (
-              <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: mob?"1fr 80px 140px":"1fr 100px 110px 130px 100px 110px 200px", columnGap: mob?6:12, padding: mob?"11px 10px":"11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent", minWidth: mob ? 340 : undefined }}>
-                <div style={{minWidth:0}}>
-                  <div style={{ fontWeight: 600, fontSize: mob?12:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
-                  {mob&&<div style={{fontSize:10,color:C.mute,fontFamily:C.mono,marginTop:1}}>{r.sku??""}</div>}
-                  {(isZero || isLow) && <div style={{ fontSize: 10, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 2 }}>{isZero ? "Sin stock" : "Stock bajo"}</div>}
-                </div>
-                {!mob&&<div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>}
-                {!mob&&<div style={{ fontSize: 12, color: C.mid }}>{r.category ?? "-"}</div>}
-                {!mob&&<div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{r.barcode ?? "-"}</div>}
-                <div style={{ textAlign: "right" }}><StockBadge val={r.on_hand} /></div>
-                {!mob&&<div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: "monospace" }}>
-                  {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "-"}
-                </div>}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: mob?3:5, flexWrap:mob?"wrap":"nowrap" }}>
-                  <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>{mob?"+":"Recibir"}</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => openIss(r)} disabled={!!meErr || !warehouseId}>{mob?"−":"Egresar"}</Btn>
-                  <Btn variant="secondary" size="sm" onClick={() => openAdj(r)} disabled={!!meErr || !warehouseId}>{mob?"⇄":"Ajustar"}</Btn>
-                </div>
+            {loading && <SkeletonPage cards={0} rows={8} />}
+            {err && <div style={{ padding: "18px" }}><div style={{ padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.redBd}`, background: C.redBg, color: C.red, fontSize: 13 }}>{err}</div></div>}
+            {!loading && !err && items.length === 0 && !meErr && (
+              <div style={{ padding: "52px 24px", textAlign: "center" }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📦</div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Sin stock registrado</div>
+                <div style={{ fontSize: 13, color: C.mute }}>Usa &quot;Recibir&quot; en cualquier producto para cargar inventario inicial</div>
               </div>
-            );
-          })}
-        </div>
+            )}
+
+            {!loading && !err && items.map((r, i) => {
+              const n = toNum(r.on_hand);
+              const isLow = !isNaN(n) && n > 0 && n <= 5;
+              const isZero = !isNaN(n) && n <= 0;
+              return (
+                <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent" }}>
+                  <div style={{minWidth:0}}>
+                    <div style={{ fontWeight: 600, fontSize: 13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                    {(isZero || isLow) && <div style={{ fontSize: 10, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 2 }}>{isZero ? "Sin stock" : "Stock bajo"}</div>}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>
+                  <div style={{ fontSize: 12, color: C.mid }}>{r.category ?? "-"}</div>
+                  <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{r.barcode ?? "-"}</div>
+                  <div style={{ textAlign: "right" }}><StockBadge val={r.on_hand} /></div>
+                  <div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: "monospace" }}>
+                    {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "-"}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 5, flexWrap: "nowrap" }}>
+                    <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>Recibir</Btn>
+                    <Btn variant="danger" size="sm" onClick={() => openIss(r)} disabled={!!meErr || !warehouseId}>Egresar</Btn>
+                    <Btn variant="secondary" size="sm" onClick={() => openAdj(r)} disabled={!!meErr || !warehouseId}>Ajustar</Btn>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {card && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {loading && <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: 16 }}><SkeletonPage cards={0} rows={6} /></div>}
+            {err && <div style={{ padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.redBd}`, background: C.redBg, color: C.red, fontSize: 13 }}>{err}</div>}
+            {!loading && !err && items.length === 0 && !meErr && (
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: "40px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📦</div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Sin stock registrado</div>
+                <div style={{ fontSize: 13, color: C.mute }}>Usa &quot;Recibir&quot; en cualquier producto para cargar inventario inicial</div>
+              </div>
+            )}
+
+            {!loading && !err && items.map((r) => {
+              const n = toNum(r.on_hand);
+              const isLow = !isNaN(n) && n > 0 && n <= 5;
+              const isZero = !isNaN(n) && n <= 0;
+              const cost = r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : null;
+              return (
+                <div key={r.product_id} style={{
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                  borderLeft: isZero ? `4px solid ${C.red}` : isLow ? `4px solid ${C.amber}` : `4px solid ${C.border}`,
+                  borderRadius: C.rMd,
+                  padding: isMobile ? "12px 14px" : "14px 16px",
+                  boxShadow: C.sh,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}>
+                  {/* TÍTULO + STOCK */}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: isMobile ? 14 : 15, lineHeight: 1.3, wordBreak: "break-word" }}>{r.name}</div>
+                      {(isZero || isLow) && (
+                        <div style={{ fontSize: 11, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 3 }}>
+                          {isZero ? "⚠ Sin stock" : "⚠ Stock bajo"}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ flexShrink: 0 }}><StockBadge val={r.on_hand} /></div>
+                  </div>
+
+                  {/* META */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: C.mute, lineHeight: 1.4 }}>
+                    {r.sku && <span>SKU <span style={{ fontFamily: C.mono, color: C.mid, fontWeight: 600 }}>{r.sku}</span></span>}
+                    {r.category && <span>· <span style={{ color: C.mid, fontWeight: 600 }}>{r.category}</span></span>}
+                    {cost && <span>· Costo <span style={{ fontFamily: C.mono, color: C.mid, fontWeight: 600 }}>{cost}</span></span>}
+                    {r.barcode && <span>· <span style={{ fontFamily: C.mono, color: C.mute }}>{r.barcode}</span></span>}
+                  </div>
+
+                  {/* ACCIONES — botones grandes para tocar */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                    <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>Recibir</Btn>
+                    <Btn variant="danger" size="sm" onClick={() => openIss(r)} disabled={!!meErr || !warehouseId}>Egresar</Btn>
+                    <Btn variant="secondary" size="sm" onClick={() => openAdj(r)} disabled={!!meErr || !warehouseId}>Ajustar</Btn>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* PAGINATION */}

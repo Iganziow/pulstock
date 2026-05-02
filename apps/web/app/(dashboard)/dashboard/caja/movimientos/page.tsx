@@ -58,9 +58,16 @@ const fmtCLP = (n: number | string) => {
   return Math.round(v).toLocaleString("es-CL");
 };
 
+// Fecha compacta: "02/05 · 17:11" (sin año, 24h, separador ·)
+// Útil para columnas/celdas estrechas. El año se omite porque el rango
+// de fechas ya está visible en los filtros.
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
-  return d.toLocaleString("es-CL", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm} · ${hh}:${mi}`;
 };
 
 function todayIso() {
@@ -75,6 +82,7 @@ function daysAgoIso(n: number) {
 
 export default function MovimientosCajaPage() {
   const { isMobile, isTablet } = useBreakpoint();
+  const card = isMobile || isTablet; // layout de tarjetas en móvil + tablet
   const [data, setData] = useState<ListResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -211,14 +219,17 @@ export default function MovimientosCajaPage() {
           ← Volver a Caja
         </Link>
 
-        {/* Header */}
+        {/* Header
+            - Móvil  : título arriba, botones full-width en grilla 1fr 1fr
+            - Tablet : título arriba, botones en fila auto-width pero touch-friendly
+            - Desktop: título a la izquierda, botones a la derecha en línea base */}
         <div style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: isMobile ? "stretch" : "baseline",
+          alignItems: card ? "flex-start" : "baseline",
           marginBottom: 24,
-          flexDirection: isMobile ? "column" : "row",
-          gap: isMobile ? 12 : 0,
+          flexDirection: card ? "column" : "row",
+          gap: card ? 14 : 0,
         }}>
           <div>
             <h1 style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800, color: C.text, margin: 0 }}>Movimientos de caja</h1>
@@ -226,30 +237,52 @@ export default function MovimientosCajaPage() {
               Ingresos y egresos manuales (no ventas) — útil para auditar gastos por categoría
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignSelf: isMobile ? "flex-start" : "auto", flexWrap: "wrap" }}>
+          <div style={{
+            // móvil: grilla 1fr 1fr (los dos botones ocupan el ancho a partes iguales)
+            // tablet: fila normal con botones auto-width pero altura touch
+            // desktop: fila inline a la derecha
+            display: isMobile ? "grid" : "flex",
+            gridTemplateColumns: isMobile ? "1fr 1fr" : undefined,
+            gap: 10,
+            alignSelf: card ? "stretch" : "auto",
+            flexWrap: "wrap",
+            width: isMobile ? "100%" : "auto",
+          }}>
             <button
               type="button"
               onClick={() => setShowAdd(true)}
               title={activeSession ? "Crear ingreso/egreso" : "Necesitás abrir una caja primero"}
               style={{
-                padding: "7px 14px", borderRadius: 6,
+                // padding tablet/móvil: más vertical para touch; desktop: compacto
+                padding: card ? "11px 18px" : "7px 14px",
+                borderRadius: 8,
                 background: C.accent, color: "#fff", border: "none",
-                fontSize: 13, fontWeight: 600, cursor: "pointer",
-                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: card ? 14 : 13, fontWeight: 700, cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
                 opacity: activeSession ? 1 : 0.85,
+                // móvil: full ancho de la celda; tablet/desktop: contenido natural
+                width: isMobile ? "100%" : "auto",
+                minHeight: card ? 44 : "auto",
+                boxShadow: card ? "0 1px 2px rgba(79,70,229,0.18)" : "none",
+                whiteSpace: "nowrap",
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Movimiento
+              <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 800 }}>+</span> Movimiento
             </button>
             <Link
               href="/dashboard/caja/categorias"
               style={{
                 fontSize: 13, color: C.accent, textDecoration: "none", fontWeight: 600,
-                padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 6,
-                background: C.surface, display: "inline-flex", alignItems: "center", gap: 4,
+                padding: card ? "11px 18px" : "7px 12px",
+                border: `1px solid ${C.border}`, borderRadius: 8,
+                background: C.surface,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                width: isMobile ? "100%" : "auto",
+                minHeight: card ? 44 : "auto",
+                whiteSpace: "nowrap",
               }}
             >
-              ⚙️ Personalizar categorías
+              <span aria-hidden>⚙️</span>{isMobile ? "Categorías" : "Personalizar categorías"}
             </Link>
           </div>
         </div>
@@ -303,78 +336,181 @@ export default function MovimientosCajaPage() {
           gap: 16,
           alignItems: "flex-start",
         }}>
-          {/* Tabla */}
+          {/* Tabla (desktop) / Tarjetas (móvil + tablet) */}
           <div style={{ background: C.surface, borderRadius: C.rMd, border: `1px solid ${C.border}`, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.07em" }}>
               {data ? `${data.count} movimientos` : "..."}
             </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: C.bg }}>
-                    <Th>Fecha</Th>
-                    <Th>Tipo</Th>
-                    <Th>Categoría</Th>
-                    <Th>Descripción</Th>
-                    <Th align="right">Monto</Th>
-                    <Th>Caja</Th>
-                    <Th>Usuario</Th>
-                    <Th align="center">Acciones</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && (
-                    <tr><td colSpan={8} style={{ padding: 32, textAlign: "center" }}><Spinner size={16} /></td></tr>
-                  )}
-                  {err && !loading && (
-                    <tr><td colSpan={8} style={{ padding: 16, color: C.red, textAlign: "center" }}>{err}</td></tr>
-                  )}
-                  {!loading && !err && data?.results.length === 0 && (
-                    <tr><td colSpan={8} style={{ padding: 32, color: C.mute, textAlign: "center" }}>Sin movimientos en este rango</td></tr>
-                  )}
-                  {!loading && data?.results.map(m => (
-                    <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                      <Td>{fmtDate(m.created_at)}</Td>
-                      <Td>
+
+            {/* DESKTOP: tabla */}
+            {!card && (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.bg }}>
+                      <Th>Fecha</Th>
+                      <Th>Tipo</Th>
+                      <Th>Categoría</Th>
+                      <Th>Descripción</Th>
+                      <Th align="right">Monto</Th>
+                      <Th>Caja</Th>
+                      <Th>Usuario</Th>
+                      <Th align="center">Acciones</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && (
+                      <tr><td colSpan={8} style={{ padding: 32, textAlign: "center" }}><Spinner size={16} /></td></tr>
+                    )}
+                    {err && !loading && (
+                      <tr><td colSpan={8} style={{ padding: 16, color: C.red, textAlign: "center" }}>{err}</td></tr>
+                    )}
+                    {!loading && !err && data?.results.length === 0 && (
+                      <tr><td colSpan={8} style={{ padding: 32, color: C.mute, textAlign: "center" }}>Sin movimientos en este rango</td></tr>
+                    )}
+                    {!loading && data?.results.map(m => (
+                      <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                        <Td>{fmtDate(m.created_at)}</Td>
+                        <Td>
+                          <span style={{
+                            display: "inline-block",
+                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                            background: m.type === "IN" ? C.greenBg : C.redBg,
+                            color: m.type === "IN" ? C.green : C.red,
+                            border: `1px solid ${m.type === "IN" ? C.greenBd : C.redBd}`,
+                          }}>
+                            {m.type === "IN" ? "↑ Ingreso" : "↓ Egreso"}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span style={{ fontSize: 12, color: m.category ? C.text : C.mute, fontStyle: m.category ? "normal" : "italic" }}>
+                            {m.category_label}
+                          </span>
+                        </Td>
+                        <Td>{m.description}</Td>
+                        <Td align="right">
+                          <span style={{ fontWeight: 700, color: m.type === "IN" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                            {m.type === "IN" ? "+" : "-"}${fmtCLP(m.amount)}
+                          </span>
+                        </Td>
+                        <Td><span style={{ fontSize: 12, color: C.mid }}>{m.register_name}</span></Td>
+                        <Td><span style={{ fontSize: 12, color: C.mute }}>{m.created_by}</span></Td>
+                        <Td align="center">
+                          <button
+                            onClick={() => setDelTarget(m)}
+                            title="Borrar movimiento"
+                            aria-label="Borrar"
+                            style={{
+                              background: "none", border: `1px solid ${C.border}`, borderRadius: 4,
+                              padding: "3px 7px", cursor: "pointer", color: C.red, fontSize: 12,
+                            }}
+                          >🗑️</button>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* MÓVIL + TABLET: tarjetas */}
+            {card && (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {loading && (
+                  <div style={{ padding: 32, textAlign: "center" }}><Spinner size={16} /></div>
+                )}
+                {err && !loading && (
+                  <div style={{ padding: 16, color: C.red, textAlign: "center", fontSize: 13 }}>{err}</div>
+                )}
+                {!loading && !err && data?.results.length === 0 && (
+                  <div style={{ padding: 32, color: C.mute, textAlign: "center", fontSize: 13 }}>Sin movimientos en este rango</div>
+                )}
+                {!loading && data?.results.map((m, i) => {
+                  const isIn = m.type === "IN";
+                  // Sólo mostramos categoría si es una real (no "Sin categoría")
+                  const hasRealCategory = !!m.category;
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        padding: isMobile ? "12px 14px" : "14px 16px",
+                        borderTop: i === 0 ? "none" : `1px solid ${C.border}`,
+                        borderLeft: `4px solid ${isIn ? C.green : C.red}`,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                    >
+                      {/* Fila 1: tipo + monto (lo más importante) */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                         <span style={{
                           display: "inline-block",
-                          padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-                          background: m.type === "IN" ? C.greenBg : C.redBg,
-                          color: m.type === "IN" ? C.green : C.red,
-                          border: `1px solid ${m.type === "IN" ? C.greenBd : C.redBd}`,
+                          padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                          background: isIn ? C.greenBg : C.redBg,
+                          color: isIn ? C.green : C.red,
+                          border: `1px solid ${isIn ? C.greenBd : C.redBd}`,
+                          flexShrink: 0,
                         }}>
-                          {m.type === "IN" ? "↑ Ingreso" : "↓ Egreso"}
+                          {isIn ? "↑ Ingreso" : "↓ Egreso"}
                         </span>
-                      </Td>
-                      <Td>
-                        <span style={{ fontSize: 12, color: m.category ? C.text : C.mute, fontStyle: m.category ? "normal" : "italic" }}>
-                          {m.category_label}
+                        <span style={{
+                          fontSize: 18, fontWeight: 800,
+                          color: isIn ? C.green : C.red,
+                          fontVariantNumeric: "tabular-nums",
+                        }}>
+                          {isIn ? "+" : "-"}${fmtCLP(m.amount)}
                         </span>
-                      </Td>
-                      <Td>{m.description}</Td>
-                      <Td align="right">
-                        <span style={{ fontWeight: 700, color: m.type === "IN" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
-                          {m.type === "IN" ? "+" : "-"}${fmtCLP(m.amount)}
-                        </span>
-                      </Td>
-                      <Td><span style={{ fontSize: 12, color: C.mid }}>{m.register_name}</span></Td>
-                      <Td><span style={{ fontSize: 12, color: C.mute }}>{m.created_by}</span></Td>
-                      <Td align="center">
+                      </div>
+
+                      {/* Fila 2: descripción (FULL, sin truncar) + categoría inline si la hay */}
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, lineHeight: 1.35, wordBreak: "break-word" }}>
+                        {m.description || <span style={{ color: C.mute, fontStyle: "italic", fontWeight: 500 }}>(sin descripción)</span>}
+                        {hasRealCategory && (
+                          <span style={{
+                            display: "inline-block", marginLeft: 8,
+                            fontSize: 11, fontWeight: 600, color: C.mid,
+                            background: C.bg, padding: "1px 7px", borderRadius: 99,
+                            border: `1px solid ${C.border}`,
+                            verticalAlign: "middle",
+                          }}>
+                            {m.category_label}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Fila 3: meta (caja · usuario · fecha) + BOTÓN BORRAR siempre visible */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 2 }}>
+                        <div style={{ fontSize: 11, color: C.mute, lineHeight: 1.4, minWidth: 0 }}>
+                          <div>{m.register_name} · <span style={{ color: C.mid }}>{m.created_by}</span></div>
+                          <div>{fmtDate(m.created_at)}</div>
+                        </div>
                         <button
                           onClick={() => setDelTarget(m)}
                           title="Borrar movimiento"
-                          aria-label="Borrar"
+                          aria-label="Borrar movimiento"
                           style={{
-                            background: "none", border: `1px solid ${C.border}`, borderRadius: 4,
-                            padding: "3px 7px", cursor: "pointer", color: C.red, fontSize: 12,
+                            background: C.redBg,
+                            border: `1px solid ${C.redBd}`,
+                            borderRadius: 8,
+                            padding: "9px 14px",
+                            cursor: "pointer",
+                            color: C.red,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            flexShrink: 0,
+                            minHeight: 40,
                           }}
-                        >🗑️</button>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        >🗑️ Borrar</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Paginación */}
             {data && data.total_pages > 1 && (
               <div style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.border}` }}>
