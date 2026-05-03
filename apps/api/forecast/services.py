@@ -1096,6 +1096,93 @@ def _compute_target_days(margin_per_unit, avg_daily, median_margin, median_daily
     return 7        # low margin, low rotation — minimal stock
 
 
+def _natural_reasoning(
+    current_stock: Decimal,
+    avg_daily: Decimal,
+    days_out,
+    suggested_qty: Decimal,
+    target_days: int,
+    buffer_pct: Decimal,
+) -> str:
+    """Genera el reasoning en español neutro y lenguaje natural.
+
+    Reemplaza el texto técnico tipo:
+      "Stock actual: 0. Demanda 10d: 120. Lead time: 2d. Quiebre en
+       ~0 día(s). Margen bajo, rotación alta → cobertura 10 días.
+       Pedir 181 unidades. Incluye +25% de seguridad..."
+
+    Por algo que un dueño de cafetería entiende sin explicación:
+      1. Situación actual (sin stock / poco stock / preventivo)
+      2. Cuántas unidades se sugieren y para cuántos días alcanzan
+      3. Por qué la cobertura elegida (7/10/14/21) según margen y
+         rotación, expresado en lenguaje normal
+      4. (Opcional) Aclaración del colchón de seguridad si aplica
+    """
+    # Redondeos para que el texto se vea limpio (sin decimales feos).
+    cs = int(current_stock) if current_stock and current_stock > 0 else 0
+    ad = max(1, round(float(avg_daily)))  # mínimo 1 para no decir "0 al día"
+    sq = int(suggested_qty)
+    # "vendes 1 al día" se lee mejor que "vendes unas 1 al día".
+    venta_label = f"alrededor de {ad}" if ad == 1 else f"unas {ad}"
+
+    # ── Frase 1: situación actual ────────────────────────────────────
+    if current_stock <= 0:
+        situacion = (
+            f"Te quedaste sin stock y vendes {venta_label} unidades al día. "
+            f"Estas {sq} unidades te alcanzan para aproximadamente {target_days} días."
+        )
+    elif days_out is not None and days_out <= 3:
+        dias_label = "día" if days_out == 1 else "días"
+        situacion = (
+            f"Te quedan {cs} unidades (te alcanzan para unos {days_out} {dias_label}) "
+            f"y vendes {venta_label} al día. Estas {sq} unidades cubren las próximas "
+            f"{target_days} jornadas."
+        )
+    else:
+        situacion = (
+            f"Te quedan {cs} unidades y vendes {venta_label} al día. "
+            "Es una sugerencia preventiva: pedirlo ahora te evita quedarte corto "
+            "en los próximos días."
+        )
+
+    # ── Frase 2: por qué la cobertura elegida ────────────────────────
+    if target_days == 21:
+        explicacion = (
+            f"¿Por qué {target_days} días? Sale lento pero te deja buen margen, "
+            "así que vale la pena tener stock suficiente para no perder ventas."
+        )
+    elif target_days == 14:
+        explicacion = (
+            f"¿Por qué {target_days} días? Es un producto que te deja buen margen "
+            "y se vende con frecuencia: tener stock para dos semanas sin "
+            "inmovilizar dinero de más es lo ideal."
+        )
+    elif target_days == 10:
+        explicacion = (
+            f"¿Por qué solo {target_days} días? Te deja poco margen, así que "
+            "pedir mucho de una vez inmoviliza dinero sin generar mucha ganancia. "
+            "Es mejor reponer con más frecuencia."
+        )
+    else:  # 7 días — bajo margen, baja rotación
+        explicacion = (
+            f"¿Por qué solo {target_days} días? Te deja poco margen y se vende "
+            "lento, así que conviene mantener apenas lo justo para no inmovilizar "
+            "dinero ni acumular producto que no rota."
+        )
+
+    # ── Frase 3 (opcional): colchón de seguridad ─────────────────────
+    buffer_note = ""
+    if buffer_pct > Decimal("0.10"):
+        pct = int(buffer_pct * 100)
+        buffer_note = (
+            f" Sumamos un colchón de seguridad de aproximadamente {pct}% mientras "
+            "el sistema termina de aprender tu ritmo de venta — a más historial, "
+            "menos colchón vamos a necesitar."
+        )
+
+    return f"{situacion} {explicacion}{buffer_note}"
+
+
 @transaction.atomic
 def _safety_buffer(confidence_label: str) -> Decimal:
     """Return safety stock multiplier based on model confidence.
@@ -1302,18 +1389,10 @@ def generate_suggestions(tenant, today, threshold, target_days):
         else:
             priority = "LOW"
 
-        high_margin = float(margin_per_unit) > float(median_margin) if median_margin > 0 else False
-        high_rotation = avg_daily_raw > median_daily if median_daily > 0 else False
-        margin_label = "alto" if high_margin else "bajo"
-        rotation_label = "alta" if high_rotation else "baja"
-
-        buffer_note = ""
-        if buffer_pct > Decimal("0.10"):
-            buffer_note = (
-                f" Incluye +{int(buffer_pct * 100)}% de seguridad "
-                f"(modelo en fase de aprendizaje)."
-            )
-
+        # Reasoning en lenguaje natural (español neutro). La explicación de los
+        # días de cobertura (7/10/14/21) se construye automáticamente a partir
+        # de target_days dentro de _natural_reasoning, así que ya no necesitamos
+        # calcular margin_label / rotation_label aquí.
         at_risk_lines.append({
             "product_id": pid,
             "warehouse_id": wid,
@@ -1324,15 +1403,13 @@ def generate_suggestions(tenant, today, threshold, target_days):
             "estimated_cost": (suggested_qty * avg_cost).quantize(Decimal("0.01")),
             "priority": priority,
             "target_days": product_target,
-            "reasoning": (
-                f"Stock actual: {current_stock}. "
-                f"Demanda {product_target}d: {total_demand.quantize(Decimal('0.001'))}. "
-                f"Lead time: {lead_time}d. "
-                f"Quiebre en ~{days_out} día(s). "
-                f"Margen {margin_label}, rotación {rotation_label} → cobertura {product_target} días. "
-                f"Pedir {suggested_qty.quantize(Decimal('0.001'))} unidades."
-                f"{buffer_note}"
-                f"{f' MOQ proveedor: {moq}.' if moq > 0 else ''}"
+            "reasoning": _natural_reasoning(
+                current_stock=current_stock,
+                avg_daily=avg_daily,
+                days_out=days_out,
+                suggested_qty=suggested_qty,
+                target_days=product_target,
+                buffer_pct=buffer_pct,
             ),
         })
 
