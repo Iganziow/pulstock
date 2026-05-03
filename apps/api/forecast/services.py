@@ -469,12 +469,20 @@ def get_product_detail(tenant_id, product_id, warehouse_ids, history_days=30):
             "is_estimate": True,
         }
 
+    # Datos de unidad de medida — el frontend los usa para auto-convertir
+    # (ml → L, g → kg) cuando el valor es grande. Si el producto tiene
+    # unit_obj configurado lo preferimos (tiene `family` MASS/VOLUME/COUNT);
+    # si no, caemos al string libre `product.unit` (default "UN").
+    unit_code = product.unit_obj.code if getattr(product, "unit_obj", None) else (product.unit or "UN")
+    unit_family = product.unit_obj.family if getattr(product, "unit_obj", None) else None
     return {
         "product": {
             "id": product.id,
             "name": product.name,
             "sku": product.sku,
             "category": product.category.name if product.category else None,
+            "unit_code": unit_code,
+            "unit_family": unit_family,
         },
         "stock": {
             "on_hand": str(si.on_hand if si else D0),

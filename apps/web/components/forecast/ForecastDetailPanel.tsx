@@ -3,7 +3,7 @@
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { InsightsSection } from "./InsightsSection";
-import { fmt, fmtDec, fmtMoney } from "./helpers";
+import { fmt, fmtDec, fmtMoney, fmtQty, fmtQtyDaily, formatQty, type UnitInfo } from "./helpers";
 import type { Detail } from "./types";
 
 export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail | null; loading: boolean; mob: boolean }) {
@@ -24,6 +24,11 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
 
   const history = detail.history || [];
   const forecast = detail.forecast || [];
+  // Info de unidad para que el formatter sepa si convertir ml→L, g→kg, etc.
+  const unitInfo: UnitInfo = {
+    unit_code: detail.product?.unit_code,
+    unit_family: detail.product?.unit_family,
+  };
   const stockLevel = num(detail.stock?.on_hand);
   const avgCost = num(detail.stock?.avg_cost);
   const daysOut = forecast.length > 0 && forecast[0].days_to_stockout !== null ? forecast[0].days_to_stockout : null;
@@ -122,7 +127,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
     bandPath = `M${up.join("L")}L${lo.join("L")}Z`;
   }
 
-  let stockPts = "", soX: number | null = null;
+  let stockPts = "", soX: number | null = null, soDaysOut: number | null = null;
   if (forecast.length > 0 && stockLevel > 0) {
     let cur = stockLevel;
     const pts: string[] = [`${xp(fcStart)},${yp(Math.min(cur, maxV))}`];
@@ -131,10 +136,26 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
       const sv = Math.max(0, cur);
       const xi = fcStart + i + (i < forecast.length - 1 ? 1 : 0);
       pts.push(`${xp(xi)},${yp(Math.min(sv, maxV))}`);
-      if (cur <= 0 && soX === null) soX = xp(fcStart + i);
+      if (cur <= 0 && soX === null) {
+        soX = xp(fcStart + i);
+        soDaysOut = i;  // días desde hoy hasta el agotamiento
+      }
     }
     stockPts = pts.join(" ");
   }
+  // Estilo del marker de agotamiento según urgencia. Antes el rojo "SE ACABA"
+  // aparecía siempre, asustando al usuario aun cuando faltaban 14+ días. Ahora:
+  //   ≤ 3 días → rojo "SE ACABA" (urgente real)
+  //   4-7 días → ámbar "REPONER PRONTO"
+  //   8-14 días → azul "PRÓXIMO A REPONER"
+  //   > 14 días → no se muestra el marker (no hay nada que alarme)
+  const stockoutBadge = soDaysOut !== null && soDaysOut <= 14
+    ? (soDaysOut <= 3
+        ? { color: C.red, label: "SE ACABA", show: true }
+        : soDaysOut <= 7
+        ? { color: C.amber, label: "REPONER PRONTO", show: true }
+        : { color: C.accent, label: "PRÓXIMO A REPONER", show: true })
+    : { color: C.mute, label: "", show: false };
 
   // Ticks Y como pasos enteros del "step" calculado (0, step, 2*step, …, maxV).
   // Eso garantiza números limpios (5, 10, 15, 20) en vez de 4, 7, 11, 14.
@@ -237,57 +258,71 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           fontSize: 13, lineHeight: 1.7,
         }}>
           {daysOut === null && (
-            <><b style={{ color: C.green }}>✓ Hay stock suficiente.</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes en promedio <b>{fmtDec(avgDemand)}</b> al día. Con eso alcanza para más de {coverageLabel}.</>
+            <><b style={{ color: C.green }}>✓ Hay stock suficiente.</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b>. Vendes en promedio <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. Con eso alcanza para más de {coverageLabel}.</>
           )}
           {daysOut !== null && daysOut === 0 && (
-            <><b style={{ color: C.red }}>⚠ ¡Se agotó!</b> Ya no queda stock. Vendías <b>{fmtDec(avgDemand)}</b> por día. <b>Pide al menos {reorderQty} unidades</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
+            <><b style={{ color: C.red }}>⚠ ¡Se agotó!</b> Ya no queda stock. Vendías <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. <b>Pide al menos {fmtQty(reorderQty, unitInfo)}</b> para cubrir {coverageLabel}{avgCost > 0 && <> (costo: <b>{fmtMoney(reorderCost)}</b>)</>}.</>
           )}
           {daysOut !== null && daysOut > 0 && daysOut <= 3 && (
-            <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{reorderQty}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+            <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmtQty(stockLevel, unitInfo)}</b> y vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{fmtQty(reorderQty, unitInfo)}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
           )}
           {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
-            <><b style={{ color: C.amber }}>⏰ Atención:</b> Tienes <b>{fmt(stockLevel)}</b> unidades. Vendes <b>{fmtDec(avgDemand)}</b> al día, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{reorderQty}</b> unidades para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+            <><b style={{ color: C.amber }}>⏰ Atención:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b>. Vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{fmtQty(reorderQty, unitInfo)}</b> para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
           )}
           {daysOut !== null && daysOut > 7 && (
-            <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmt(stockLevel)}</b> unidades y vendes <b>{fmtDec(avgDemand)}</b> al día. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
+            <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b> y vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
           )}
         </div>
       )}
 
-      {/* TARJETAS DE RESUMEN */}
-      <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
-          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>EN BODEGA</div>
-          <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>{fmt(stockLevel)} <span style={{ fontSize: 12, fontWeight: 500, color: C.mute }}>unidades</span></div>
-          {avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Valor: {fmtMoney(stockLevel * avgCost)}</div>}
-        </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
-          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>VENDIDO (ÚLTIMO MES)</div>
-          <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }}>{fmt(totalSold)} <span style={{ fontSize: 12, fontWeight: 500, color: C.mute }}>unidades</span></div>
-          {totalRevenue > 0 && <div style={{ fontSize: 11, color: C.mute }}>Ingreso: {fmtMoney(totalRevenue)}</div>}
-        </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", gridColumn: mob ? "1 / -1" : "auto" }}>
-          <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>CUÁNTO PEDIR</div>
-          {isInsufficientData ? (
-            <>
-              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2, color: C.mute }}>
-                — sin datos
+      {/* TARJETAS DE RESUMEN — usan formatQty para que productos en ml/g
+          se muestren en L/kg automáticamente */}
+      {(() => {
+        const stockFmt = formatQty(stockLevel, unitInfo, { unitWord: "" });
+        const soldFmt = formatQty(totalSold, unitInfo, { unitWord: "" });
+        const reorderFmt = formatQty(reorderQty, unitInfo, { unitWord: "" });
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>EN BODEGA</div>
+              <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }} title={stockFmt.tooltip}>
+                {stockFmt.text}
+                <span style={{ fontSize: 12, fontWeight: 500, color: C.mute }}>{stockFmt.suffix || " unidades"}</span>
               </div>
-              <div style={{ fontSize: 11, color: C.mute }}>
-                Recopilando información de ventas
+              {avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Valor: {fmtMoney(stockLevel * avgCost)}</div>}
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>VENDIDO (ÚLTIMO MES)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2 }} title={soldFmt.tooltip}>
+                {soldFmt.text}
+                <span style={{ fontSize: 12, fontWeight: 500, color: C.mute }}>{soldFmt.suffix || " unidades"}</span>
               </div>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }}>
-                {reorderQty > 0 ? `${fmt(reorderQty)} unidades` : "Nada por ahora"}
-              </div>
-              {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · para {coverageLabel}</div>}
-              {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
-            </>
-          )}
-        </div>
-      </div>
+              {totalRevenue > 0 && <div style={{ fontSize: 11, color: C.mute }}>Ingreso: {fmtMoney(totalRevenue)}</div>}
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", gridColumn: mob ? "1 / -1" : "auto" }}>
+              <div style={{ fontSize: 10, color: C.mute, fontWeight: 600 }}>CUÁNTO PEDIR</div>
+              {isInsufficientData ? (
+                <>
+                  <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2, color: C.mute }}>
+                    — sin datos
+                  </div>
+                  <div style={{ fontSize: 11, color: C.mute }}>
+                    Recopilando información de ventas
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 800, marginTop: 2, color: reorderQty > 0 ? C.amber : C.green }} title={reorderFmt.tooltip}>
+                    {reorderQty > 0 ? `${reorderFmt.text}${reorderFmt.suffix || " unidades"}` : "Nada por ahora"}
+                  </div>
+                  {reorderQty > 0 && avgCost > 0 && <div style={{ fontSize: 11, color: C.mute }}>Costo aprox: {fmtMoney(reorderCost)} · para {coverageLabel}</div>}
+                  {reorderQty === 0 && <div style={{ fontSize: 11, color: C.mute }}>Tienes stock suficiente</div>}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* GRÁFICO */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "10px 6px" : "14px 12px", marginBottom: 8 }}>
@@ -315,35 +350,62 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           </div>
           {/* Tarjeta resumen al lado derecho del título — mensaje accionable
               de un vistazo. En móvil cae debajo automáticamente. */}
-          {avgDemand > 0 && (
-            <div style={{
-              background: C.amberBg, border: `1px solid ${C.amberBd}`,
-              borderRadius: 6, padding: "6px 12px", textAlign: "right",
-              fontSize: 11, color: C.mid, lineHeight: 1.3,
-            }}>
-              <div style={{ fontWeight: 700, color: C.amber, fontSize: 11 }}>Promedio</div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>
-                {fmtDec(avgDemand)} <span style={{ fontSize: 10, fontWeight: 600, color: C.mute }}>uds/día</span>
-              </div>
-              {totalPredicted > 0 && (
-                <div style={{ fontSize: 10, color: C.mute }}>
-                  ≈ {fmt(totalPredicted)} en {forecast.length} días
+          {avgDemand > 0 && (() => {
+            const avgFmt = formatQty(avgDemand, unitInfo, { perDay: true });
+            const totalFmt = formatQty(totalPredicted, unitInfo, { unitWord: "" });
+            return (
+              <div style={{
+                background: C.amberBg, border: `1px solid ${C.amberBd}`,
+                borderRadius: 6, padding: "6px 12px", textAlign: "right",
+                fontSize: 11, color: C.mid, lineHeight: 1.3,
+              }}>
+                <div style={{ fontWeight: 700, color: C.amber, fontSize: 11 }}>Promedio</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: C.text }} title={avgFmt.tooltip}>
+                  {fmtQtyDaily(avgDemand, unitInfo)}
                 </div>
-              )}
-            </div>
-          )}
+                {totalPredicted > 0 && (
+                  <div style={{ fontSize: 10, color: C.mute }} title={totalFmt.tooltip}>
+                    ≈ {totalFmt.text}{totalFmt.suffix || ""} en {forecast.length} días
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
         <div style={{ overflowX: "auto" }}>
           <svg width={W} height={H} style={{ display: "block" }}>
-            {/* Y-axis grid + ticks. Etiqueta "uds/día" arriba del eje para
-                que el cliente entienda qué significan los números. */}
-            <text x={pL - 6} y={pT - 6} fontSize={9} fill={C.mute} textAnchor="end" fontWeight={600}>uds/día</text>
-            {yTicks.map(t => (
-              <g key={t.v}>
-                <line x1={pL} x2={W - pR} y1={t.y} y2={t.y} stroke={C.border} strokeWidth={.5} />
-                <text x={pL - 6} y={t.y + 3} fontSize={9} fill={C.mute} textAnchor="end">{t.v}</text>
-              </g>
-            ))}
+            {/* Y-axis grid + ticks. La etiqueta de la unidad y los números
+                del eje se adaptan al tipo de producto: para un producto en
+                ml, mostramos "L/día" y los números convertidos (1.78 L en
+                vez de 1781 ml). */}
+            {(() => {
+              const code = (unitInfo.unit_code || "").trim().toUpperCase();
+              const isMl = code === "ML" || code === "MILILITRO" || code === "MILILITROS";
+              const isG = code === "G" || code === "GR" || code === "GRAMO" || code === "GRAMOS";
+              // ¿Convertimos? Solo si la escala del eje supera 1000 en su unidad nativa
+              const convertVolume = isMl && maxV >= 1000;
+              const convertMass = isG && maxV >= 1000;
+              const convert = convertVolume || convertMass;
+              const axisLabel = convertVolume ? "L/día" : convertMass ? "kg/día" : (isMl ? "ml/día" : isG ? "g/día" : "uds/día");
+              const fmtTick = (v: number): string => {
+                if (!convert) return String(v);
+                const conv = v / 1000;
+                // Decimales según magnitud: 100+ entero, 10+ una decimal, resto dos
+                const d = conv >= 100 ? 0 : conv >= 10 ? 1 : 2;
+                return conv.toLocaleString("es-CL", { maximumFractionDigits: d });
+              };
+              return (
+                <>
+                  <text x={pL - 6} y={pT - 6} fontSize={9} fill={C.mute} textAnchor="end" fontWeight={600}>{axisLabel}</text>
+                  {yTicks.map(t => (
+                    <g key={t.v}>
+                      <line x1={pL} x2={W - pR} y1={t.y} y2={t.y} stroke={C.border} strokeWidth={.5} />
+                      <text x={pL - 6} y={t.y + 3} fontSize={9} fill={C.mute} textAnchor="end">{fmtTick(t.v)}</text>
+                    </g>
+                  ))}
+                </>
+              );
+            })()}
 
             {/* Línea de promedio horizontal — referencia visual potente.
                 Va atrás de las líneas de datos pero adelante del grid. */}
@@ -357,7 +419,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
                   x={W - pR - 4} y={avgRefY - 3}
                   fontSize={9} fill={C.accent} textAnchor="end" fontWeight={700}
                 >
-                  promedio {fmtDec(avgDemand)}/día
+                  promedio {fmtQtyDaily(avgDemand, unitInfo)}
                 </text>
               </g>
             )}
@@ -394,16 +456,21 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
             )}
 
             {bandPath && <path d={bandPath} fill={C.amber} opacity={.08} />}
-            {stockPts && <polyline points={stockPts} fill="none" stroke={C.red} strokeWidth={2} strokeDasharray="6,4" opacity={.5} />}
-            {soX !== null && (
-              <g>
-                <line x1={soX} x2={soX} y1={pT} y2={pT + plotH} stroke={C.red} strokeWidth={1.5} strokeDasharray="3,3" opacity={.3} />
-                <rect x={soX - 40} y={pT - 2} width={80} height={16} rx={4} fill={C.red} opacity={.9} />
-                <text x={soX} y={pT + 10} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">SE ACABA</text>
-                <circle cx={soX} cy={yp(0)} r={5} fill={C.red} />
-                <circle cx={soX} cy={yp(0)} r={9} fill="none" stroke={C.red} strokeWidth={1.5} opacity={.3} />
-              </g>
-            )}
+            {stockPts && <polyline points={stockPts} fill="none" stroke={stockoutBadge.color} strokeWidth={2} strokeDasharray="6,4" opacity={.5} />}
+            {soX !== null && stockoutBadge.show && (() => {
+              // Ancho del badge dinámico para que el texto entre cómodo
+              // (REPONER PRONTO es más largo que SE ACABA).
+              const labelW = Math.max(80, stockoutBadge.label.length * 6.5 + 18);
+              return (
+                <g>
+                  <line x1={soX} x2={soX} y1={pT} y2={pT + plotH} stroke={stockoutBadge.color} strokeWidth={1.5} strokeDasharray="3,3" opacity={.3} />
+                  <rect x={soX - labelW / 2} y={pT - 2} width={labelW} height={16} rx={4} fill={stockoutBadge.color} opacity={.9} />
+                  <text x={soX} y={pT + 10} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">{stockoutBadge.label}</text>
+                  <circle cx={soX} cy={yp(0)} r={5} fill={stockoutBadge.color} />
+                  <circle cx={soX} cy={yp(0)} r={9} fill="none" stroke={stockoutBadge.color} strokeWidth={1.5} opacity={.3} />
+                </g>
+              );
+            })()}
             {actLine && <polyline points={actLine} fill="none" stroke={C.accent} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
             {allPts.map((p, i) => p.actual !== null ? <circle key={`a${i}`} cx={xp(i)} cy={yp(p.actual)} r={2} fill={C.accent} /> : null)}
             {predLine && <polyline points={predLine} fill="none" stroke={C.amber} strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="6,4" />}
@@ -411,22 +478,27 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
 
             {/* Marker "pico" — destacamos el día con mayor venta predicha
                 cuando es claramente más alto que el promedio (>30%). */}
-            {showPeak && peakPt && peakIdx >= 0 && (
-              <g>
-                <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={5} fill={C.amber} />
-                <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={9} fill="none" stroke={C.amber} strokeWidth={1.5} opacity={0.5} />
-                <text
-                  x={xp(peakIdx)}
-                  y={yp(peakPt.pred as number) - 14}
-                  fontSize={10} fill={C.amber} textAnchor="middle" fontWeight={800}
-                >★ {fmtDec(peakPt.pred as number)}</text>
-                <text
-                  x={xp(peakIdx)}
-                  y={yp(peakPt.pred as number) - 4}
-                  fontSize={8} fill={C.mid} textAnchor="middle" fontWeight={600}
-                >{fmtFullDate(peakPt.iso).split(" ")[0]}</text>
-              </g>
-            )}
+            {showPeak && peakPt && peakIdx >= 0 && (() => {
+              // El pico también se formatea con la unidad: para leche en ml,
+              // un pico de 8282 se ve como "★ 8,3 L" en vez de "★ 8282.2".
+              const peakFmt = formatQty(peakPt.pred as number, unitInfo, { unitWord: "" });
+              return (
+                <g>
+                  <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={5} fill={C.amber} />
+                  <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={9} fill="none" stroke={C.amber} strokeWidth={1.5} opacity={0.5} />
+                  <text
+                    x={xp(peakIdx)}
+                    y={yp(peakPt.pred as number) - 14}
+                    fontSize={10} fill={C.amber} textAnchor="middle" fontWeight={800}
+                  >★ {peakFmt.text}{peakFmt.suffix}</text>
+                  <text
+                    x={xp(peakIdx)}
+                    y={yp(peakPt.pred as number) - 4}
+                    fontSize={8} fill={C.mid} textAnchor="middle" fontWeight={600}
+                  >{fmtFullDate(peakPt.iso).split(" ")[0]}</text>
+                </g>
+              );
+            })()}
 
             {allPts.map((p, i) => i % lEvery === 0 ? <text key={`x${i}`} x={xp(i)} y={H - 6} fontSize={9} fill={C.mute} textAnchor="middle">{p.label}</text> : null)}
           </svg>

@@ -14,7 +14,16 @@ export type FP = {
 };
 
 export type Detail = {
-  product: { id: number; name: string; sku: string; category: string | null };
+  product: {
+    id: number;
+    name: string;
+    sku: string;
+    category: string | null;
+    // Datos de unidad para auto-conversión ml→L / g→kg en el display.
+    // Pueden venir null si el producto no tiene unidad configurada.
+    unit_code?: string | null;
+    unit_family?: string | null;
+  };
   stock: { on_hand: string; avg_cost: string; stock_value?: string };
   model: { algorithm: string; version?: number; metrics: any; data_points: number; trained_at?: string; params?: any; demand_pattern?: string } | null;
   suggestion: { suggested_qty: string; target_days: number; estimated_cost: string; reasoning: string | null; priority: string | null; is_estimate?: boolean } | null;
