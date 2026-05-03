@@ -272,8 +272,16 @@ export default function StockPage() {
       <div style={{ background: card ? "transparent" : C.surface, border: card ? "none" : `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden", boxShadow: card ? "none" : C.sh }}>
         {!card && (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              <div>Producto</div><div>SKU</div><div>Categoria</div><div>Barcode</div>
+            {/* Grid de columnas (desktop):
+                 - 1fr Producto (absorbe el sobrante)
+                 - 90px SKU (cortito; muchos productos no tienen)
+                 - 130px Categoría (un poco más generoso para nombres largos)
+                 - 110px Barcode (la mayoría no tiene; reducido)
+                 - 80px Stock (badge corto)
+                 - 130px Costo prom. (FIX: antes era 110px y truncaba "$1.060")
+                 - 220px Acciones (3 botones cómodos) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 110px 80px 130px 220px", columnGap: 14, padding: "10px 18px", background: C.bg, borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div>Producto</div><div>SKU</div><div>Categoría</div><div>Barcode</div>
               <div style={{ textAlign: "right" }}>Stock</div>
               <div style={{ textAlign: "right" }}>Costo prom.</div>
               <div style={{ textAlign: "right" }}>Acciones</div>
@@ -294,7 +302,7 @@ export default function StockPage() {
               const isLow = !isNaN(n) && n > 0 && n <= 5;
               const isZero = !isNaN(n) && n <= 0;
               return (
-                <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 100px 110px 130px 100px 110px 200px", columnGap: 12, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent" }}>
+                <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 110px 80px 130px 220px", columnGap: 14, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent" }}>
                   <div style={{minWidth:0}}>
                     {/* Defensa por si el viewport queda entre 1280-1366 (ya muy raro
                         pero posible en algunas tablets en landscape): permitimos que
@@ -303,12 +311,12 @@ export default function StockPage() {
                     <div style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3, wordBreak: "break-word" }}>{r.name}</div>
                     {(isZero || isLow) && <div style={{ fontSize: 10, color: isZero ? C.red : C.amber, fontWeight: 700, marginTop: 2 }}>{isZero ? "Sin stock" : "Stock bajo"}</div>}
                   </div>
-                  <div style={{ fontSize: 12, color: C.mid, fontFamily: C.mono }}>{r.sku ?? "-"}</div>
-                  <div style={{ fontSize: 12, color: C.mid }}>{r.category ?? "-"}</div>
-                  <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono }}>{r.barcode ?? "-"}</div>
+                  <div style={{ fontSize: 12, color: r.sku ? C.mid : C.mute, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sku ?? "—"}</div>
+                  <div style={{ fontSize: 12, color: r.category ? C.mid : C.mute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.category ?? "—"}</div>
+                  <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.barcode ?? "—"}</div>
                   <div style={{ textAlign: "right" }}><StockBadge val={r.on_hand} /></div>
-                  <div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: "monospace" }}>
-                    {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "-"}
+                  <div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "—"}
                   </div>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 5, flexWrap: "nowrap" }}>
                     <Btn variant="success" size="sm" onClick={() => openRec(r)} disabled={!!meErr || !warehouseId}>Recibir</Btn>
