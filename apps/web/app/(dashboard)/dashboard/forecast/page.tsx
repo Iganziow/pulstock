@@ -113,6 +113,57 @@ export default function ForecastPage() {
 
       {loading && <SkeletonPage cards={3} rows={6} />}
 
+      {/* BANNER DE ESTADO DEL MODELO — explica al usuario en qué fase
+          está el sistema y cuándo va a poder confiar en las predicciones.
+          Solo se muestra mientras la madurez sea "learning" o "tuning"
+          (es decir, < 30 días de historial). Para modelos maduros no
+          tiene sentido seguir mostrándolo. */}
+      {kpis?.model_status && (kpis.model_status.maturity === "learning" || kpis.model_status.maturity === "tuning") && (
+        (() => {
+          const ms = kpis.model_status!;
+          const isLearning = ms.maturity === "learning";
+          // Color/copy según fase
+          const bg = isLearning ? "#FFFBEB" : "#EEF2FF";
+          const bd = isLearning ? C.amberBd : C.accentBd;
+          const accent = isLearning ? C.amber : C.accent;
+          const icon = isLearning ? "🌱" : "🧠";
+          // Progreso visual: 0-30 días → 0-100%
+          const pct = Math.min(100, Math.round(ms.days_of_history / 30 * 100));
+          return (
+            <div style={{ background: bg, border: `1px solid ${bd}`, borderRadius: C.r, padding: mob ? "12px 14px" : "14px 18px", boxShadow: C.sh }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{icon}</div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: accent }}>
+                    El sistema lleva <b>{ms.days_of_history} día{ms.days_of_history !== 1 ? "s" : ""}</b> aprendiendo de tus ventas
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.mid, marginTop: 4, lineHeight: 1.5 }}>
+                    {isLearning ? (
+                      <>
+                        Estamos en fase de aprendizaje. Las predicciones son <b>aproximadas</b> y mejoran cada día. Faltan <b>{ms.days_to_reliable} día{ms.days_to_reliable !== 1 ? "s" : ""}</b> para llegar a predicciones confiables (día 30).
+                      </>
+                    ) : (
+                      <>
+                        El sistema ya detecta patrones básicos. Sigue ajustándose: en <b>{ms.days_to_reliable} día{ms.days_to_reliable !== 1 ? "s" : ""}</b> más vamos a tener predicciones confiables y, después del día 60, va a empezar a entender los patrones de cada día de la semana.
+                      </>
+                    )}
+                  </div>
+                  {/* Barra de progreso 0 → 30 días */}
+                  <div style={{ marginTop: 10, height: 6, background: "rgba(0,0,0,0.06)", borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: accent, transition: "width 0.4s ease" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10.5, color: C.mute, fontWeight: 600 }}>
+                    <span>Día 0</span>
+                    <span style={{ color: accent }}>Hoy: día {ms.days_of_history}</span>
+                    <span>Día 30 (confiable)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
+
       {kpis && kpis.imminent_3d > 0 && (
         <div style={{ background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: C.r, padding: mob ? "12px 14px" : "14px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.red, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 18, flexShrink: 0 }}>!</div>

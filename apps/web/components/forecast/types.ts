@@ -2,6 +2,15 @@ export type KPIs = {
   at_risk_7d: number; imminent_3d: number; value_at_risk: string;
   avg_mape: number; model_count: number; pending_suggestions: number;
   products_with_forecast: number; products_without_forecast: number;
+  // Estado de madurez del modelo — usado por el banner pedagógico que
+  // explica al usuario cuánto tiempo lleva el sistema aprendiendo y
+  // cuándo va a poder confiar en las predicciones.
+  model_status?: {
+    days_of_history: number;     // cuántos días desde la primera venta
+    days_to_reliable: number;    // cuántos faltan para llegar al día 30
+    maturity: "learning" | "tuning" | "reliable" | "mature";
+    maturity_text: string;       // etiqueta humana ("Aprendiendo", etc.)
+  };
 };
 
 export type FP = {

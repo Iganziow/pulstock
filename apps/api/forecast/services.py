@@ -142,11 +142,18 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
     model_count = active_models.count()
 
     # Try real accuracy from last 7 days
+    # IMPORTANTE: excluimos errores >200% del cálculo del promedio.
+    # Cuando el modelo predice 1 y se vende 0 (o viceversa), el error
+    # porcentual matemáticamente explota a infinito. Eso le metía promedios
+    # de 14.000% al usuario, asustándolo. Filtramos esas anomalías para
+    # mostrar el error TÍPICO de las predicciones, no el peor caso teórico.
+    MAPE_OUTLIER_THRESHOLD = 200  # % — todo lo que supere esto es ruido
     recent_accuracy = ForecastAccuracy.objects.filter(
         tenant_id=tenant_id, warehouse_id__in=warehouse_ids,
         date__gte=today - timedelta(days=7),
         was_stockout=False,
         abs_pct_error__isnull=False,
+        abs_pct_error__lte=MAPE_OUTLIER_THRESHOLD,
     )
     real_accuracy_count = recent_accuracy.count()
     if real_accuracy_count >= 5:
@@ -161,7 +168,9 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
             counted = 0
             for fm in active_models:
                 mape = (fm.metrics or {}).get("mape")
-                if mape is not None:
+                # Mismo filtro de outlier: el MAPE almacenado en el modelo
+                # también puede ser ruido si fue entrenado con poca data.
+                if mape is not None and float(mape) <= MAPE_OUTLIER_THRESHOLD:
                     total_mape += float(mape)
                     counted += 1
             avg_mape = round(total_mape / counted, 1) if counted > 0 else 0
@@ -199,6 +208,32 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
             if days_out is not None and daily_profit > 0:
                 margin_at_risk += daily_profit * min(days_out, 7)
 
+    # ── Estado del modelo (días de historial + nivel de madurez) ─────────
+    # Usado por el banner del frontend en /forecast: "Llevamos 8 días
+    # aprendiendo, faltan 22 para predicciones confiables".
+    from sales.models import Sale as SaleModel
+    first_sale = SaleModel.objects.filter(tenant_id=tenant_id).order_by("created_at").first()
+    if first_sale:
+        days_of_history = (today - first_sale.created_at.date()).days + 1
+    else:
+        days_of_history = 0
+
+    # Niveles: <14 aprendiendo · 14-29 ajustando · 30-59 confiable · 60+ maduro
+    if days_of_history < 14:
+        maturity_label = "learning"
+        maturity_text = "Aprendiendo"
+    elif days_of_history < 30:
+        maturity_label = "tuning"
+        maturity_text = "Ajustando"
+    elif days_of_history < 60:
+        maturity_label = "reliable"
+        maturity_text = "Confiable"
+    else:
+        maturity_label = "mature"
+        maturity_text = "Maduro"
+
+    days_to_reliable = max(0, 30 - days_of_history)
+
     return {
         "at_risk_7d": at_risk_7d,
         "imminent_3d": imminent_3d,
@@ -210,6 +245,12 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
         "products_with_forecast": products_with_forecast,
         "products_without_forecast": products_without,
         "coverage_pct": coverage_pct,
+        "model_status": {
+            "days_of_history": days_of_history,
+            "days_to_reliable": days_to_reliable,
+            "maturity": maturity_label,
+            "maturity_text": maturity_text,
+        },
     }
 
 
@@ -1197,14 +1238,23 @@ def _safety_buffer(confidence_label: str) -> Decimal:
 
     Low-confidence models get a larger buffer so the user doesn't run
     out of stock while the model is still learning.
+
+    HISTÓRICO: very_low era 35% y low era 25%. Eso, combinado con el
+    lead_time + target_days, hacía que con apenas 8 días de historial
+    el sistema sugiriera 200 mazapanes y 141 tortas para una cafetería
+    pequeña → órdenes de compra de $5M absurdas.
+
+    Bajamos very_low a 15% y low a 18%. Combinado con el cap de seguridad
+    aplicado abajo (suggested_qty ≤ 4× lo realmente vendido en 30 días),
+    obtenemos sugerencias razonables incluso en fase de aprendizaje.
     """
     return {
-        "very_low": Decimal("0.35"),
-        "low":      Decimal("0.25"),
+        "very_low": Decimal("0.15"),
+        "low":      Decimal("0.18"),
         "medium":   Decimal("0.15"),
         "high":     Decimal("0.08"),
         "very_high": Decimal("0.05"),
-    }.get(confidence_label, Decimal("0.20"))
+    }.get(confidence_label, Decimal("0.15"))
 
 
 def generate_suggestions(tenant, today, threshold, target_days):
@@ -1228,11 +1278,37 @@ def generate_suggestions(tenant, today, threshold, target_days):
     if not active_models.exists():
         return 0, 0
 
-    # Build confidence lookup: (product_id, warehouse_id) → confidence_label
-    confidence_map = {
-        (m.product_id, m.warehouse_id): m.confidence_label
-        for m in active_models.only("product_id", "warehouse_id", "confidence_label")
+    # Build confidence + algorithm lookup: (product_id, warehouse_id) → metadata
+    # Necesitamos `algorithm` para detectar `category_prior` (modelo sin
+    # historial real del producto, solo promedio de su categoría).
+    model_meta = {
+        (m.product_id, m.warehouse_id): {
+            "confidence": m.confidence_label,
+            "algorithm": m.algorithm,
+            "data_points": m.data_points or 0,
+        }
+        for m in active_models.only(
+            "product_id", "warehouse_id", "confidence_label", "algorithm", "data_points"
+        )
     }
+    # Mantenemos confidence_map por compatibilidad con el código existente.
+    confidence_map = {k: v["confidence"] for k, v in model_meta.items()}
+
+    # ── Ventas REALES por producto en últimos 30 días ──────────────────
+    # Es la base del cap de seguridad: aunque el modelo prediga 200 mazapanes,
+    # si en 30 días vendiste solo 8, sugerimos a lo más 32 (4× lo real).
+    # Esto evita que category_prior infle productos pequeños basándose en
+    # el promedio de su categoría.
+    from sales.models import SaleLine
+    recent_sales = (
+        SaleLine.objects.filter(
+            sale__tenant=tenant,
+            sale__created_at__date__gte=today - timedelta(days=30),
+        )
+        .values("product_id")
+        .annotate(total=Sum("qty"))
+    )
+    real_sales_30d = {row["product_id"]: float(row["total"] or 0) for row in recent_sales}
 
     # Max coverage window — include lead time headroom
     max_lead = max((s.lead_time_days for s in supplier_lead_times.values()), default=default_lead_time)
@@ -1375,6 +1451,28 @@ def generate_suggestions(tenant, today, threshold, target_days):
         buffer_pct = _safety_buffer(conf_label)
         safety_qty = (base_qty * buffer_pct).quantize(Decimal("0.001"))
         suggested_qty = base_qty + safety_qty
+
+        # ── SKIP: producto sin señal real con modelo category_prior ────────
+        # Si el modelo es category_prior (promedio de categoría) y el
+        # producto NO ha vendido al menos 3 unidades reales en 30 días,
+        # cualquier sugerencia es ruido. Mejor no sugerir nada hasta
+        # tener señal propia del producto.
+        meta = model_meta.get((pid, wid), {})
+        algo = meta.get("algorithm", "")
+        real_sold_30d = real_sales_30d.get(pid, 0)
+        if algo == "category_prior" and real_sold_30d < 3:
+            continue
+
+        # ── CAP DE SEGURIDAD: nunca sugerir más de 4× lo realmente vendido
+        # en los últimos 30 días. Es una red de seguridad contra modelos
+        # jóvenes que infla cantidades por promedio de categoría.
+        # Ej: si vendiste 8 mazapanes en 30 días, no podemos sugerir
+        # comprar 200 — máximo 32. Si vendiste 0, el skip de arriba
+        # ya nos sacó del loop.
+        if real_sold_30d > 0:
+            cap = Decimal(str(real_sold_30d * 4))
+            if suggested_qty > cap:
+                suggested_qty = cap
 
         # Minimum 1 unit (never suggest fractional sub-unit orders)
         from math import ceil
