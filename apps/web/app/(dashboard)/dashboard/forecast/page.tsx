@@ -19,6 +19,9 @@ export default function ForecastPage() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [products, setProducts] = useState<FP[]>([]);
   const [meta, setMeta] = useState<PageMeta>({ count: 0, page: 1, page_size: 50, total_pages: 0, categories: [] });
+  // Cantidad de productos sin costo cargado — afecta calidad de predicciones.
+  // Se carga aparte con un endpoint chico para no bloquear el render.
+  const [missingCosts, setMissingCosts] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -35,6 +38,10 @@ export default function ForecastPage() {
 
   useEffect(() => {
     apiFetch("/forecast/dashboard/").then((d: any) => setKpis(d?.kpis || null)).catch(() => {});
+    // Productos sin costo — request liviano, devuelve solo el conteo en .total_missing
+    apiFetch("/catalog/products/missing-costs/")
+      .then((d: any) => setMissingCosts(d?.total_missing ?? 0))
+      .catch(() => setMissingCosts(0));
   }, []);
 
   const loadProducts = useCallback(async (p: number, s: string, cat: string, r: string, srt: string) => {
@@ -162,6 +169,31 @@ export default function ForecastPage() {
             </div>
           );
         })()
+      )}
+
+      {/* BANNER DE PRODUCTOS SIN COSTO — palanca enorme de calidad de predicciones.
+          Solo se muestra si hay >= 5 productos sin costo (debajo de eso no
+          vale la pena interrumpir; sobre eso, urge resolverlo). */}
+      {missingCosts !== null && missingCosts >= 5 && (
+        <Link href="/dashboard/forecast/costos" style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: mob ? "12px 14px" : "14px 18px",
+          background: "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)",
+          border: `1px solid ${C.amberBd}`, borderRadius: C.r,
+          textDecoration: "none", color: C.text, boxShadow: C.sh,
+          transition: "all 0.15s",
+        }} className="btn-secondary">
+          <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>💰</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: C.amber }}>
+              Tenés <b>{missingCosts}</b> producto{missingCosts !== 1 ? "s" : ""} sin costo cargado
+            </div>
+            <div style={{ fontSize: 12.5, color: C.mid, marginTop: 3, lineHeight: 1.5 }}>
+              Sin costo no podemos calcular margen → las predicciones sugieren cubrir menos días de lo ideal. Cargalos en bloque (5 minutos) y mejorás la calidad de las sugerencias al toque.
+            </div>
+          </div>
+          <div style={{ fontWeight: 700, color: C.amber, fontSize: 20, flexShrink: 0 }}>→</div>
+        </Link>
       )}
 
       {kpis && kpis.imminent_3d > 0 && (

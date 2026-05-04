@@ -18,6 +18,8 @@ from .views import (
     PriceExportView,
     ProductsWithoutBarcode,
     AssignBarcode,
+    MissingCostsView,
+    CostBulkUpdateView,
 )
 
 urlpatterns = [
@@ -37,6 +39,8 @@ urlpatterns = [
     path("products/prices/", PriceListView.as_view(), name="price-list"),
     path("products/prices/bulk/", PriceBulkUpdateView.as_view(), name="price-bulk-update"),
     path("products/prices/export/", PriceExportView.as_view(), name="price-export"),
+    path("products/missing-costs/", MissingCostsView.as_view(), name="products-missing-costs"),
+    path("products/costs/bulk/", CostBulkUpdateView.as_view(), name="cost-bulk-update"),
     path("products/without-barcode/", ProductsWithoutBarcode.as_view(), name="products-without-barcode"),
     path("products/<int:pk>/assign-barcode/", AssignBarcode.as_view(), name="assign-barcode"),
 ]

@@ -1540,6 +1540,135 @@ class PriceListView(APIView):
         })
 
 
+class MissingCostsView(APIView):
+    """GET /catalog/products/missing-costs/ — Lista productos sin costo cargado.
+
+    Diseñado para que el dueño cargue rápido los costos faltantes y mejore
+    la calidad de las predicciones. Los productos vienen ordenados por
+    cantidad VENDIDA en los últimos 30 días — los más vendidos primero,
+    porque arreglar esos primero da el mayor impacto.
+
+    Response:
+        {
+            "results": [
+                {
+                    "id": 1,
+                    "name": "...",
+                    "sku": "...",
+                    "category": "...",
+                    "unit_code": "ml",
+                    "price": "1500.00",
+                    "sold_30d": 234,        # unidades vendidas en 30 días
+                    "revenue_30d": "...",   # ingreso en 30 días
+                },
+                ...
+            ],
+            "total_missing": 97,
+            "total_active": 198,
+        }
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def get(self, request):
+        from django.db.models import Sum
+        from sales.models import SaleLine
+        from datetime import date, timedelta
+
+        tid = tenant_id(request)
+        thirty_days_ago = date.today() - timedelta(days=30)
+
+        # Ventas por producto últimos 30 días
+        sold_qs = (
+            SaleLine.objects
+            .filter(
+                sale__tenant_id=tid,
+                sale__created_at__date__gte=thirty_days_ago,
+            )
+            .values("product_id")
+            .annotate(qty=Sum("qty"), revenue=Sum("subtotal"))
+        )
+        sold_map = {
+            row["product_id"]: {
+                "qty": float(row["qty"] or 0),
+                "revenue": float(row["revenue"] or 0),
+            }
+            for row in sold_qs
+        }
+
+        # Productos activos sin costo
+        missing = (
+            Product.objects
+            .filter(tenant_id=tid, is_active=True, cost=Decimal("0"))
+            .select_related("category", "unit_obj")
+            .only("id", "name", "sku", "category", "unit_obj", "unit", "price")
+        )
+
+        results = []
+        for p in missing:
+            stats = sold_map.get(p.id, {"qty": 0, "revenue": 0})
+            results.append({
+                "id": p.id,
+                "name": p.name,
+                "sku": p.sku,
+                "category": p.category.name if p.category else None,
+                "unit_code": p.unit_obj.code if p.unit_obj else (p.unit or "UN"),
+                "price": str(p.price),
+                "sold_30d": stats["qty"],
+                "revenue_30d": str(round(stats["revenue"], 2)),
+            })
+
+        # Ordenar por unidades vendidas descendente — los más vendidos primero
+        results.sort(key=lambda r: -r["sold_30d"])
+
+        total_active = Product.objects.filter(tenant_id=tid, is_active=True).count()
+
+        return Response({
+            "results": results,
+            "total_missing": len(results),
+            "total_active": total_active,
+        })
+
+
+class CostBulkUpdateView(APIView):
+    """POST /catalog/products/costs/bulk/ — Actualización masiva de costos.
+
+    Mismo formato que PriceBulkUpdateView pero para el campo `cost`.
+    Pensado principalmente para el inline editor de "productos sin costo"
+    pero soporta también actualización individual.
+
+    Body:
+        { "updates": [{ "product_id": 1, "cost": "1500" }, ...] }
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def post(self, request):
+        tid = tenant_id(request)
+        updates = request.data.get("updates")
+
+        if not updates or not isinstance(updates, list):
+            return Response({"detail": "Envía 'updates' como lista."}, status=400)
+
+        count = 0
+        errors = []
+        for item in updates:
+            try:
+                pid = item["product_id"]
+                new_cost = Decimal(str(item["cost"]))
+                if new_cost < 0:
+                    errors.append({"product_id": pid, "error": "costo no puede ser negativo"})
+                    continue
+                # Solo actualiza productos que pertenecen al tenant
+                updated = Product.objects.filter(id=pid, tenant_id=tid).update(cost=new_cost)
+                if updated:
+                    count += 1
+                else:
+                    errors.append({"product_id": pid, "error": "producto no encontrado"})
+            except (KeyError, InvalidOperation, ValueError, TypeError) as e:
+                errors.append({"product_id": item.get("product_id"), "error": str(e)})
+
+        return Response({"updated": count, "errors": errors})
+
+
 class PriceBulkUpdateView(APIView):
     """POST /catalog/products/prices/bulk/ — Actualización masiva de precios."""
     permission_classes = [IsAuthenticated, HasTenant, IsManager]
