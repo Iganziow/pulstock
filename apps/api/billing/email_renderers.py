@@ -473,3 +473,78 @@ def render_low_stock(tenant, critical_items, low_items, snapshot_at=None):
     html = render_to_string("emails/low_stock.html", ctx)
     plain = f"Stock bajo: {len(critical)} agotados, {len(low)} bajo mínimo. {APP_URL}/dashboard/inventory/stock"
     return subject, plain, html
+
+
+def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None):
+    """Email enriquecido con razón explícita por producto.
+
+    A diferencia de render_low_stock, los items vienen con:
+      - reason_text: "Predicción: se acaba en ~2 días", "Bajo tu mínimo de 10",
+        "Te alcanza para 1.2 días (vendés 4/día)", "Sin stock"
+      - days_left: cuántos días faltan para agotarse (None si sin info)
+      - avg_daily: promedio diario de ventas (para contextualizar)
+
+    El template existente low_stock.html acepta los campos {name, sku,
+    warehouse, on_hand, min, deficit}, así que mapeamos a esa shape pero
+    le metemos el texto más rico en `min` (un poco hack pero evita tocar
+    el template HTML).
+    """
+    snapshot_at = snapshot_at or timezone.now()
+
+    def _prep(alerts):
+        out = []
+        for a in alerts:
+            on_hand = int(a["on_hand"]) if a["on_hand"] >= 1 else round(a["on_hand"], 1)
+            # `min` ahora lleva el texto de la razón (mejor explicación visual)
+            out.append({
+                "name": a["product_name"],
+                "sku": a["sku"],
+                "warehouse": a["warehouse"],
+                "on_hand": on_hand,
+                "min": a.get("reason_text", ""),  # ← reutilizamos `min` para mostrar la razón
+                "deficit": int(a.get("threshold") or 0) - int(a["on_hand"]) if a.get("threshold") else 0,
+            })
+        return out
+
+    critical = _prep(critical_alerts)
+    low = _prep(warning_alerts)
+    total = len(critical) + len(low)
+    flag = "🚨" if critical else "⚠️"
+    subject = f"{flag} Stock bajo — {total} productos ({tenant.name})"
+    ctx = _base_ctx(
+        tone="red" if critical else "amber",
+        subject_line=subject,
+        eyebrow="Alerta · Stock bajo",
+        hero_title=(
+            f"{len(critical)} crítico{'s' if len(critical) != 1 else ''} y {len(low)} bajo umbral"
+            if critical else
+            f"{len(low)} producto{'s' if len(low) != 1 else ''} bajo umbral"
+        ),
+        subtitle=f"{tenant.name} · revisado a las {snapshot_at.strftime('%H:%M del %d/%m/%Y')}.",
+        critical_count=len(critical),
+        low_count=len(low),
+        total_deficit=total,
+        total_deficit_formatted=f"{total} alerta{'s' if total != 1 else ''}",
+        critical_items=critical,
+        low_items=low,
+        cta_text="Ver inventario completo",
+        cta_url=f"{APP_URL}/dashboard/forecast",
+        secondary_text="Configurar alertas",
+        secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
+    )
+    html = render_to_string("emails/low_stock.html", ctx)
+    # Plain text más útil
+    lines = [f"{flag} Pulstock — Stock bajo en {tenant.name}", ""]
+    if critical:
+        lines.append(f"🚨 Críticos ({len(critical)}):")
+        for a in critical_alerts[:10]:
+            lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
+        lines.append("")
+    if low:
+        lines.append(f"⚠️ Bajo umbral ({len(low)}):")
+        for a in warning_alerts[:10]:
+            lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
+        lines.append("")
+    lines.append(f"Ver detalle: {APP_URL}/dashboard/forecast")
+    plain = "\n".join(lines)
+    return subject, plain, html
