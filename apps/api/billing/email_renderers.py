@@ -475,7 +475,7 @@ def render_low_stock(tenant, critical_items, low_items, snapshot_at=None):
     return subject, plain, html
 
 
-def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None):
+def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None, truncated_count=0):
     """Email enriquecido con razón explícita por producto.
 
     A diferencia de render_low_stock, los items vienen con:
@@ -508,26 +508,42 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
 
     critical = _prep(critical_alerts)
     low = _prep(warning_alerts)
-    total = len(critical) + len(low)
+    total_shown = len(critical) + len(low)
+    total_full = total_shown + (truncated_count or 0)
     flag = "🚨" if critical else "⚠️"
-    subject = f"{flag} Stock bajo — {total} productos ({tenant.name})"
+    # Asunto refleja el número TOTAL (no solo lo mostrado), para no engañar
+    subject = f"{flag} Stock bajo — {total_full} productos ({tenant.name})"
+
+    # Subtítulo: si truncamos, dejarlo claro
+    base_subtitle = f"{tenant.name} · revisado a las {snapshot_at.strftime('%H:%M del %d/%m/%Y')}."
+    if truncated_count:
+        base_subtitle += f" Mostrando los {total_shown} de mayor rotación de {total_full} totales."
+
+    # Hero
+    if critical:
+        hero = f"{len(critical)} crítico{'s' if len(critical) != 1 else ''} y {len(low)} bajo umbral"
+    else:
+        hero = f"{len(low)} producto{'s' if len(low) != 1 else ''} bajo umbral"
+    if truncated_count:
+        hero += f" (+{truncated_count} más)"
+
     ctx = _base_ctx(
         tone="red" if critical else "amber",
         subject_line=subject,
         eyebrow="Alerta · Stock bajo",
-        hero_title=(
-            f"{len(critical)} crítico{'s' if len(critical) != 1 else ''} y {len(low)} bajo umbral"
-            if critical else
-            f"{len(low)} producto{'s' if len(low) != 1 else ''} bajo umbral"
-        ),
-        subtitle=f"{tenant.name} · revisado a las {snapshot_at.strftime('%H:%M del %d/%m/%Y')}.",
+        hero_title=hero,
+        subtitle=base_subtitle,
         critical_count=len(critical),
         low_count=len(low),
-        total_deficit=total,
-        total_deficit_formatted=f"{total} alerta{'s' if total != 1 else ''}",
+        total_deficit=total_full,
+        total_deficit_formatted=f"{total_full} alerta{'s' if total_full != 1 else ''}",
         critical_items=critical,
         low_items=low,
-        cta_text="Ver inventario completo",
+        truncated_count=truncated_count,
+        cta_text=(
+            f"Ver los otros {truncated_count} productos"
+            if truncated_count else "Ver inventario completo"
+        ),
         cta_url=f"{APP_URL}/dashboard/forecast",
         secondary_text="Configurar alertas",
         secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
@@ -537,13 +553,16 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
     lines = [f"{flag} Pulstock — Stock bajo en {tenant.name}", ""]
     if critical:
         lines.append(f"🚨 Críticos ({len(critical)}):")
-        for a in critical_alerts[:10]:
+        for a in critical_alerts:
             lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
         lines.append("")
     if low:
         lines.append(f"⚠️ Bajo umbral ({len(low)}):")
-        for a in warning_alerts[:10]:
+        for a in warning_alerts:
             lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
+        lines.append("")
+    if truncated_count:
+        lines.append(f"… y {truncated_count} producto{'s' if truncated_count != 1 else ''} más con menor rotación.")
         lines.append("")
     lines.append(f"Ver detalle: {APP_URL}/dashboard/forecast")
     plain = "\n".join(lines)

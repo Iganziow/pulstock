@@ -40,6 +40,10 @@ class Command(BaseCommand):
     FORECAST_DAYS = 3
     # Cuántos días hacia atrás para calcular avg_daily
     AVG_DAILY_WINDOW = 14
+    # Tope de alertas en el email (priorizando rotación). Si hay más, el email
+    # las menciona como "y N productos más" con link al detalle. Esto evita
+    # que el cliente reciba un email con 74 productos y se desmotive.
+    MAX_ALERTS_IN_EMAIL = 30
 
     def add_arguments(self, parser):
         parser.add_argument("--tenant", type=int, default=None,
@@ -78,24 +82,30 @@ class Command(BaseCommand):
             except AlertPreference.DoesNotExist:
                 pass
 
-            alerts = self._compute_alerts(tenant)
-            if not alerts:
+            all_alerts = self._compute_alerts(tenant)
+            if not all_alerts:
                 self.stdout.write(f"  [ok] tenant={tenant.id} sin alertas")
                 continue
 
-            # Separar críticas vs warnings
-            critical = [a for a in alerts if a["priority"] == "critical"]
-            warning = [a for a in alerts if a["priority"] == "warning"]
+            total_count = len(all_alerts)
+            # Cortar a top N priorizando rotación. all_alerts ya viene ordenado
+            # (críticos primero, después por avg_daily desc, después por días).
+            shown = all_alerts[:self.MAX_ALERTS_IN_EMAIL]
+            truncated = max(0, total_count - len(shown))
+
+            critical = [a for a in shown if a["priority"] == "critical"]
+            warning = [a for a in shown if a["priority"] == "warning"]
 
             if dry_run:
                 self.stdout.write(self.style.WARNING(
-                    f"  [dry] {owner.email} → {len(critical)} críticos, {len(warning)} warnings"
+                    f"  [dry] {owner.email} → mostrando {len(shown)} de {total_count} "
+                    f"({len(critical)} críticos, {len(warning)} warnings, +{truncated} más)"
                 ))
-                for a in alerts[:10]:  # primeros 10
+                for a in shown[:10]:  # primeros 10 visibles
                     self.stdout.write(
-                        f"      • {a['product_name'][:40]:<40s}  "
-                        f"on_hand={a['on_hand']:>6.0f}  reason={a['reason']:<8s}  "
-                        f"days_left={a['days_left'] if a['days_left'] is not None else '—'}"
+                        f"      • {a['product_name'][:35]:<35s}  "
+                        f"on_hand={a['on_hand']:>5.0f}  rot={a['avg_daily']:>5.1f}/d  "
+                        f"reason={a['reason']:<8s}  days_left={a['days_left'] if a['days_left'] is not None else '—'}"
                     )
                 continue
 
@@ -104,6 +114,7 @@ class Command(BaseCommand):
                 tenant=tenant,
                 critical_alerts=critical,
                 warning_alerts=warning,
+                truncated_count=truncated,
             )
 
             try:
@@ -201,9 +212,17 @@ class Command(BaseCommand):
             if alert:
                 alerts.append(alert)
 
-        # Ordenar: críticos primero, después por días restantes ascendente
+        # Ordenar por (prioridad, rotación desc, días restantes asc):
+        #   1. Críticos primero (priority "critical")
+        #   2. Dentro del mismo nivel: los productos que MÁS rotan primero —
+        #      si el cliente solo va a leer el top 30, deben ser los que
+        #      más le duele al negocio si se quedan sin stock.
+        #   3. Empate: el de menos días restantes primero.
+        # Multiplicamos avg_daily por -1 para sort descendente en una key
+        # que sort respeta como tuple ascendente.
         alerts.sort(key=lambda a: (
             0 if a["priority"] == "critical" else 1,
+            -float(a.get("avg_daily") or 0),
             a["days_left"] if a["days_left"] is not None else 999,
         ))
         return alerts
