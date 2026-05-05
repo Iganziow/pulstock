@@ -1,0 +1,84 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email de stock bajo · v2 (lógica híbrida con razones explícitas)
+
+Pasa de "Mín / Pedir" (números crudos) a "Por qué" (razón legible).
+Cada producto explica solo por qué entró al email:
+  - "Sin stock"
+  - "Bajo tu mínimo de 10"
+  - "Te alcanza para 1.2 días (vendés 4/día)"
+  - "Predicción: se acaba en ~2 días"
+
+Context:
+  tenant, snapshot_at
+  critical_count, low_count, total_deficit (= total_full)
+  truncated_count (cuántos quedaron fuera del email por el cap)
+  critical_items, low_items
+{% endcomment %}
+{% block body %}
+
+<!-- KPIs: 3 tiles -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
+  <tr>
+    <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
+      {% include "emails/_partials/kpi_tile.html" with label="Críticos" value=critical_count sublabel="atención inmediata" color="#DC2626" %}
+    </td>
+    <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
+      {% include "emails/_partials/kpi_tile.html" with label="Bajo umbral" value=low_count sublabel="reponer pronto" color="#D97706" %}
+    </td>
+    <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
+      {% include "emails/_partials/kpi_tile.html" with label="Total" value=total_deficit sublabel="alertas hoy" %}
+    </td>
+  </tr>
+</table>
+
+<!-- Texto introductorio -->
+<p style="margin:0 0 22px;font-size:14px;line-height:1.65;color:#3F3F46;">
+  Estos son los productos que necesitan atención hoy. Cada uno te indica
+  <b>por qué</b> entró al listado: si lo pediste con un mínimo manual,
+  si se va a acabar pronto según tu ritmo de venta, o si el modelo
+  predice un quiebre.
+  {% if truncated_count %}
+  <br><br>
+  <span style="color:#71717A;font-size:13px;">
+  Te mostramos los <b>{{ critical_count|add:low_count }}</b> productos de
+  mayor rotación. Hay <b>{{ truncated_count }}</b> producto{{ truncated_count|pluralize:"s" }}
+  más que también necesita{{ truncated_count|pluralize:"n" }} atención —
+  vas a verlos al hacer click abajo.
+  </span>
+  {% endif %}
+</p>
+
+{% if critical_items %}
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">🚨 Críticos · Reponer hoy</h2>
+{% include "emails/_partials/stock_table_v2.html" with items=critical_items fg="#DC2626" bg="#FEF2F2" line="#FECACA" is_critical=True %}
+{% endif %}
+
+{% if low_items %}
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">⚠️ Bajo umbral · Reponer pronto</h2>
+{% include "emails/_partials/stock_table_v2.html" with items=low_items fg="#D97706" bg="#FFFBEB" line="#FDE68A" is_critical=False %}
+{% endif %}
+
+{% if truncated_count %}
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 16px;">
+  <tr>
+    <td bgcolor="#F4F5FB" style="background:#F4F5FB;border:1px dashed #D4D4D8;border-radius:10px;padding:14px 18px;text-align:center;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;color:#52525B;">
+      … y <b style="color:#18181B;">{{ truncated_count }}</b> producto{{ truncated_count|pluralize:"s" }} más con menor rotación.
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- Notita pedagógica al final sobre cómo funciona el sistema -->
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:8px 0 0;">
+  <tr>
+    <td bgcolor="#EEF2FF" style="background:#EEF2FF;border-radius:10px;padding:14px 18px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:12.5px;color:#3F3F46;line-height:1.55;">
+      <b style="color:#4F46E5;">💡 Cómo decidimos esto:</b>
+      Comparamos tu stock contra <b>tres reglas</b>: el mínimo manual que pusiste en cada producto,
+      un mínimo automático basado en cuánto vendes (rotación × 2 días), y la predicción del modelo
+      de cuándo se va a acabar. Si alguna de las tres se cumple, te avisamos.
+    </td>
+  </tr>
+</table>
+
+{% endblock %}

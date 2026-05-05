@@ -478,31 +478,39 @@ def render_low_stock(tenant, critical_items, low_items, snapshot_at=None):
 def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None, truncated_count=0):
     """Email enriquecido con razón explícita por producto.
 
-    A diferencia de render_low_stock, los items vienen con:
-      - reason_text: "Predicción: se acaba en ~2 días", "Bajo tu mínimo de 10",
-        "Te alcanza para 1.2 días (vendés 4/día)", "Sin stock"
-      - days_left: cuántos días faltan para agotarse (None si sin info)
-      - avg_daily: promedio diario de ventas (para contextualizar)
+    Cada alerta viene con:
+      - product_name, sku, warehouse, on_hand, avg_daily, days_left
+      - reason_text: prosa que explica por qué entra al email, ej:
+          "Sin stock"
+          "Bajo tu mínimo de 10"
+          "Te alcanza para 1.2 días (vendés 4/día)"
+          "Predicción: se acaba en ~2 días"
 
-    El template existente low_stock.html acepta los campos {name, sku,
-    warehouse, on_hand, min, deficit}, así que mapeamos a esa shape pero
-    le metemos el texto más rico en `min` (un poco hack pero evita tocar
-    el template HTML).
+    Usa el template low_stock_v2.html (más limpio: columnas Producto/Stock/Razón
+    en vez del viejo Producto/Ubicación/Stock/Mín/Pedir).
     """
     snapshot_at = snapshot_at or timezone.now()
 
     def _prep(alerts):
+        # Pasamos los items casi tal cual al template — solo redondeamos on_hand
+        # para que se vea limpio en la tabla.
         out = []
         for a in alerts:
-            on_hand = int(a["on_hand"]) if a["on_hand"] >= 1 else round(a["on_hand"], 1)
-            # `min` ahora lleva el texto de la razón (mejor explicación visual)
+            on_hand_raw = a["on_hand"]
+            if on_hand_raw <= 0:
+                on_hand = 0
+            elif on_hand_raw >= 10:
+                on_hand = int(on_hand_raw)
+            else:
+                on_hand = round(on_hand_raw, 1)
             out.append({
-                "name": a["product_name"],
+                "product_name": a["product_name"],
                 "sku": a["sku"],
                 "warehouse": a["warehouse"],
                 "on_hand": on_hand,
-                "min": a.get("reason_text", ""),  # ← reutilizamos `min` para mostrar la razón
-                "deficit": int(a.get("threshold") or 0) - int(a["on_hand"]) if a.get("threshold") else 0,
+                "reason_text": a.get("reason_text", ""),
+                "days_left": a.get("days_left"),
+                "avg_daily": a.get("avg_daily", 0),
             })
         return out
 
@@ -511,17 +519,14 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
     total_shown = len(critical) + len(low)
     total_full = total_shown + (truncated_count or 0)
     flag = "🚨" if critical else "⚠️"
-    # Asunto refleja el número TOTAL (no solo lo mostrado), para no engañar
-    subject = f"{flag} Stock bajo — {total_full} productos ({tenant.name})"
+    subject = f"{flag} Stock bajo — {total_full} producto{'s' if total_full != 1 else ''} ({tenant.name})"
 
-    # Subtítulo: si truncamos, dejarlo claro
     base_subtitle = f"{tenant.name} · revisado a las {snapshot_at.strftime('%H:%M del %d/%m/%Y')}."
-    if truncated_count:
-        base_subtitle += f" Mostrando los {total_shown} de mayor rotación de {total_full} totales."
 
-    # Hero
-    if critical:
+    if critical and low:
         hero = f"{len(critical)} crítico{'s' if len(critical) != 1 else ''} y {len(low)} bajo umbral"
+    elif critical:
+        hero = f"{len(critical)} producto{'s' if len(critical) != 1 else ''} crítico{'s' if len(critical) != 1 else ''}"
     else:
         hero = f"{len(low)} producto{'s' if len(low) != 1 else ''} bajo umbral"
     if truncated_count:
@@ -541,15 +546,18 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
         low_items=low,
         truncated_count=truncated_count,
         cta_text=(
-            f"Ver los otros {truncated_count} productos"
+            f"Ver los otros {truncated_count} producto{'s' if truncated_count != 1 else ''}"
             if truncated_count else "Ver inventario completo"
         ),
         cta_url=f"{APP_URL}/dashboard/forecast",
         secondary_text="Configurar alertas",
         secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
     )
-    html = render_to_string("emails/low_stock.html", ctx)
-    # Plain text más útil
+    # Usa el template v2 con columnas Producto/Stock/Por qué (no el viejo
+    # con columnas Mín/Pedir que asumía números crudos)
+    html = render_to_string("emails/low_stock_v2.html", ctx)
+
+    # Plain text claro y accionable
     lines = [f"{flag} Pulstock — Stock bajo en {tenant.name}", ""]
     if critical:
         lines.append(f"🚨 Críticos ({len(critical)}):")
@@ -564,6 +572,6 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
     if truncated_count:
         lines.append(f"… y {truncated_count} producto{'s' if truncated_count != 1 else ''} más con menor rotación.")
         lines.append("")
-    lines.append(f"Ver detalle: {APP_URL}/dashboard/forecast")
+    lines.append(f"Ver detalle completo: {APP_URL}/dashboard/forecast")
     plain = "\n".join(lines)
     return subject, plain, html
