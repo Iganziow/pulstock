@@ -44,6 +44,14 @@ class Command(BaseCommand):
     # las menciona como "y N productos más" con link al detalle. Esto evita
     # que el cliente reciba un email con 74 productos y se desmotive.
     MAX_ALERTS_IN_EMAIL = 30
+    # ── Gates de madurez para la regla #3 (forecast) ──────────────────
+    # En las primeras semanas el modelo predice cualquier cosa (puede
+    # decir "vasos chicos se acaba en 1 día" cuando tenés 236). Si
+    # mandamos esas alertas el cliente pierde confianza en el sistema
+    # desde el primer email. La regla #3 se activa POR PRODUCTO solo
+    # cuando su modelo tiene madurez suficiente.
+    FORECAST_MIN_DATA_POINTS = 14         # >=14 días de historial del producto
+    FORECAST_REJECTED_CONFIDENCE = "very_low"   # excluir modelos very_low
 
     def add_arguments(self, parser):
         parser.add_argument("--tenant", type=int, default=None,
@@ -168,24 +176,47 @@ class Command(BaseCommand):
             for row in recent_qs
         }
 
-        # ── (b) Predicciones del forecast ──────────────────────────────
-        # Tomamos el día con menor days_to_stockout para cada producto
-        # entre las predicciones futuras.
-        fc_qs = (
-            Forecast.objects.filter(
-                tenant=tenant,
-                forecast_date__gt=today,
-                days_to_stockout__isnull=False,
-                days_to_stockout__lte=self.FORECAST_DAYS,
-            )
-            .values("product_id", "warehouse_id", "days_to_stockout")
-        )
+        # ── (b) Predicciones del forecast — CON GATE DE MADUREZ ────────
+        # IMPORTANTE: solo confiamos en la predicción cuando el modelo del
+        # producto tiene suficiente madurez. Si no, descartamos esa alerta
+        # porque genera ruido (ej: "236 vasos se acaban en 1 día" → falso).
+        #
+        # Cargamos primero los modelos activos del tenant con su metadata.
+        # Si el modelo tiene <14 días de datos o confianza very_low, NO
+        # aplicamos la regla #3 a ese producto. Las reglas #1 (manual) y
+        # #2 (auto basado en venta real) siguen funcionando para él.
+        from forecast.models import ForecastModel
+        mature_keys = set()
+        for m in ForecastModel.objects.filter(
+            tenant=tenant, is_active=True,
+        ).only("product_id", "warehouse_id", "data_points", "confidence_label"):
+            data_points = m.data_points or 0
+            conf = m.confidence_label or ""
+            if (
+                data_points >= self.FORECAST_MIN_DATA_POINTS
+                and conf != self.FORECAST_REJECTED_CONFIDENCE
+            ):
+                mature_keys.add((m.product_id, m.warehouse_id))
+
+        # Cargamos solo predicciones de productos cuyo modelo es maduro.
         forecast_map = {}  # (pid, wid) → min_days
-        for row in fc_qs:
-            key = (row["product_id"], row["warehouse_id"])
-            cur = forecast_map.get(key)
-            if cur is None or row["days_to_stockout"] < cur:
-                forecast_map[key] = row["days_to_stockout"]
+        if mature_keys:
+            fc_qs = (
+                Forecast.objects.filter(
+                    tenant=tenant,
+                    forecast_date__gt=today,
+                    days_to_stockout__isnull=False,
+                    days_to_stockout__lte=self.FORECAST_DAYS,
+                )
+                .values("product_id", "warehouse_id", "days_to_stockout")
+            )
+            for row in fc_qs:
+                key = (row["product_id"], row["warehouse_id"])
+                if key not in mature_keys:
+                    continue  # gate: modelo no maduro, ignorar predicción
+                cur = forecast_map.get(key)
+                if cur is None or row["days_to_stockout"] < cur:
+                    forecast_map[key] = row["days_to_stockout"]
 
         # ── (c) Recorrer cada StockItem y ver si dispara alguna regla ──
         items = (
