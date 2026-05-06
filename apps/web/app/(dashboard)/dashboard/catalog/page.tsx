@@ -288,6 +288,10 @@ export default function CatalogPage() {
   const [eCategoryId, setECategoryId] = useState<number | "">("");
   const [eBarcodes, setEBarcodes]     = useState("");
   const [eCost, setECost]             = useState("0");
+  // Costo promedio (read-only en el modal — se edita inline en la lista o
+  // se actualiza con compras). Lo mostramos para que el dueño VEA el valor
+  // sin tener que cerrar el modal.
+  const [eAvgCost, setEAvgCost]       = useState("0");
   const [eMinStock, setEMinStock]     = useState("0");
   const [eBrand, setEBrand]           = useState("");
   const [eImageUrl, setEImageUrl]     = useState("");
@@ -374,6 +378,7 @@ export default function CatalogPage() {
     setECategoryId(p.category?.id ?? "");
     setEBarcodes(p.barcodes?.map((b) => b.code).join(", ") ?? "");
     setECost(cleanInt(p.cost ?? "0"));
+    setEAvgCost(cleanInt(p.avg_cost ?? "0"));
     setEMinStock(cleanDec(p.min_stock ?? "0"));
     setEBrand(p.brand ?? ""); setEImageUrl(p.image_url ?? "");
     setEAllowNeg(!!p.allow_negative_stock);
@@ -1028,16 +1033,22 @@ export default function CatalogPage() {
 
             <div style={G2}>
               <div style={FL}>
-                <FLabel>Costo compra</FLabel>
-                <input value={pCost} onChange={(e)=>setPCost(e.target.value)}
-                  placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
-                <Hint>Costo inicial. Se actualiza con compras.</Hint>
-              </div>
-              <div style={FL}>
                 <FLabel>Stock mínimo</FLabel>
                 <input value={pMinStock} onChange={(e)=>setPMinStock(e.target.value)}
                   placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
-                <Hint>Alerta cuando baje de este nivel.</Hint>
+                <Hint>Te avisamos cuando el stock baje de este nivel.</Hint>
+              </div>
+              <div style={FL}>
+                {/* El costo del producto se carga después en la lista del catálogo
+                    (celda editable inline) o automáticamente al recibir compras.
+                    Antes había un input "Costo compra" acá pero generaba un campo
+                    duplicado (Product.cost vs StockItem.avg_cost) que confundía
+                    al cliente. Lo dejamos en un solo lugar. */}
+                <FLabel>Costo</FLabel>
+                <div style={{...iS, display: "flex", alignItems: "center", color: C.mute, fontStyle: "italic", fontSize: 12, background: C.bg, cursor: "default"}}>
+                  Se carga después al recibir compras o desde la lista
+                </div>
+                <Hint>Editable inline desde el catálogo o al recibir una compra.</Hint>
               </div>
             </div>
 
@@ -1147,10 +1158,35 @@ export default function CatalogPage() {
 
             <div style={G2}>
               <div style={FL}>
-                <FLabel>Costo compra</FLabel>
-                <input value={eCost} onChange={(e)=>setECost(e.target.value)}
-                  placeholder="0" style={iS} disabled={saving} inputMode="decimal"/>
-                <Hint>Se actualiza automáticamente con compras.</Hint>
+                {/* Costo promedio (PPP) read-only.
+                    Se edita inline desde la lista del catálogo o se
+                    actualiza solo al recibir compras. Antes había aquí un
+                    input "Costo compra" (Product.cost) que era un campo
+                    duplicado / legacy → confundía al dueño porque la lista
+                    mostraba un valor y el modal otro. */}
+                <FLabel>Costo promedio (PPP)</FLabel>
+                <div style={{
+                  ...iS,
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: C.bg,
+                  fontWeight: parseFloat(eAvgCost) > 0 ? 700 : 400,
+                  color: parseFloat(eAvgCost) > 0 ? C.text : C.mute,
+                  fontStyle: parseFloat(eAvgCost) > 0 ? "normal" : "italic",
+                  fontSize: parseFloat(eAvgCost) > 0 ? 14 : 12,
+                  cursor: "default",
+                }}>
+                  <span>
+                    {parseFloat(eAvgCost) > 0
+                      ? `$${formatCLP(eAvgCost)}`
+                      : "Sin costo cargado"}
+                  </span>
+                  <span style={{fontSize: 10, color: C.mute, fontWeight: 400, fontStyle: "italic"}}>
+                    {parseFloat(eAvgCost) > 0 ? "se actualiza con compras" : ""}
+                  </span>
+                </div>
+                <Hint>
+                  Se edita en la lista del catálogo (click en la celda Costo) o desde Inventario → Stock → Ajustar.
+                </Hint>
               </div>
               <div style={FL}>
                 <FLabel>Stock mínimo</FLabel>
