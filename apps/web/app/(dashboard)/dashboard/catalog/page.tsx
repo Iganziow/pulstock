@@ -288,10 +288,12 @@ export default function CatalogPage() {
   const [eCategoryId, setECategoryId] = useState<number | "">("");
   const [eBarcodes, setEBarcodes]     = useState("");
   const [eCost, setECost]             = useState("0");
-  // Costo promedio (read-only en el modal — se edita inline en la lista o
-  // se actualiza con compras). Lo mostramos para que el dueño VEA el valor
-  // sin tener que cerrar el modal.
+  // Costo promedio (PPP) editable desde el modal. Si cambió al guardar,
+  // disparamos POST a /catalog/products/{id}/avg-cost/ además del PATCH
+  // normal. Guardamos el valor inicial para detectar cambios sin tener
+  // que comparar contra el producto en items[].
   const [eAvgCost, setEAvgCost]       = useState("0");
+  const [eAvgCostInitial, setEAvgCostInitial] = useState("0");
   const [eMinStock, setEMinStock]     = useState("0");
   const [eBrand, setEBrand]           = useState("");
   const [eImageUrl, setEImageUrl]     = useState("");
@@ -378,7 +380,9 @@ export default function CatalogPage() {
     setECategoryId(p.category?.id ?? "");
     setEBarcodes(p.barcodes?.map((b) => b.code).join(", ") ?? "");
     setECost(cleanInt(p.cost ?? "0"));
-    setEAvgCost(cleanInt(p.avg_cost ?? "0"));
+    const avgInit = cleanInt(p.avg_cost ?? "0");
+    setEAvgCost(avgInit);
+    setEAvgCostInitial(avgInit);
     setEMinStock(cleanDec(p.min_stock ?? "0"));
     setEBrand(p.brand ?? ""); setEImageUrl(p.image_url ?? "");
     setEAllowNeg(!!p.allow_negative_stock);
@@ -449,11 +453,20 @@ export default function CatalogPage() {
     if (!name) { setErr("El nombre del producto es obligatorio."); return; }
     const price = parseFloat(ePrice);
     if (isNaN(price) || price < 0) { setErr("El precio debe ser un número positivo."); return; }
+
+    // Validar costo promedio antes de mandar nada
+    const avgNum = parseFloat(eAvgCost);
+    const avgInitNum = parseFloat(eAvgCostInitial);
+    const avgChanged = Number.isFinite(avgNum) && avgNum >= 0
+      && Math.abs(avgNum - avgInitNum) > 0.01;
+    if (eAvgCost && (!Number.isFinite(avgNum) || avgNum < 0)) {
+      setErr("El costo promedio debe ser un número positivo.");
+      return;
+    }
+
     setSaving(true); setErr(null);
     try {
-      // Override de estación: SIEMPRE enviamos el campo (incluso null) en
-      // PATCH para que se pueda QUITAR el override volviendo a heredar de
-      // la categoría. En CREATE solo enviamos si está seteado.
+      // 1. PATCH normal del producto (datos puros: nombre, precio, etc.)
       const updated: Product = await apiFetch(`/catalog/products/${editId}/`, {
         method:"PATCH",
         body:JSON.stringify({
@@ -467,12 +480,43 @@ export default function CatalogPage() {
           print_station_override: eStationOverride === "" ? null : eStationOverride,
         }),
       });
+
+      // 2. Si el costo promedio cambió, dispararlo aparte (StockItem.avg_cost
+      //    vive en otro modelo, no se actualiza por el PATCH del producto).
+      //    Si esto falla pero el PATCH ya pasó, mostramos error parcial pero
+      //    el resto de los datos quedaron guardados.
+      let finalAvgCost = updated.avg_cost ?? eAvgCostInitial;
+      if (avgChanged) {
+        try {
+          const r = await apiFetch(`/catalog/products/${editId}/avg-cost/`, {
+            method: "POST",
+            body: JSON.stringify({ avg_cost: String(avgNum) }),
+          });
+          finalAvgCost = r.avg_cost ?? String(avgNum);
+        } catch (e: any) {
+          // El PATCH ya pasó. Notificamos lo que pudimos guardar y lo que no.
+          setErr("Producto guardado, pero el costo no se pudo actualizar. Probá de nuevo desde la lista.");
+          // Aún así actualizamos la lista local con lo que sí cambió
+          setItems((prev) => {
+            const next = prev.map((x)=>(x.id===updated.id?updated:x));
+            next.sort((a,b)=>(a.name||"").localeCompare(b.name||"")); return next;
+          });
+          return;
+        }
+      }
+
+      // Mergeamos avg_cost al producto antes de meterlo a la lista para que
+      // la columna Costo refleje el cambio de inmediato sin refetch.
+      const merged = { ...updated, avg_cost: finalAvgCost };
       setItems((prev) => {
-        const next = prev.map((x)=>(x.id===updated.id?updated:x));
+        const next = prev.map((x)=>(x.id===merged.id?merged:x));
         next.sort((a,b)=>(a.name||"").localeCompare(b.name||"")); return next;
       });
       closeEditModal();
-      setSuccess("Producto guardado correctamente"); setTimeout(()=>setSuccess(null),4000);
+      setSuccess(avgChanged
+        ? "Producto y costo guardados correctamente"
+        : "Producto guardado correctamente");
+      setTimeout(()=>setSuccess(null),4000);
     } catch (e: any) { setErr(extractErr(e,"Error guardando producto")); }
     finally { setSaving(false); }
   };
@@ -1158,34 +1202,29 @@ export default function CatalogPage() {
 
             <div style={G2}>
               <div style={FL}>
-                {/* Costo promedio (PPP) read-only.
-                    Se edita inline desde la lista del catálogo o se
-                    actualiza solo al recibir compras. Antes había aquí un
-                    input "Costo compra" (Product.cost) que era un campo
-                    duplicado / legacy → confundía al dueño porque la lista
-                    mostraba un valor y el modal otro. */}
+                {/* Costo promedio (PPP) editable desde el modal.
+                    Si el dueño lo cambia, al guardar disparamos
+                    POST /catalog/products/{id}/avg-cost/ además del
+                    PATCH normal. Esto le da dos formas de editarlo:
+                    inline desde la lista o desde este modal junto al
+                    resto de los datos del producto. */}
                 <FLabel>Costo promedio (PPP)</FLabel>
-                <div style={{
-                  ...iS,
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: C.bg,
-                  fontWeight: parseFloat(eAvgCost) > 0 ? 700 : 400,
-                  color: parseFloat(eAvgCost) > 0 ? C.text : C.mute,
-                  fontStyle: parseFloat(eAvgCost) > 0 ? "normal" : "italic",
-                  fontSize: parseFloat(eAvgCost) > 0 ? 14 : 12,
-                  cursor: "default",
-                }}>
-                  <span>
-                    {parseFloat(eAvgCost) > 0
-                      ? `$${formatCLP(eAvgCost)}`
-                      : "Sin costo cargado"}
-                  </span>
-                  <span style={{fontSize: 10, color: C.mute, fontWeight: 400, fontStyle: "italic"}}>
-                    {parseFloat(eAvgCost) > 0 ? "se actualiza con compras" : ""}
-                  </span>
+                <div style={{position: "relative"}}>
+                  <span style={{
+                    position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                    fontSize: 13, color: C.mute, pointerEvents: "none",
+                  }}>$</span>
+                  <input
+                    value={eAvgCost}
+                    onChange={(e) => setEAvgCost(e.target.value)}
+                    placeholder="0"
+                    style={{...iS, paddingLeft: 22}}
+                    disabled={saving}
+                    inputMode="decimal"
+                  />
                 </div>
                 <Hint>
-                  Se edita en la lista del catálogo (click en la celda Costo) o desde Inventario → Stock → Ajustar.
+                  Se actualiza solo con cada compra recibida (PPP). Podés ajustarlo manualmente acá.
                 </Hint>
               </div>
               <div style={FL}>
