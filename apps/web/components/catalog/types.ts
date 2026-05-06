@@ -17,7 +17,13 @@ export type Product = {
   description?: string | null; unit?: string | null;
   price: string; is_active: boolean;
   category?: Category | null; barcodes?: Barcode[];
-  cost?: string | null; min_stock?: string | null;
+  cost?: string | null;
+  // Costo promedio ponderado (PPP) calculado por StockItem de la bodega
+  // principal. Es el costo REAL del producto basado en compras recibidas.
+  // Se usa para margen, reportes, predicciones. Editable inline desde la
+  // lista del catálogo via POST /catalog/products/{id}/avg-cost/.
+  avg_cost?: string | null;
+  min_stock?: string | null;
   brand?: string | null; image_url?: string | null;
   allow_negative_stock?: boolean;
   has_recipe?: boolean;

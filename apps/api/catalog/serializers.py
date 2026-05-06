@@ -132,6 +132,28 @@ class ProductReadSerializer(serializers.ModelSerializer):
     unit_obj_id = serializers.IntegerField(read_only=True, default=None)
     unit_obj_family = serializers.CharField(source="unit_obj.family", read_only=True, default=None)
 
+    # Costo promedio ponderado (PPP) del StockItem de la bodega principal —
+    # es el costo REAL del producto basado en compras recibidas, no el
+    # `cost` manual que el dueño cargó. Incluido para mostrarlo en la lista
+    # del catálogo y permitir edición inline. Si el producto no tiene
+    # StockItem en ninguna bodega, devuelve "0.00".
+    avg_cost = serializers.SerializerMethodField()
+
+    def get_avg_cost(self, obj):
+        # Cache local en el serializer para no consultar StockItem N veces
+        # cuando se serializa una lista. Si el view hace prefetch_related
+        # de stockitem_set, esto reusa esa data sin queries adicionales.
+        items = getattr(obj, "_prefetched_objects_cache", {}).get("stockitem_set")
+        if items is None:
+            from inventory.models import StockItem
+            items = list(StockItem.objects.filter(product=obj).only("avg_cost"))
+        if not items:
+            return "0.00"
+        # Tomamos el primer StockItem (en práctica la mayoría de tenants
+        # tiene 1 sola bodega; si hay varias, este es un proxy razonable
+        # para mostrar "el costo del producto" en una sola celda).
+        return str(items[0].avg_cost)
+
     # Estación efectiva (resuelve override > category default > null) —
     # entrega el id que el frontend usa para agrupar líneas en comandas
     # sin tener que hacer la lookup en el cliente.
@@ -158,7 +180,7 @@ class ProductReadSerializer(serializers.ModelSerializer):
             "barcodes",
             "has_recipe",
             "unit_obj_id", "unit_obj_family",
-            "price", "cost", "tax_rate", "min_stock",
+            "price", "cost", "avg_cost", "tax_rate", "min_stock",
             "brand", "image_url",
             "print_station_override", "effective_print_station_id",
             "allow_negative_stock",

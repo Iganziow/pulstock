@@ -85,7 +85,7 @@ class ProductListCreate(generics.ListCreateAPIView):
             Product.objects
             .filter(tenant_id=tenant_id(self.request))
             .select_related("category", "unit_obj", "recipe")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
         )
 
         q = (self.request.query_params.get("q") or "").strip()
@@ -147,7 +147,7 @@ class ProductListCreate(generics.ListCreateAPIView):
             Product.objects
             .filter(pk=write_ser.instance.pk, tenant_id=tenant_id(self.request))
             .select_related("category")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
             .first()
         )
 
@@ -164,7 +164,7 @@ class ProductDetail(generics.RetrieveUpdateAPIView):
             Product.objects
             .filter(tenant_id=tenant_id(self.request))
             .select_related("category")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
         )
 
     def get_serializer_class(self):
@@ -187,7 +187,7 @@ class ProductDetail(generics.RetrieveUpdateAPIView):
             Product.objects
             .filter(pk=instance.pk, tenant_id=tenant_id(self.request))
             .select_related("category")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
             .first()
         )
 
@@ -243,7 +243,7 @@ class ProductSearch(APIView):
                 Product.objects
                 .filter(tenant_id=t_id, sku__iexact=term)
                 .select_related("category")
-                .prefetch_related(_prefetch_barcodes_ordered())
+                .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
                 .first()
             )
             if p:
@@ -259,7 +259,7 @@ class ProductSearch(APIView):
             Product.objects
             .filter(tenant_id=t_id)
             .select_related("category")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
             .filter(
                 Q(name__icontains=q) |
                 Q(sku__icontains=q) |
@@ -300,7 +300,7 @@ class ProductLookup(APIView):
             Product.objects
             .filter(tenant_id=t_id, sku__iexact=term)
             .select_related("category")
-            .prefetch_related(_prefetch_barcodes_ordered())
+            .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
             .first()
         )
         if p:
@@ -1626,6 +1626,93 @@ class MissingCostsView(APIView):
             "results": results,
             "total_missing": len(results),
             "total_active": total_active,
+        })
+
+
+class ProductAvgCostUpdateView(APIView):
+    """POST /catalog/products/{pk}/avg-cost/ — Actualiza el costo promedio.
+
+    Wrapper conveniente para edición inline desde la lista del catálogo:
+    el dueño edita el costo en una celda y se aplica al StockItem de la
+    bodega default sin que tenga que pensar dónde.
+
+    Internamente reutiliza la lógica del adjust de inventario (qty=0 +
+    new_avg_cost), así queda registrado en el kardex como "ajuste de
+    costo desde catalogo".
+
+    Body:
+        { "avg_cost": "1100" }                    ← bodega default
+        { "avg_cost": "1100", "warehouse_id": 2 } ← bodega específica
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    def post(self, request, pk):
+        from inventory.models import StockItem
+        from inventory.views import _get_or_create_stock_item, c3
+        from core.models import Warehouse
+        from django.db import transaction
+        from inventory.models import StockMove
+
+        tid = tenant_id(request)
+        prod = Product.objects.filter(id=pk, tenant_id=tid).first()
+        if not prod:
+            return Response({"detail": "Producto no encontrado."}, status=404)
+
+        # Validar costo
+        try:
+            new_cost = Decimal(str(request.data.get("avg_cost", "")))
+        except (InvalidOperation, ValueError, TypeError):
+            return Response({"detail": "avg_cost inválido."}, status=400)
+        if new_cost < 0:
+            return Response({"detail": "El costo no puede ser negativo."}, status=400)
+
+        # Resolver bodega: si vino warehouse_id usarla; si no, default del
+        # usuario; si tampoco, primera bodega activa del tenant.
+        wh_id = request.data.get("warehouse_id")
+        if wh_id is None:
+            wh_id = getattr(request.user, "default_warehouse_id", None)
+        if wh_id is None:
+            wh = Warehouse.objects.filter(tenant_id=tid, is_active=True).order_by("id").first()
+            if not wh:
+                return Response({"detail": "El tenant no tiene bodegas activas."}, status=400)
+            wh_id = wh.id
+        else:
+            try:
+                wh_id = int(wh_id)
+            except (ValueError, TypeError):
+                return Response({"detail": "warehouse_id inválido."}, status=400)
+            if not Warehouse.objects.filter(id=wh_id, tenant_id=tid).exists():
+                return Response({"detail": "Bodega no pertenece al tenant."}, status=400)
+
+        with transaction.atomic():
+            si = _get_or_create_stock_item(tid, wh_id, prod.id)
+            si = StockItem.objects.select_for_update().get(pk=si.pk)
+            forced_avg = c3(new_cost)
+            si.avg_cost = forced_avg
+            si.stock_value = (si.on_hand * forced_avg).quantize(Decimal("0.001"))
+            si.save(update_fields=["avg_cost", "stock_value", "updated_at"])
+
+            # Registrar el cambio en el kardex para auditoría.
+            # move_type="ADJ" (no "ADJUST") y qty=0 → ajuste de solo costo.
+            StockMove.objects.create(
+                tenant_id=tid,
+                warehouse_id=wh_id,
+                product_id=prod.id,
+                move_type="ADJ",
+                qty=Decimal("0.000"),
+                unit_cost=forced_avg,
+                cost_snapshot=forced_avg,
+                value_delta=Decimal("0.000"),
+                reason="cost_only",
+                note="Ajuste de costo promedio desde catálogo",
+                created_by=request.user if request.user.is_authenticated else None,
+            )
+
+        return Response({
+            "ok": True,
+            "product_id": prod.id,
+            "warehouse_id": wh_id,
+            "avg_cost": str(si.avg_cost),
         })
 
 

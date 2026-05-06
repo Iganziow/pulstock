@@ -63,6 +63,152 @@ function cleanDec(s: string | number | null | undefined): string {
 }
 
 // =============================================================================
+// COST INLINE CELL — celda editable del costo promedio en la lista
+// =============================================================================
+//
+// Por qué este componente existe:
+// El dueño se quejó de que tenía que entrar al modal de Editar Producto solo
+// para cambiar el costo, y ni siquiera era el campo correcto (ese era el
+// "Costo compra" estático, no el PPP real). Ahora la lista muestra el costo
+// PROMEDIO (StockItem.avg_cost — el real, calculado con compras) y se puede
+// editar de un click sin abrir modales.
+//
+// UX:
+//   1. Por defecto muestra "$1.078" (o "sin costo" si vale 0)
+//   2. Click en la celda → se transforma en input pre-poblado con el valor
+//   3. Enter para guardar · Esc para cancelar
+//   4. Mientras guarda, muestra spinner discreto
+//   5. Después de guardar, vuelve al modo display con el valor nuevo
+//
+// El POST a /catalog/products/{id}/avg-cost/ actualiza el StockItem de la
+// bodega default y registra un movimiento ADJ en el kardex (auditoría).
+
+function CostInlineCell({
+  product,
+  onSaved,
+}: {
+  product: Product;
+  onSaved: (newAvgCost: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorFlash, setErrorFlash] = useState(false);
+
+  const avgCost = parseFloat(String(product.avg_cost ?? "0"));
+  const hasCost = Number.isFinite(avgCost) && avgCost > 0;
+
+  function startEdit() {
+    if (saving) return;
+    setValue(hasCost ? String(Math.round(avgCost)) : "");
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num) || num < 0) {
+      setErrorFlash(true);
+      setTimeout(() => setErrorFlash(false), 1500);
+      return;
+    }
+    // Si no cambió, simplemente cerrar
+    if (Math.abs(num - avgCost) < 0.01) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const resp = await apiFetch(`/catalog/products/${product.id}/avg-cost/`, {
+        method: "POST",
+        body: JSON.stringify({ avg_cost: String(num) }),
+      });
+      onSaved(resp.avg_cost ?? String(num));
+      setEditing(false);
+    } catch (e) {
+      setErrorFlash(true);
+      setTimeout(() => setErrorFlash(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setEditing(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 12, color: C.mute }}>$</span>
+        <input
+          autoFocus
+          type="number"
+          inputMode="decimal"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          disabled={saving}
+          placeholder="0"
+          min={0}
+          step={1}
+          style={{
+            width: 80,
+            padding: "4px 6px",
+            border: `1px solid ${errorFlash ? C.red : C.accent}`,
+            borderRadius: 4,
+            fontSize: 13,
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+            outline: "none",
+            background: C.surface,
+          }}
+        />
+        {saving && <Spinner size={12} />}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={startEdit}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); startEdit(); } }}
+      style={{
+        textAlign: "right",
+        fontWeight: hasCost ? 600 : 400,
+        fontSize: 13,
+        fontVariantNumeric: "tabular-nums",
+        color: hasCost ? C.mid : C.mute,
+        cursor: "pointer",
+        padding: "3px 6px",
+        borderRadius: 4,
+        border: "1px solid transparent",
+        transition: "all 0.12s",
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = C.bg; (e.currentTarget as HTMLElement).style.borderColor = C.border; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
+      title={hasCost
+        ? "Costo promedio (PPP). Click para editar."
+        : "Sin costo cargado. Click para agregarlo — afecta margen y predicciones."}
+    >
+      {hasCost
+        ? `$${formatCLP(product.avg_cost ?? "0")}`
+        : <span style={{ fontStyle: "italic", fontSize: 11 }}>sin costo</span>
+      }
+    </div>
+  );
+}
+
+
+// =============================================================================
 // MAIN PAGE
 // =============================================================================
 
@@ -624,31 +770,21 @@ export default function CatalogPage() {
                   ${formatCLP(p.price)}
                 </div>
 
-                {/* Cost (solo desktop). Si no tiene costo cargado, mostramos
-                    un guión gris con tooltip para que el dueño se dé cuenta
-                    rápido de qué productos le faltan completar. Esto era
-                    invisible antes — el campo SÍ se guardaba pero la lista
-                    no lo mostraba, generando confusión. */}
-                {!mob && (() => {
-                  const costN = parseFloat(String(p.cost ?? "0"));
-                  const hasCost = Number.isFinite(costN) && costN > 0;
-                  return (
-                    <div
-                      style={{
-                        textAlign:"right",
-                        fontWeight: hasCost ? 600 : 400,
-                        fontSize: 13,
-                        fontVariantNumeric:"tabular-nums",
-                        color: hasCost ? C.mid : C.mute,
-                      }}
-                      title={hasCost ? "Costo de compra del producto" : "Sin costo cargado — afecta el cálculo de margen y predicciones"}
-                    >
-                      {hasCost ? `$${formatCLP(p.cost ?? "0")}` : (
-                        <span style={{ fontStyle:"italic", fontSize:11 }}>sin costo</span>
-                      )}
-                    </div>
-                  );
-                })()}
+                {/* Costo promedio (PPP) — el costo REAL del producto, calculado
+                    a partir de las compras recibidas. Es el que se usa para
+                    margen, predicciones y reportes.
+                    Editable inline: click → input → Enter para guardar.
+                    Bajo el capó llama a /catalog/products/{id}/avg-cost/ que
+                    actualiza el StockItem de la bodega default y registra un
+                    movimiento ADJ en el kardex para auditoría. */}
+                {!mob && <CostInlineCell product={p} onSaved={(newAvg) => {
+                  // Actualiza la lista local sin refetch para que el cambio
+                  // se vea inmediato sin recargar.
+                  setItems(prev => prev.map(x => x.id === p.id
+                    ? { ...x, avg_cost: newAvg }
+                    : x
+                  ));
+                }} />}
 
                 {/* Barcodes */}
                 {!mob && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
