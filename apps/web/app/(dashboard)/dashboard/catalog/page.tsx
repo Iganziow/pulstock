@@ -244,6 +244,15 @@ export default function CatalogPage() {
   const [showEditProd, setShowEditProd]   = useState(false);
   const [showImport, setShowImport]       = useState(false);
   const [showBarcodeAssign, setShowBarcodeAssign] = useState(false);
+
+  // Borrado lógico de producto. Tres estados posibles:
+  //   - confirmTarget = null  → modal cerrado
+  //   - confirmTarget = product, blockedRecipes = []  → mostrar confirmación
+  //   - confirmTarget = product, blockedRecipes = [...]  → mostrar bloqueo
+  //     porque el producto es ingrediente de esas recetas activas.
+  const [confirmTarget, setConfirmTarget] = useState<Product | null>(null);
+  const [blockedRecipes, setBlockedRecipes] = useState<{product_id: number; product_name: string}[]>([]);
+  const [deleting, setDeleting] = useState(false);
   // Import CSV
   const [importFile, setImportFile]       = useState<File | null>(null);
   const [importResult, setImportResult]   = useState<any>(null);
@@ -532,6 +541,51 @@ export default function CatalogPage() {
       setSuccess("Producto actualizado"); setTimeout(()=>setSuccess(null),4000);
     } catch (e: any) { setErr(extractErr(e,"Error cambiando estado")); }
     finally { setSaving(false); }
+  };
+
+  // Borrado lógico del producto.
+  //
+  // Flujo:
+  //   1. Usuario hace click en el botón borrar (🗑️) de la fila.
+  //   2. Abrimos modal de confirmación.
+  //   3. Si el usuario confirma, llamamos a DELETE /catalog/products/{id}/.
+  //   4. Tres respuestas posibles:
+  //        - 200 OK + deleted: true → producto borrado, lo quitamos de la
+  //          lista local sin recargar.
+  //        - 409 Conflict + code: in_use_as_ingredient → mostramos las
+  //          recetas afectadas para que el usuario las edite primero.
+  //        - 4xx/5xx genérico → mensaje de error.
+  const confirmDeleteProduct = async () => {
+    if (!confirmTarget) return;
+    setDeleting(true); setErr(null);
+    try {
+      const resp = await apiFetch(`/catalog/products/${confirmTarget.id}/`, {
+        method: "DELETE",
+      });
+      // Éxito: quitamos de la lista local
+      setItems(prev => prev.filter(x => x.id !== confirmTarget.id));
+      setSuccess(`"${resp.product_name || confirmTarget.name}" eliminado correctamente`);
+      setTimeout(() => setSuccess(null), 4000);
+      setConfirmTarget(null);
+      setBlockedRecipes([]);
+    } catch (e: any) {
+      // Detectamos el caso "ingrediente de receta" para mostrar UI distinta
+      const data = e?.data;
+      if (data?.code === "in_use_as_ingredient" && Array.isArray(data?.recipes)) {
+        setBlockedRecipes(data.recipes);
+      } else {
+        setErr(extractErr(e, "No se pudo borrar el producto"));
+        setConfirmTarget(null);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setConfirmTarget(null);
+    setBlockedRecipes([]);
   };
 
   // Import CSV
@@ -851,6 +905,19 @@ export default function CatalogPage() {
                   {!mob && <Btn variant={p.is_active?"danger":"success"} size="sm" onClick={()=>toggleActive(p)} disabled={saving}>
                     {p.is_active?"Desactivar":"Activar"}
                   </Btn>}
+                  {/* Botón Borrar — abre modal de confirmación. Si el producto
+                      es ingrediente de una receta activa, el modal muestra
+                      las recetas afectadas y bloquea el borrado hasta que
+                      el dueño las edite. */}
+                  <span title="Borrar producto" style={{ display: "inline-flex" }}>
+                    <Btn
+                      variant="danger" size="sm"
+                      onClick={() => { setConfirmTarget(p); setBlockedRecipes([]); }}
+                      disabled={saving || deleting}
+                    >
+                      🗑️
+                    </Btn>
+                  </span>
                 </div>
               </div>
             ))
@@ -1293,6 +1360,130 @@ export default function CatalogPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* MODAL DE CONFIRMACIÓN DE BORRADO
+          Tres modos según el estado:
+            1. Confirmación inicial (sin recetas bloqueando)
+            2. Bloqueo por recetas (después del 409 del backend)
+            3. Loading (mientras dura la petición DELETE) */}
+      {confirmTarget && (
+        <div
+          onClick={closeDeleteModal}
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: C.surface, borderRadius: 14, padding: 28,
+              width: "100%", maxWidth: 480,
+              boxShadow: "0 20px 52px rgba(0,0,0,0.18)",
+              maxHeight: "calc(100vh - 32px)", overflowY: "auto",
+            }}
+          >
+            {blockedRecipes.length > 0 ? (
+              // Caso bloqueado: el producto es ingrediente de recetas activas
+              <>
+                <div style={{ fontSize: 32, marginBottom: 10, textAlign: "center" }}>🚫</div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.text, textAlign: "center" }}>
+                  No se puede borrar
+                </h2>
+                <p style={{ marginTop: 12, fontSize: 14, color: C.mid, lineHeight: 1.55, textAlign: "center" }}>
+                  <b>{confirmTarget.name}</b> se usa como ingrediente en{" "}
+                  <b>{blockedRecipes.length} receta{blockedRecipes.length !== 1 ? "s" : ""} activa{blockedRecipes.length !== 1 ? "s" : ""}</b>.
+                  Si lo borras, esas recetas no van a poder calcular el costo ni descontar stock.
+                </p>
+                <div style={{ marginTop: 14, padding: "12px 14px", background: C.bg, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                    Recetas afectadas
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: C.text, lineHeight: 1.7 }}>
+                    {blockedRecipes.map(r => (
+                      <li key={r.product_id}>{r.product_name}</li>
+                    ))}
+                  </ul>
+                </div>
+                <p style={{ marginTop: 14, fontSize: 13, color: C.mute, lineHeight: 1.5 }}>
+                  Primero edita esas recetas y quita este ingrediente. Después puedes volver a intentar borrarlo.
+                </p>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+                  <button
+                    onClick={closeDeleteModal}
+                    style={{
+                      padding: "10px 20px", fontSize: 14, fontWeight: 600,
+                      background: C.accent, color: "#fff", border: "none",
+                      borderRadius: 8, cursor: "pointer",
+                    }}
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Caso normal: confirmar borrado
+              <>
+                <div style={{ fontSize: 32, marginBottom: 10, textAlign: "center" }}>🗑️</div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.text, textAlign: "center" }}>
+                  ¿Borrar este producto?
+                </h2>
+                <div style={{
+                  marginTop: 14, padding: "12px 14px", background: C.bg,
+                  borderRadius: 8, border: `1px solid ${C.border}`, textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
+                    {confirmTarget.name}
+                  </div>
+                  {confirmTarget.sku && (
+                    <div style={{ fontSize: 12, fontFamily: C.mono, color: C.mute, marginTop: 3 }}>
+                      SKU: {confirmTarget.sku}
+                    </div>
+                  )}
+                </div>
+                <p style={{ marginTop: 14, fontSize: 13, color: C.mid, lineHeight: 1.55 }}>
+                  El producto desaparece del catálogo y del POS. Las ventas
+                  históricas que lo contenían siguen mostrándolo correctamente
+                  en los reportes — esa información no se pierde.
+                </p>
+                <p style={{ marginTop: 8, fontSize: 12, color: C.red, fontWeight: 600 }}>
+                  Esta acción es irreversible.
+                </p>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+                  <button
+                    onClick={closeDeleteModal}
+                    disabled={deleting}
+                    style={{
+                      padding: "10px 18px", fontSize: 14, fontWeight: 500,
+                      background: C.surface, color: C.mid,
+                      border: `1px solid ${C.border}`, borderRadius: 8,
+                      cursor: deleting ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmDeleteProduct}
+                    disabled={deleting}
+                    style={{
+                      padding: "10px 20px", fontSize: 14, fontWeight: 600,
+                      background: C.red, color: "#fff", border: "none",
+                      borderRadius: 8,
+                      cursor: deleting ? "wait" : "pointer",
+                      opacity: deleting ? 0.7 : 1,
+                      display: "inline-flex", alignItems: "center", gap: 8,
+                    }}
+                  >
+                    {deleting ? <><Spinner size={14} /> Borrando…</> : "Sí, borrar"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
     </div>

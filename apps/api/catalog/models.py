@@ -71,6 +71,27 @@ class Category(models.Model):
     def __str__(self) -> str:
         return self.name
     
+class ActiveProductManager(models.Manager):
+    """Manager por defecto: excluye productos con deleted_at no nulo.
+
+    Esto hace que TODAS las consultas existentes tipo
+    ``Product.objects.filter(...)`` automáticamente excluyan productos
+    borrados sin tener que tocar 30+ lugares en views/services.
+
+    Para las pocas consultas que SÍ necesitan ver borrados (reportes,
+    serializadores históricos de SaleLine, Kardex), usar el manager
+    ``Product.all_objects`` que devuelve todos.
+
+    NOTA importante: las relaciones inversas y los FKs (ej.
+    ``sale_line.product``) NO pasan por este manager — Django usa
+    ``_base_manager`` para resolver relaciones, que sigue trayendo
+    todo. Eso es exactamente lo que queremos: las ventas históricas
+    siguen mostrando el nombre del producto aunque esté borrado.
+    """
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Product(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.PROTECT, related_name="products")
     category = models.ForeignKey("Category", on_delete=models.PROTECT, null=True, blank=True, related_name="products")
@@ -120,12 +141,39 @@ class Product(models.Model):
         help_text="Override estación de impresión para este producto (deja null para heredar de la categoría)",
     )
 
+    # Borrado lógico (irreversible).
+    # Diferencias con `is_active`:
+    #   - is_active=False  → producto pausado, sigue visible en el catálogo
+    #     con toggle gris, se puede reactivar.
+    #   - deleted_at!=NULL → producto BORRADO. Desaparece del catálogo, POS
+    #     y todos los listados. Solo aparece en reportes históricos para
+    #     que las ventas viejas sigan mostrando qué se vendió.
+    # Las FKs a Sale/StockMove/PurchaseLine siguen con on_delete=PROTECT
+    # — el producto no se borra físicamente, solo se "marca" como borrado.
+    deleted_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text="Si tiene fecha, el producto está borrado lógicamente. No aparece en catálogo/POS pero sí en reportes históricos.",
+    )
+
+    # Managers:
+    #   objects      → SOLO productos vivos (deleted_at IS NULL). Default.
+    #   all_objects  → TODOS los productos, incluyendo borrados (para
+    #                  reportes históricos, kardex, ventas viejas).
+    # _base_manager se mantiene como `objects` por defecto, pero las FKs
+    # inversas (sale_line.product, etc.) usan _base_manager directamente.
+    # Para que esas relaciones SIGAN trayendo borrados, definimos el
+    # base_manager_name explícitamente.
+    objects = ActiveProductManager()
+    all_objects = models.Manager()
+
     class Meta:
+        base_manager_name = "all_objects"
         indexes = [
             models.Index(fields=["tenant", "name"]),
             models.Index(fields=["tenant", "sku"]),
             models.Index(fields=["tenant", "category"]),
             models.Index(fields=["tenant", "is_active"]),
+            models.Index(fields=["tenant", "deleted_at"]),
         ]
         constraints = [
             models.UniqueConstraint(

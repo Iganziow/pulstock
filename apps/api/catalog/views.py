@@ -156,16 +156,73 @@ class ProductListCreate(generics.ListCreateAPIView):
         return Response(read_ser.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
-class ProductDetail(generics.RetrieveUpdateAPIView):
+class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Detalle de producto. Soporta GET, PATCH/PUT (Manager+) y DELETE (Manager+).
+
+    DELETE: borrado lógico. Si el producto:
+      - Es ingrediente de alguna receta activa → 409 Conflict con la lista
+        de recetas afectadas. El usuario debe sacarlo de las recetas antes.
+      - No es ingrediente → marca deleted_at = now() y desaparece del
+        catálogo y POS. Las ventas/stock históricos siguen funcionando
+        porque las FKs apuntan al producto que sigue en la DB.
+    """
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
     def get_queryset(self):
+        # Para GET/PATCH/DELETE traemos productos NO borrados. Si el dueño
+        # quisiera "ver" un producto borrado para reportes, eso pasa por
+        # otros endpoints (ej. Sale histórico).
         return (
-            Product.objects
+            Product.objects  # manager filtra deleted_at__isnull=True
             .filter(tenant_id=tenant_id(self.request))
             .select_related("category")
             .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
         )
+
+    def destroy(self, request, *args, **kwargs):
+        """Borrado lógico del producto (deleted_at = now)."""
+        instance = self.get_object()
+
+        # Validación: ¿es ingrediente de alguna receta activa?
+        from catalog.models import RecipeLine
+        recipe_uses = (
+            RecipeLine.objects
+            .filter(ingredient=instance, recipe__is_active=True)
+            .select_related("recipe__product")
+            .values_list("recipe__product__id", "recipe__product__name")
+            .distinct()
+        )
+        recipe_uses_list = list(recipe_uses)
+        if recipe_uses_list:
+            return Response({
+                "detail": "Este producto se usa como ingrediente en recetas activas. Elimínalo de esas recetas antes de borrarlo.",
+                "code": "in_use_as_ingredient",
+                "recipes": [
+                    {"product_id": pid, "product_name": pname}
+                    for pid, pname in recipe_uses_list
+                ],
+            }, status=status.HTTP_409_CONFLICT)
+
+        # Borrado lógico
+        from django.utils import timezone
+        instance.deleted_at = timezone.now()
+        # Lo marcamos también como inactivo para que cualquier consulta
+        # que filtra por is_active sin chequear deleted_at también lo
+        # excluya (defensa en profundidad).
+        instance.is_active = False
+        instance.save(update_fields=["deleted_at", "is_active", "updated_at"])
+
+        # Audit
+        from core.models import log_audit
+        log_audit(request, "product_delete", "product", instance.pk,
+                  {"name": instance.name, "sku": instance.sku})
+
+        return Response({
+            "deleted": True,
+            "product_id": instance.pk,
+            "product_name": instance.name,
+        }, status=status.HTTP_200_OK)
 
     def get_serializer_class(self):
         return ProductWriteSerializer if self.request.method in ("PUT", "PATCH") else ProductReadSerializer
