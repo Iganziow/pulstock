@@ -542,13 +542,14 @@ export default function CatalogPage() {
           {/* Header row */}
           <div style={{
             display:"grid",
-            gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
+            gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 110px 110px minmax(0,1fr) 100px 170px",
             columnGap:mob?6:16,
             padding:mob?"11px 10px":"11px 20px", background:C.bg, borderBottom:`1px solid ${C.border}`,
             fontSize:10.5, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.08em",
           }}>
             {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categoría</div>}
             <div style={{ textAlign:"right" }}>Precio</div>
+            {!mob && <div style={{ textAlign:"right" }}>Costo</div>}
             {!mob && <div>Barcodes</div>}<div style={{ textAlign:"center" }}>Activo</div>
             <div style={{ textAlign:"right" }}>Acciones</div>
           </div>
@@ -567,7 +568,7 @@ export default function CatalogPage() {
             items.map((p, i) => (
               <div key={p.id} className="prow" style={{
                 display:"grid",
-                gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 120px minmax(0,1fr) 100px 170px",
+                gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 110px 110px minmax(0,1fr) 100px 170px",
                 columnGap:mob?6:16,
                 padding:mob?"12px 10px":"14px 20px",
                 borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",
@@ -622,6 +623,32 @@ export default function CatalogPage() {
                 <div style={{ textAlign:"right", fontWeight:800, fontSize:mob?13:14, fontVariantNumeric:"tabular-nums", letterSpacing:"-0.01em" }}>
                   ${formatCLP(p.price)}
                 </div>
+
+                {/* Cost (solo desktop). Si no tiene costo cargado, mostramos
+                    un guión gris con tooltip para que el dueño se dé cuenta
+                    rápido de qué productos le faltan completar. Esto era
+                    invisible antes — el campo SÍ se guardaba pero la lista
+                    no lo mostraba, generando confusión. */}
+                {!mob && (() => {
+                  const costN = parseFloat(String(p.cost ?? "0"));
+                  const hasCost = Number.isFinite(costN) && costN > 0;
+                  return (
+                    <div
+                      style={{
+                        textAlign:"right",
+                        fontWeight: hasCost ? 600 : 400,
+                        fontSize: 13,
+                        fontVariantNumeric:"tabular-nums",
+                        color: hasCost ? C.mid : C.mute,
+                      }}
+                      title={hasCost ? "Costo de compra del producto" : "Sin costo cargado — afecta el cálculo de margen y predicciones"}
+                    >
+                      {hasCost ? `$${formatCLP(p.cost ?? "0")}` : (
+                        <span style={{ fontStyle:"italic", fontSize:11 }}>sin costo</span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Barcodes */}
                 {!mob && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
