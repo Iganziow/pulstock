@@ -16,14 +16,21 @@ logger = logging.getLogger(__name__)
 
 
 # Match con migration 0004 — si cambia uno, cambiar el otro.
+# La categoría TIP_WITHDRAW se agregó después en la migration 0006_add_tip_withdraw_category
+# (backfill para tenants existentes). Mantenemos ambas listas alineadas.
 DEFAULT_CATEGORIES = [
     # Egresos
     ("SUPPLIER",     "Pago a proveedor",                "OUT", 1),
     ("SALARY",       "Sueldo",                          "OUT", 2),
     ("SERVICE",      "Servicio (luz/agua/internet)",    "OUT", 3),
     ("OWNER_DRAW",   "Retiro del dueño",                "OUT", 4),
-    ("REFUND",       "Devolución a cliente",            "OUT", 5),
-    ("OTHER_OUT",    "Otro egreso",                     "OUT", 6),
+    # Cuando un miembro del equipo retira sus propinas en efectivo. NO es
+    # un gasto del café — es plata que pertenecía al equipo desde la
+    # propina del cliente. Esta categoría existe para que el reporte de
+    # gastos NO mezcle propinas retiradas con gastos reales del negocio.
+    ("TIP_WITHDRAW", "Retiro de propinas",              "OUT", 5),
+    ("REFUND",       "Devolución a cliente",            "OUT", 6),
+    ("OTHER_OUT",    "Otro egreso",                     "OUT", 7),
     # Ingresos
     ("CAPITAL",      "Aporte de capital",               "IN",  1),
     ("EXTRA_INCOME", "Recaudación adicional",           "IN",  2),

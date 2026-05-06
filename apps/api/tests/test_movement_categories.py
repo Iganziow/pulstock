@@ -43,21 +43,24 @@ def open_session_fx(register_fx, owner, tenant, store):
 
 class TestAutoSeedDefaultCategories:
 
-    def test_new_tenant_gets_10_default_categories(self):
-        """Cuando se crea un Tenant, signal popula 10 categorías default."""
+    def test_new_tenant_gets_default_categories(self):
+        """Cuando se crea un Tenant, el signal popula 11 categorías default
+        (7 OUT + 4 IN). La cantidad cambió cuando agregamos TIP_WITHDRAW
+        (Mario 06/05/26 — para registrar retiros de propinas)."""
         t = Tenant.objects.create(slug="autoseed-test", name="Test Auto")
         cats = MovementCategory.objects.filter(tenant=t)
-        assert cats.count() == 10
-        # 6 OUT + 4 IN
-        assert cats.filter(type="OUT").count() == 6
+        assert cats.count() == 11
+        # 7 OUT + 4 IN
+        assert cats.filter(type="OUT").count() == 7
         assert cats.filter(type="IN").count() == 4
         # Todas marcadas como template
-        assert cats.filter(is_default_template=True).count() == 10
+        assert cats.filter(is_default_template=True).count() == 11
         # Códigos esperados
         codes = set(cats.values_list("code", flat=True))
         assert "SUPPLIER" in codes
         assert "SALARY" in codes
         assert "CAPITAL" in codes
+        assert "TIP_WITHDRAW" in codes  # nuevo: retiro de propinas
 
 
 # ─── 2. GET /caja/categories/ ──────────────────────────────────
@@ -65,7 +68,7 @@ class TestAutoSeedDefaultCategories:
 class TestListCategories:
 
     def test_list_returns_only_active_by_default(self, api_client, owner, tenant):
-        # Marbrava ya tiene 10 default por seed
+        # Marbrava ya tiene 11 default por seed (incluyendo TIP_WITHDRAW)
         # Desactivar 1
         cat = MovementCategory.objects.filter(tenant=tenant, code="LOAN").first()
         cat.is_active = False

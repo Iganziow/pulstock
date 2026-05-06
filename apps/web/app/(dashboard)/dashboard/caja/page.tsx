@@ -10,7 +10,7 @@ import { Btn, type Register, type Session } from "@/components/caja/CajaShared";
 import { CajaLiveSession } from "@/components/caja/CajaLiveSession";
 import { CajaHistory } from "@/components/caja/CajaHistory";
 import { CajaTipsTab } from "@/components/caja/CajaTipsTab";
-import { AddMovementModal, CloseSessionModal } from "@/components/caja/CajaModals";
+import { AddMovementModal, CloseSessionModal, WithdrawTipModal } from "@/components/caja/CajaModals";
 
 export default function CajaPage() {
   const mob = useIsMobile();
@@ -38,6 +38,13 @@ export default function CajaPage() {
   const [moveAmt, setMoveAmt] = useState("");
   const [moveDesc, setMoveDesc] = useState("");
   const [moveCategory, setMoveCategory] = useState("");
+
+  // Withdraw tips modal — Mario lo pidió 06/05/26: cuando alguien del equipo
+  // retira sus propinas en efectivo, registrar el movimiento para que la
+  // caja cuadre y NO se mezcle con gastos del café.
+  const [showWithdrawTip, setShowWithdrawTip] = useState(false);
+  const [tipAmount, setTipAmount] = useState("");
+  const [tipWho, setTipWho] = useState("");
 
   // New register modal
   const [showNewRegister, setShowNewRegister] = useState(false);
@@ -121,6 +128,38 @@ export default function CajaPage() {
     finally { setBusy(false); }
   };
 
+  // Retiro de propinas: crea un CashMovement OUT con categoría TIP_WITHDRAW.
+  // El monto baja del expected_cash igual que cualquier OUT, lo que hace
+  // que la caja cuadre cuando alguien físicamente retira sus propinas.
+  // La descripción se arma con quien retiró (si se proporcionó) para que
+  // quede trazable en el historial.
+  const withdrawTip = async () => {
+    if (!session) return;
+    const amt = Number(tipAmount);
+    if (!amt || amt <= 0) return;
+    setBusy(true); setErr(null);
+    try {
+      const desc = tipWho.trim()
+        ? `Retiro de propinas — ${tipWho.trim()}`
+        : "Retiro de propinas";
+      await apiFetch(`/caja/sessions/${session.id}/movements/`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "OUT",
+          amount: amt,
+          description: desc,
+          category: "TIP_WITHDRAW",
+        }),
+      });
+      const s = await apiFetch(`/caja/sessions/${session.id}/`); setSession(s as Session);
+      setShowWithdrawTip(false); setTipAmount(""); setTipWho("");
+    } catch (e: any) {
+      setErr(e?.message ?? "Error registrando retiro de propinas");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const closeSession = async () => {
     if (!session) return;
     setBusy(true); setErr(null);
@@ -149,7 +188,26 @@ export default function CajaPage() {
             cajero a veces necesita "ver el monto AHORA" (ej: justo
             después de una venta). */}
         {tab === "live" && session && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+            {/* Botón Retirar propinas — visible solo si hay sesión abierta.
+                Crea un CashMovement OUT con categoría TIP_WITHDRAW que baja
+                el efectivo esperado sin contarlo como gasto. */}
+            <button
+              type="button"
+              onClick={() => setShowWithdrawTip(true)}
+              disabled={busy}
+              style={{
+                padding: "8px 14px", borderRadius: C.r,
+                border: `1px solid ${C.amberBd}`, background: C.amberBg,
+                color: C.amber, cursor: busy ? "not-allowed" : "pointer",
+                fontSize: 13, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", gap: 6,
+                fontFamily: "inherit",
+              }}
+              title="Registrar retiro de propinas en efectivo"
+            >
+              💸 Retirar propinas
+            </button>
             {lastUpdated && (
               <span style={{ fontSize: 11, color: C.mute, fontVariantNumeric: "tabular-nums" }}>
                 Actualizado: <b style={{ color: C.text }}>
@@ -284,6 +342,17 @@ export default function CajaPage() {
       {/* MODALS */}
       {showMove && <AddMovementModal hasOpenSession={!!session} moveType={moveType} setMoveType={setMoveType} moveAmt={moveAmt} setMoveAmt={setMoveAmt} moveDesc={moveDesc} setMoveDesc={setMoveDesc} moveCategory={moveCategory} setMoveCategory={setMoveCategory} busy={busy} onClose={() => setShowMove(false)} onSubmit={addMovement} />}
       {showClose && session?.live && <CloseSessionModal live={session.live} countedCash={countedCash} setCountedCash={setCountedCash} closeNote={closeNote} setCloseNote={setCloseNote} busy={busy} onClose={() => setShowClose(false)} onSubmit={closeSession} />}
+      {showWithdrawTip && (
+        <WithdrawTipModal
+          hasOpenSession={!!session}
+          cashTipsAvailable={session?.live ? Number(session.live.cash_tips) || 0 : null}
+          amount={tipAmount} setAmount={setTipAmount}
+          who={tipWho} setWho={setTipWho}
+          busy={busy}
+          onClose={() => { setShowWithdrawTip(false); setTipAmount(""); setTipWho(""); }}
+          onSubmit={withdrawTip}
+        />
+      )}
 
       {/* New register modal */}
       {showNewRegister && (

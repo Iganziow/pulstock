@@ -156,6 +156,153 @@ export function AddMovementModal({
   );
 }
 
+// ─── Withdraw Tips Modal ────────────────────────────────────────────────────
+//
+// Modal dedicado para registrar el retiro de propinas en efectivo (cuando
+// alguien del equipo se lleva sus propinas físicas). Lo que hace bajo el
+// capó: crea un CashMovement type=OUT con category=TIP_WITHDRAW.
+//
+// ¿Por qué un modal separado en vez de usar el genérico AddMovementModal?
+//   - Mario lo describe como "lo que anotamos en el cuaderno de propinas".
+//     Conceptualmente es un flujo distinto (no es un gasto del café).
+//   - Pre-poblando tipo + categoría sacamos 2 campos al usuario.
+//   - El texto pedagógico explica POR QUÉ sirve: "esto baja el efectivo
+//     esperado de la caja sin contarlo como gasto, así cuadra al cierre".
+
+interface WithdrawTipModalProps {
+  hasOpenSession?: boolean;
+  // Total de propinas en efectivo del turno actual — para mostrar al usuario
+  // cuánto hay disponible para retirar. Si null, no se muestra.
+  cashTipsAvailable?: number | null;
+  amount: string;
+  setAmount: (v: string) => void;
+  who: string;
+  setWho: (v: string) => void;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: () => void;
+}
+
+export function WithdrawTipModal({
+  hasOpenSession = true,
+  cashTipsAvailable = null,
+  amount, setAmount, who, setWho,
+  busy, onClose, onSubmit,
+}: WithdrawTipModalProps) {
+
+  if (!hasOpenSession) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 8 }}>
+            No hay caja abierta
+          </div>
+          <div style={{ fontSize: 13, color: C.mute, lineHeight: 1.5, marginBottom: 22 }}>
+            Para registrar un retiro de propinas tienes que abrir un arqueo primero.
+            El retiro queda asociado a la sesión activa.
+          </div>
+          <Btn variant="primary" onClick={onClose}>
+            Entendido
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+
+  const numAmount = Number(amount) || 0;
+  const exceedsAvailable = cashTipsAvailable !== null && numAmount > cashTipsAvailable;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 28, width: "100%", maxWidth: 460, boxShadow: "0 20px 52px rgba(0,0,0,0.18)", maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 24 }}>💸</span>
+          <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Retirar propinas</div>
+        </div>
+
+        <p style={{ margin: "0 0 16px", fontSize: 12.5, color: C.mute, lineHeight: 1.55 }}>
+          Cuando alguien del equipo retira sus propinas en efectivo. Esto descuenta del
+          efectivo esperado de la caja para que cuadre al cierre, pero <b>no se contabiliza
+          como gasto</b> del café.
+        </p>
+
+        {/* Mostrar propinas disponibles del turno si vienen del caller */}
+        {cashTipsAvailable !== null && (
+          <div style={{
+            background: C.greenBg, border: `1px solid ${C.greenBd}`,
+            borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: C.green, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Propinas en efectivo del turno
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontVariantNumeric: "tabular-nums" }}>
+              ${fmt(cashTipsAvailable)}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>Monto a retirar</div>
+            <input
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="$0"
+              inputMode="decimal"
+              autoFocus
+              style={{
+                width: "100%", padding: "11px 14px",
+                border: `1px solid ${exceedsAvailable ? C.red : C.borderMd}`,
+                borderRadius: C.r, fontSize: 16, fontWeight: 700,
+                boxSizing: "border-box", fontVariantNumeric: "tabular-nums",
+              }}
+            />
+            {exceedsAvailable && (
+              <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>
+                Es mayor que las propinas disponibles. Verifica el monto.
+              </div>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 6 }}>
+              Quién retiró <span style={{ fontWeight: 400, color: C.mute }}>(opcional)</span>
+            </div>
+            <input
+              value={who}
+              onChange={e => setWho(e.target.value)}
+              placeholder="Ej: Ignacia, Nadia, equipo completo..."
+              style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.borderMd}`, borderRadius: C.r, fontSize: 14, boxSizing: "border-box" }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Btn>
+          <Btn
+            variant="primary"
+            onClick={() => {
+              if (numAmount > 50000) {
+                const ok = window.confirm(
+                  `Vas a registrar un retiro de propinas por $${Math.round(numAmount).toLocaleString("es-CL")}.\n\n¿Confirmas?`
+                );
+                if (!ok) return;
+              }
+              onSubmit();
+            }}
+            disabled={busy || !amount || numAmount <= 0}
+          >
+            {busy ? <Spinner size={14} /> : "Confirmar retiro"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Close Session Modal ─────────────────────────────────────────────────────
 interface CloseSessionModalProps {
   live: LiveSummary;
