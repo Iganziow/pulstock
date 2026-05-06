@@ -343,9 +343,13 @@ class ProductLookup(APIView):
         if not term:
             return Response({"detail": "term is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Lookup por barcode. IMPORTANTE: descartamos resultados cuyo
+        # producto esté BORRADO (deleted_at != null). Si Mario borró un
+        # producto pero su barcode quedó en la DB, el cajero NO debe
+        # poder venderlo escaneando el código.
         bc = (
             Barcode.objects
-            .filter(tenant_id=t_id, code=term)
+            .filter(tenant_id=t_id, code=term, product__deleted_at__isnull=True)
             .select_related("product__category")
             .prefetch_related(Prefetch("product__barcodes", queryset=Barcode.objects.order_by("code")))
             .first()
@@ -1706,11 +1710,10 @@ class ProductAvgCostUpdateView(APIView):
     permission_classes = [IsAuthenticated, HasTenant, IsManager]
 
     def post(self, request, pk):
-        from inventory.models import StockItem
-        from inventory.views import _get_or_create_stock_item, c3
+        from inventory.models import StockItem, StockMove
+        from inventory.views import _get_or_create_stockitem_locked, c3
         from core.models import Warehouse
         from django.db import transaction
-        from inventory.models import StockMove
 
         tid = tenant_id(request)
         prod = Product.objects.filter(id=pk, tenant_id=tid).first()
@@ -1744,7 +1747,10 @@ class ProductAvgCostUpdateView(APIView):
                 return Response({"detail": "Bodega no pertenece al tenant."}, status=400)
 
         with transaction.atomic():
-            si = _get_or_create_stock_item(tid, wh_id, prod.id)
+            # Helper devuelve StockItem ya con select_for_update (kwargs only).
+            si = _get_or_create_stockitem_locked(
+                tenant_id=tid, warehouse_id=wh_id, product_id=prod.id
+            )
             si = StockItem.objects.select_for_update().get(pk=si.pk)
             forced_avg = c3(new_cost)
             si.avg_cost = forced_avg

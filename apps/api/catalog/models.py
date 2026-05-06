@@ -176,9 +176,14 @@ class Product(models.Model):
             models.Index(fields=["tenant", "deleted_at"]),
         ]
         constraints = [
+            # Unicidad de SKU sólo entre productos VIVOS. Si un producto
+            # con SKU "CAF-001" se borra (deleted_at != null), el dueño
+            # debe poder crear otro con el mismo SKU sin que el constraint
+            # de DB se queje. Sin esta condición, intentar recrear daba
+            # IntegrityError con mensaje incomprensible.
             models.UniqueConstraint(
                 fields=["tenant", "sku"],
-                condition=~Q(sku=""),
+                condition=~Q(sku="") & Q(deleted_at__isnull=True),
                 name="uniq_product_sku_per_tenant_nonempty",
             )
         ]

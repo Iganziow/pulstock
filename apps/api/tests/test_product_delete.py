@@ -94,3 +94,24 @@ class TestProductDelete:
         assert r.status_code == 200, r.data
         p = Product.all_objects.get(pk=self.ingrediente.pk)
         assert p.deleted_at is not None
+
+    def test_can_recreate_with_same_sku_after_delete(self, auth_client, tenant):
+        """Después de borrar un producto con SKU 'X', se puede crear otro nuevo
+        con el mismo SKU. Antes el constraint único impedía esto."""
+        # Borrar el producto con SKU "SIMPLE"
+        r = auth_client.delete(f"/api/catalog/products/{self.product_simple.id}/")
+        assert r.status_code == 200
+
+        # Intentar crear nuevo producto con MISMO SKU
+        r = auth_client.post("/api/catalog/products/", {
+            "name": "Producto Simple Reemplazo",
+            "sku": "SIMPLE",
+            "price": "1500",
+            "is_active": True,
+            "unit": "UN",
+        }, format="json")
+        assert r.status_code == 201, r.data
+        # Verificar que ambos coexisten en all_objects: uno borrado y uno vivo
+        assert Product.all_objects.filter(tenant=tenant, sku="SIMPLE").count() == 2
+        # Pero solo uno está vivo
+        assert Product.objects.filter(tenant=tenant, sku="SIMPLE").count() == 1
