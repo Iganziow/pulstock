@@ -1577,7 +1577,9 @@ class MissingCostsView(APIView):
         tid = tenant_id(request)
         thirty_days_ago = date.today() - timedelta(days=30)
 
-        # Ventas por producto últimos 30 días
+        # Ventas por producto últimos 30 días.
+        # IMPORTANTE: el campo es `line_total` (no `subtotal` — ese era un
+        # bug que provocaba HTTP 500 al abrir /dashboard/forecast/costos).
         sold_qs = (
             SaleLine.objects
             .filter(
@@ -1585,7 +1587,7 @@ class MissingCostsView(APIView):
                 sale__created_at__date__gte=thirty_days_ago,
             )
             .values("product_id")
-            .annotate(qty=Sum("qty"), revenue=Sum("subtotal"))
+            .annotate(qty=Sum("qty"), revenue=Sum("line_total"))
         )
         sold_map = {
             row["product_id"]: {
