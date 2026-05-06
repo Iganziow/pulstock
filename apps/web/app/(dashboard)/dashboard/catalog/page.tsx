@@ -889,9 +889,30 @@ export default function CatalogPage() {
                   ));
                 }} />}
 
-                {/* Barcodes */}
+                {/* Barcodes
+                    Antes mostrábamos todos los códigos separados por coma.
+                    Cuando el producto tenía 3+ códigos largos (13 dígitos
+                    EAN cada uno), el texto se desbordaba del grid y se
+                    solapaba con la fila de abajo.
+                    Ahora: solo el primer código + badge "+N" si hay más.
+                    Hover muestra todos en tooltip nativo del navegador. */}
                 {!mob && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
-                  {p.barcodes?.length ? p.barcodes.map((b)=>b.code).join(", ") : <span style={{ color:C.mute }}>{"—"}</span>}
+                  {p.barcodes?.length ? (
+                    <span title={p.barcodes.map(b => b.code).join(", ")}
+                          style={{ display:"inline-flex", alignItems:"center", gap:4, maxWidth:"100%" }}>
+                      <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{p.barcodes[0].code}</span>
+                      {p.barcodes.length > 1 && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, color: C.accent,
+                          background: C.accentBg, border:`1px solid ${C.accentBd}`,
+                          borderRadius: 99, padding: "1px 6px", flexShrink: 0,
+                          fontFamily: C.font,
+                        }}>
+                          +{p.barcodes.length - 1}
+                        </span>
+                      )}
+                    </span>
+                  ) : <span style={{ color:C.mute }}>{"—"}</span>}
                 </div>}
 
                 {/* Status */}
