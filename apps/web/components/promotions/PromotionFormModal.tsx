@@ -117,7 +117,10 @@ export function PromotionFormModal({
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Tipo de descuento</label>
             <div style={{ display: "flex", gap: 16 }}>
-              {(["percentage", "fixed"] as const).map((t) => (
+              {/* Los valores son los que acepta el backend (Promotion.DISCOUNT_TYPE_CHOICES):
+                  "pct" → Porcentaje, "fixed_price" → Precio fijo. NO cambiar
+                  sin alinear con apps/api/promotions/models.py. */}
+              {(["pct", "fixed_price"] as const).map((t) => (
                 <label key={t} style={{
                   display: "flex", alignItems: "center", gap: 8,
                   fontSize: 13, color: C.text, cursor: "pointer",
@@ -127,7 +130,7 @@ export function PromotionFormModal({
                     checked={form.discount_type === t}
                     onChange={() => setForm((f) => ({ ...f, discount_type: t }))}
                   />
-                  {t === "percentage" ? "Porcentaje (%)" : "Precio fijo ($)"}
+                  {t === "pct" ? "Porcentaje (%)" : "Precio fijo ($)"}
                 </label>
               ))}
             </div>
@@ -141,22 +144,22 @@ export function PromotionFormModal({
                 position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
                 fontSize: 13, color: C.mute, fontWeight: 600, pointerEvents: "none",
               }}>
-                {form.discount_type === "percentage" ? "%" : "$"}
+                {form.discount_type === "pct" ? "%" : "$"}
               </span>
               <input
                 style={{
                   ...inputStyle,
                   paddingLeft: 32,
-                  borderColor: form.discount_type === "percentage" && Number(form.discount_value) > 100 ? C.red : C.border,
+                  borderColor: form.discount_type === "pct" && Number(form.discount_value) > 100 ? C.red : C.border,
                 }}
                 type="number" min="0" step="1"
-                max={form.discount_type === "percentage" ? "100" : undefined}
-                placeholder={form.discount_type === "percentage" ? "Ej: 30" : "Ej: 2500"}
+                max={form.discount_type === "pct" ? "100" : undefined}
+                placeholder={form.discount_type === "pct" ? "Ej: 30" : "Ej: 2500"}
                 value={form.discount_value}
                 onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))}
               />
             </div>
-            {form.discount_type === "percentage" && Number(form.discount_value) > 100 && (
+            {form.discount_type === "pct" && Number(form.discount_value) > 100 && (
               <span style={{ fontSize: 11, color: C.red }}>El porcentaje no puede ser mayor a 100%</span>
             )}
           </div>
@@ -257,7 +260,7 @@ export function PromotionFormModal({
                       {isSelected && (
                         <input
                           type="number"
-                          placeholder={form.discount_type === "percentage" ? "%" : "$"}
+                          placeholder={form.discount_type === "pct" ? "%" : "$"}
                           value={override || ""}
                           onChange={(e) => { e.stopPropagation(); setOverride(p.id, e.target.value); }}
                           onClick={(e) => e.stopPropagation()}

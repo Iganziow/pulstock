@@ -189,7 +189,7 @@ export default function PromotionsPage() {
   const handleSave = async () => {
     if (!form.name.trim()) { setFormError("El nombre es obligatorio"); return; }
     if (!form.discount_value || Number(form.discount_value) <= 0) { setFormError("El valor del descuento debe ser mayor a 0"); return; }
-    if (form.discount_type === "percentage" && Number(form.discount_value) > 100) {
+    if (form.discount_type === "pct" && Number(form.discount_value) > 100) {
       setFormError("El porcentaje no puede ser mayor a 100%"); return;
     }
     if (!form.start_date || !form.end_date) { setFormError("Las fechas son obligatorias"); return; }

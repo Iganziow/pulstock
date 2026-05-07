@@ -1,5 +1,6 @@
 import { C } from "@/lib/theme";
 import { formatCLP } from "@/lib/format";
+import type { DiscountType } from "./types";
 
 export function formatDate(iso: string) {
   if (!iso) return "—";
@@ -14,16 +15,16 @@ export function formatDatetimeLocal(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function discountLabel(type: "percentage" | "fixed", value: string) {
-  if (type === "percentage") return `${value}% OFF`;
+export function discountLabel(type: DiscountType, value: string) {
+  if (type === "pct") return `${value}% OFF`;
   return `$${formatCLP(value)} fijo`;
 }
 
-export function promoPrice(price: string, type: "percentage" | "fixed", value: string, override?: string | null) {
+export function promoPrice(price: string, type: DiscountType, value: string, override?: string | null) {
   const p = Number(price);
   const v = Number(override || value);
   if (Number.isNaN(p) || Number.isNaN(v) || v <= 0) return "—";
-  if (type === "percentage") return formatCLP(Math.round(p * (1 - v / 100)));
+  if (type === "pct") return formatCLP(Math.round(p * (1 - v / 100)));
   return formatCLP(v);
 }
 
