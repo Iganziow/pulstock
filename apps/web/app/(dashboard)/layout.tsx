@@ -96,6 +96,11 @@ type Store = { id: number; name: string; code?: string; is_active: boolean };
 // Mario reportó (07/05/26) que no veía Precios, Propinas, Movimientos,
 // Categorías ni Ofertas — todos esos items habían sido agregados solo
 // en el Sidebar.tsx muerto. Los traje al layout real.
+//
+// (07/05/26 update) Mario pidió ocultar Propinas, Movimientos y
+// Categorías del sidebar porque ya se acceden desde adentro de Caja
+// (botones/tabs en /dashboard/caja). Las rutas siguen vivas y
+// funcionando — solo no aparecen como entrada propia en el menú.
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard",                 label: "Dashboard",      icon: "dashboard" },
   { href: "/dashboard/catalog",         label: "Catálogo",       icon: "catalog",   section: "Productos", perm: "catalog" },
@@ -103,11 +108,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/prices",          label: "Precios",        icon: "sales",     perm: "catalog_write" },
   { href: "/dashboard/pos",             label: "Punto de Venta", icon: "pos",       section: "Ventas",    perm: "pos" },
   { href: "/dashboard/sales",           label: "Ventas",         icon: "sales",     perm: "sales" },
-  { href: "/dashboard/propinas",        label: "Propinas",       icon: "sales",     perm: "sales" },
   { href: "/dashboard/promotions",      label: "Ofertas",        icon: "sales",     perm: "catalog_write" },
   { href: "/dashboard/caja",            label: "Caja",           icon: "caja",      perm: "caja" },
-  { href: "/dashboard/caja/movimientos",label: "Movimientos",    icon: "caja",      perm: "caja" },
-  { href: "/dashboard/caja/categorias", label: "Categorías",     icon: "settings",  perm: "caja" },
   { href: "/dashboard/mesas",           label: "Mesas",          icon: "mesas",     perm: "pos" },
   { href: "/dashboard/purchases",       label: "Compras",        icon: "purchases", section: "Inventario", perm: "purchases" },
   { href: "/dashboard/inventory/stock", label: "Stock",          icon: "stock",     perm: "inventory" },
