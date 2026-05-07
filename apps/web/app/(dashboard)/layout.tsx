@@ -88,13 +88,26 @@ type Store = { id: number; name: string; code?: string; is_active: boolean };
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
+// IMPORTANTE: este NAV_ITEMS es la fuente real del sidebar en producción.
+// El archivo `components/Sidebar.tsx` existe pero NO se importa desde
+// ningún lado — quedó como código muerto. Cualquier nuevo menú DEBE
+// agregarse acá (de lo contrario el bundle no lo va a incluir).
+//
+// Mario reportó (07/05/26) que no veía Precios, Propinas, Movimientos,
+// Categorías ni Ofertas — todos esos items habían sido agregados solo
+// en el Sidebar.tsx muerto. Los traje al layout real.
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard",                 label: "Dashboard",      icon: "dashboard" },
   { href: "/dashboard/catalog",         label: "Catálogo",       icon: "catalog",   section: "Productos", perm: "catalog" },
   { href: "/dashboard/catalog/recetas", label: "Recetas",        icon: "recetas",   perm: "catalog" },
+  { href: "/dashboard/prices",          label: "Precios",        icon: "sales",     perm: "catalog_write" },
   { href: "/dashboard/pos",             label: "Punto de Venta", icon: "pos",       section: "Ventas",    perm: "pos" },
   { href: "/dashboard/sales",           label: "Ventas",         icon: "sales",     perm: "sales" },
+  { href: "/dashboard/propinas",        label: "Propinas",       icon: "sales",     perm: "sales" },
+  { href: "/dashboard/promotions",      label: "Ofertas",        icon: "sales",     perm: "catalog_write" },
   { href: "/dashboard/caja",            label: "Caja",           icon: "caja",      perm: "caja" },
+  { href: "/dashboard/caja/movimientos",label: "Movimientos",    icon: "caja",      perm: "caja" },
+  { href: "/dashboard/caja/categorias", label: "Categorías",     icon: "settings",  perm: "caja" },
   { href: "/dashboard/mesas",           label: "Mesas",          icon: "mesas",     perm: "pos" },
   { href: "/dashboard/purchases",       label: "Compras",        icon: "purchases", section: "Inventario", perm: "purchases" },
   { href: "/dashboard/inventory/stock", label: "Stock",          icon: "stock",     perm: "inventory" },
@@ -118,8 +131,11 @@ const ROUTE_LABELS: Record<string, string> = {
   "/dashboard":                  "Dashboard",
   "/dashboard/catalog":          "Catálogo",
   "/dashboard/catalog/recetas":  "Recetas",
+  "/dashboard/prices":           "Precios",
   "/dashboard/pos":              "Punto de Venta",
   "/dashboard/sales":            "Ventas",
+  "/dashboard/propinas":         "Propinas",
+  "/dashboard/promotions":       "Ofertas",
   "/dashboard/purchases":        "Compras",
   "/dashboard/purchases/new":    "Nueva Compra",
   "/dashboard/reports":          "Reportes",
@@ -127,6 +143,8 @@ const ROUTE_LABELS: Record<string, string> = {
   "/dashboard/inventory/kardex": "Kardex",
   "/dashboard/inventory/salidas": "Salidas",
   "/dashboard/caja":             "Caja",
+  "/dashboard/caja/movimientos": "Movimientos",
+  "/dashboard/caja/categorias":  "Categorías",
   "/dashboard/mesas":            "Mesas",
   "/dashboard/mesas/config":     "Config. Mesas",
   "/dashboard/forecast":         "Predicción",
