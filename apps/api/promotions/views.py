@@ -133,24 +133,65 @@ class PromotionDetailView(APIView):
             return Response({"detail": "No encontrado."}, status=404)
 
         from decimal import Decimal, InvalidOperation
+        from django.utils.dateparse import parse_datetime
 
-        for field in ("name", "discount_type", "is_active"):
+        # Validar discount_type contra los choices del modelo.
+        # ANTES: setattr blind aceptaba cualquier string (ej: "invalid")
+        # y quedaba guardado en DB. Mario podía corromper datos editando
+        # una promo con un discount_type inválido. Bug detectado en QA
+        # 07/05/26.
+        if "discount_type" in request.data:
+            new_dt = request.data["discount_type"]
+            valid_dts = {c[0] for c in Promotion.DISCOUNT_TYPE_CHOICES}
+            if new_dt not in valid_dts:
+                return Response(
+                    {"detail": f"discount_type debe ser uno de: {sorted(valid_dts)}"},
+                    status=400,
+                )
+            promo.discount_type = new_dt
+
+        # name e is_active son strings/bool simples — setattr OK
+        for field in ("name", "is_active"):
             if field in request.data:
                 setattr(promo, field, request.data[field])
 
-        # Validar discount_value es positivo
+        # Validar discount_value:
+        #   - Tiene que ser numérico válido
+        #   - > 0
+        #   - Si la promo es 'pct' (después del posible cambio arriba),
+        #     no puede pasar de 100. ANTES dejaba grabar 150% silencioso.
         if "discount_value" in request.data:
             try:
                 dv = Decimal(str(request.data["discount_value"]))
                 if dv <= 0:
                     return Response({"detail": "discount_value debe ser mayor a 0."}, status=400)
+                if promo.discount_type == "pct" and dv > 100:
+                    return Response(
+                        {"detail": "El porcentaje no puede ser mayor a 100."},
+                        status=400,
+                    )
                 promo.discount_value = dv
             except (InvalidOperation, ValueError, TypeError):
                 return Response({"detail": "discount_value inválido."}, status=400)
 
-        for field in ("start_date", "end_date"):
-            if field in request.data:
-                setattr(promo, field, request.data[field])
+        # Fechas — parsear y validar que end > start usando los valores
+        # FINALES (los nuevos si se mandaron, los viejos si no). ANTES
+        # se podía dejar end_date < start_date editando un solo campo.
+        if "start_date" in request.data:
+            sd = parse_datetime(str(request.data["start_date"]))
+            if not sd:
+                return Response({"detail": "start_date con formato inválido."}, status=400)
+            promo.start_date = sd
+        if "end_date" in request.data:
+            ed = parse_datetime(str(request.data["end_date"]))
+            if not ed:
+                return Response({"detail": "end_date con formato inválido."}, status=400)
+            promo.end_date = ed
+        if promo.end_date <= promo.start_date:
+            return Response(
+                {"detail": "La fecha de fin debe ser posterior a la de inicio."},
+                status=400,
+            )
 
         _update_fields = ["name", "discount_type", "is_active", "discount_value", "start_date", "end_date"]
         promo.save(update_fields=_update_fields)
