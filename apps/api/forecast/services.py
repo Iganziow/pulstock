@@ -1601,24 +1601,27 @@ def compute_ingredient_demand(tenant_id, warehouse_ids):
     derive their forecast from the parent product's forecast × recipe qty.
 
     Returns dict: {ingredient_id: derived_avg_daily_demand}
+
+    NOTA: aplica la misma conversión de unidades que sales/recipes.py
+    (`_convert_line_qty`). Sin esto, recetas con `line.unit_id` distinto de
+    `ingredient.unit_obj_id` (ej: receta dice "28 GR" pero el ingrediente
+    está en KG) sumaban valores en unidad equivocada → la predicción
+    sobreestimaba el consumo por factor 1000x. Detectado el 08/05/26.
     """
-    # Find all active recipe lines
+    # Find all active recipe lines (con join a unit + ingredient para
+    # poder convertir).
     recipe_lines = list(
         RecipeLine.objects.filter(
             tenant_id=tenant_id,
             recipe__is_active=True,
-        ).select_related("recipe").values(
-            "ingredient_id",
-            "recipe__product_id",
-            "qty",
-        )
+        ).select_related("recipe", "unit", "ingredient__unit_obj")
     )
 
     if not recipe_lines:
         return {}
 
     # Get parent product forecasts (avg_daily from model params)
-    parent_ids = set(rl["recipe__product_id"] for rl in recipe_lines)
+    parent_ids = set(rl.recipe.product_id for rl in recipe_lines)
     parent_demand = {}
     for fm in ForecastModel.objects.filter(
         tenant_id=tenant_id,
@@ -1631,15 +1634,24 @@ def compute_ingredient_demand(tenant_id, warehouse_ids):
         if avg_daily > 0:
             parent_demand[fm.product_id] = avg_daily
 
-    # Derive ingredient demand
+    # Derive ingredient demand — usando la conversión de unidades unificada.
+    from sales.recipes import _convert_line_qty
     ingredient_demand = {}
     for rl in recipe_lines:
-        parent_avg = parent_demand.get(rl["recipe__product_id"], 0)
+        parent_avg = parent_demand.get(rl.recipe.product_id, 0)
         if parent_avg <= 0:
             continue
-        ingr_id = rl["ingredient_id"]
-        derived = parent_avg * float(rl["qty"])
-        ingredient_demand[ingr_id] = ingredient_demand.get(ingr_id, 0) + derived
+        try:
+            converted_qty = _convert_line_qty(rl.qty, rl, tenant_id)
+        except Exception as exc:
+            logger.warning(
+                "Conversion fallida en compute_ingredient_demand "
+                "ingredient=%s recipe=%s: %s",
+                rl.ingredient_id, rl.recipe_id, exc,
+            )
+            continue
+        derived = parent_avg * float(converted_qty)
+        ingredient_demand[rl.ingredient_id] = ingredient_demand.get(rl.ingredient_id, 0) + derived
 
     return ingredient_demand
 
@@ -1663,11 +1675,18 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
     """
     from forecast.engine import generate_daily_forecasts
 
-    # Get all recipes where this product is an ingredient
+    # Get all recipes where this product is an ingredient.
+    # CRÍTICO: necesitamos `unit_id` y los unit_obj_id para aplicar la
+    # conversión que hace `sales/recipes.py::_convert_line_qty` cuando se
+    # ejecuta una venta. Antes el código sumaba `rl["qty"]` directo, sin
+    # convertir — entonces si la receta decía "28 GR" pero el ingrediente
+    # tenía unit_obj=KG, la predicción decía "28 unidades" mientras que
+    # la realidad descuenta "0.028 KG". MAPE explotaba 1000x.
+    # Detectado el 08/05/26 en QA del modelo.
     recipe_lines = list(
         RecipeLine.objects.filter(
             tenant=tenant, ingredient=product, recipe__is_active=True,
-        ).select_related("recipe").values("recipe__product_id", "qty")
+        ).select_related("recipe", "unit", "ingredient__unit_obj")
     )
 
     if not recipe_lines:
@@ -1675,7 +1694,7 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         return
 
     # Get parent product forecasts (day-by-day for the next horizon days)
-    parent_ids = set(rl["recipe__product_id"] for rl in recipe_lines)
+    parent_ids = set(rl.recipe.product_id for rl in recipe_lines)
     parent_forecasts = {}  # parent_id → [{date, qty_predicted}, ...]
     for parent_id in parent_ids:
         fcs = list(
@@ -1692,11 +1711,27 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
-    # Build per-recipe qty multipliers
-    recipe_multipliers = {}  # parent_id → total_qty_per_unit
+    # Build per-recipe qty multipliers.
+    # Aplicamos la MISMA conversión de unidades que usa la expansión de
+    # receta en venta (sales/recipes.py::_convert_line_qty). Reutilizamos
+    # ese helper para mantener una sola fuente de verdad — si cambia la
+    # lógica de conversión, predicción y realidad siguen alineadas.
+    from sales.recipes import _convert_line_qty
+    recipe_multipliers = {}  # parent_id → total_qty_per_unit (en la unidad del ingrediente)
     for rl in recipe_lines:
-        pid = rl["recipe__product_id"]
-        recipe_multipliers[pid] = recipe_multipliers.get(pid, Decimal("0")) + rl["qty"]
+        try:
+            converted_qty = _convert_line_qty(rl.qty, rl, tenant.id)
+        except Exception as exc:
+            # Si la conversión falla (mal configurado), saltamos esa línea
+            # en lugar de explotar el entrenamiento del tenant entero.
+            logger.warning(
+                "Conversion fallida en train_ingredient_product para "
+                "ingredient=%s recipe=%s: %s",
+                product.id, rl.recipe_id, exc,
+            )
+            continue
+        pid = rl.recipe.product_id
+        recipe_multipliers[pid] = recipe_multipliers.get(pid, Decimal("0")) + converted_qty
 
     # Derive day-by-day ingredient demand from parent forecasts
     daily_demand = {}  # date → Decimal qty
