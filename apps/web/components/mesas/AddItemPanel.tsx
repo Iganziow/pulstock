@@ -44,12 +44,25 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
     }, 250);
   }, [q]);
 
-  function addToCart(p: Product) {
+  async function addToCart(p: Product) {
     setQ(""); setResults([]);
+
+    // Consultar promo activa para este producto. Antes el carrito de
+    // mesa usaba `p.price` directo y Mario veía el precio normal aunque
+    // el producto estuviera en promo (la promo solo se aplicaba al
+    // cobrar, sorpresa al cliente). Ahora reflejamos el promo_price
+    // desde el primer click — igual que /dashboard/pos.
+    let unit_price = p.price || "0";
+    try {
+      const data = await apiFetch(`/promotions/active-for-products/?product_ids=${p.id}`);
+      const promo = data?.results?.[0];
+      if (promo?.promo_price) unit_price = String(promo.promo_price);
+    } catch { /* sin promo activa: usamos precio normal */ }
+
     setCart(prev => {
       const existing = prev.find(c => c.product.id === p.id);
       if (existing) return prev.map(c => c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c);
-      return [...prev, { product: p, qty: 1, unit_price: p.price || "0", note: "" }];
+      return [...prev, { product: p, qty: 1, unit_price, note: "" }];
     });
     inputRef.current?.focus();
   }

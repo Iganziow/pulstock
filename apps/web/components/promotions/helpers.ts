@@ -16,7 +16,17 @@ export function formatDatetimeLocal(iso: string) {
 }
 
 export function discountLabel(type: DiscountType, value: string) {
-  if (type === "pct") return `${value}% OFF`;
+  if (type === "pct") {
+    // El backend guarda "30.00" pero Mario quiere ver "30% OFF" (sin
+    // decimales innecesarios). parseFloat → toString quita los ceros
+    // trailing automáticamente y conserva los decimales reales:
+    //   "30.00"  → "30"
+    //   "30.50"  → "30.5"
+    //   "12.345" → "12.345"
+    const n = parseFloat(value);
+    const display = Number.isFinite(n) ? n.toString() : value;
+    return `${display}% OFF`;
+  }
   return `$${formatCLP(value)} fijo`;
 }
 

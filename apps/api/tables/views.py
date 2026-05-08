@@ -399,6 +399,17 @@ class AddLinesView(APIView):
         product_ids = [int(l.get("product_id", 0)) for l in items]
         products = {p.id: p for p in Product.objects.filter(tenant_id=t_id, id__in=product_ids, is_active=True)}
 
+        # Resolver promociones activas para los productos del pedido —
+        # mismo flujo que `sales.services.create_sale`. Si hay promo
+        # activa y el frontend envió un `unit_price` mayor al promo_price,
+        # FORZAMOS el promo_price. Sin esto, Mario podía ver $500 en la
+        # mesa aunque el cobro final fuera $350: el frontend "antiguo"
+        # mandaba el precio del catálogo y se grababa así. Ahora la mesa
+        # refleja el precio promocional desde el primer add. Bug
+        # detectado en QA del 08/05/26.
+        from sales.promotions import resolve_active_promotions
+        promo_map = resolve_active_promotions(product_ids, products, t_id)
+
         new_lines = []
         for item in items:
             try:
@@ -419,6 +430,14 @@ class AddLinesView(APIView):
                 return Response({"detail": "qty must be > 0"}, status=400)
             if unit_price < 0:
                 return Response({"detail": "unit_price no puede ser negativo."}, status=400)
+
+            # Aplicar promo si hay activa: mismo criterio que el POS.
+            # Solo bajamos el precio (nunca subir) — si el cliente quiere
+            # cobrar manual a un precio menor, lo respetamos.
+            if pid in promo_map:
+                _promo, promo_price = promo_map[pid]
+                if unit_price > promo_price:
+                    unit_price = promo_price
 
             note = (item.get("note") or "").strip()
             new_lines.append(

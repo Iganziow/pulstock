@@ -128,11 +128,21 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
   }, [q, activeCatId]);
 
   // ── Helpers ──
-  const addToCart = (p: CatalogProduct) => {
+  // Mismo fix que AddItemPanel: si hay promo activa, usar promo_price
+  // en vez del precio del catálogo. Sin esto, Mario veía $500 en la
+  // mesa aunque la promo bajara el cobro a $350 al cerrar.
+  const addToCart = async (p: CatalogProduct) => {
+    let unit_price = p.price || "0";
+    try {
+      const data = await apiFetch(`/promotions/active-for-products/?product_ids=${p.id}`);
+      const promo = data?.results?.[0];
+      if (promo?.promo_price) unit_price = String(promo.promo_price);
+    } catch { /* sin promo activa: precio normal */ }
+
     setCart(prev => {
       const existing = prev.find(c => c.product.id === p.id);
       if (existing) return prev.map(c => c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c);
-      return [...prev, { product: p, qty: 1, unit_price: p.price || "0", note: "" }];
+      return [...prev, { product: p, qty: 1, unit_price, note: "" }];
     });
   };
   const removeFromCart = (productId: number) => {

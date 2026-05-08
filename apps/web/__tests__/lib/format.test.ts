@@ -7,7 +7,7 @@
  *   {"detail":"Algunos productos no existen o no están activos."}
  * en pantalla. Ahora extraemos el mensaje real.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { extractErr, formatCLP } from "@/lib/format";
 
 describe("extractErr — DRF error shapes", () => {
@@ -80,6 +80,39 @@ describe("extractErr — DRF error shapes", () => {
     expect(result).not.toContain('"detail"');
     expect(result).not.toContain("{");
     expect(result).not.toContain("}");
+  });
+});
+
+describe("discountLabel — formato del %", () => {
+  // Importamos lazy para evitar problemas de path
+  let discountLabel: any;
+  beforeAll(async () => {
+    const mod = await import("@/components/promotions/helpers");
+    discountLabel = mod.discountLabel;
+  });
+
+  it("'30.00' se muestra como '30% OFF' (sin decimales innecesarios)", () => {
+    expect(discountLabel("pct", "30.00")).toBe("30% OFF");
+  });
+
+  it("'30' se muestra como '30% OFF'", () => {
+    expect(discountLabel("pct", "30")).toBe("30% OFF");
+  });
+
+  it("'30.50' conserva el decimal real → '30.5% OFF'", () => {
+    expect(discountLabel("pct", "30.50")).toBe("30.5% OFF");
+  });
+
+  it("'12.345' conserva los 3 decimales → '12.345% OFF'", () => {
+    expect(discountLabel("pct", "12.345")).toBe("12.345% OFF");
+  });
+
+  it("fixed_price usa formatCLP, no se toca", () => {
+    expect(discountLabel("fixed_price", "1500")).toBe("$1.500 fijo");
+  });
+
+  it("string no numérico devuelve el value tal cual", () => {
+    expect(discountLabel("pct", "abc")).toBe("abc% OFF");
   });
 });
 
