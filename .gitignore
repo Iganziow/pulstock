@@ -58,3 +58,8 @@ Thumbs.db
 # Celery
 celerybeat-schedule
 celerybeat.pid
+
+# Playwright E2E (artefactos locales)
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/e2e/.auth-state.json
