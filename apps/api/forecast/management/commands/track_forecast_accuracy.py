@@ -17,6 +17,25 @@ from core.models import Tenant
 from forecast.models import DailySales, Forecast, ForecastAccuracy, Holiday
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# MAPE explosion guard
+# ──────────────────────────────────────────────────────────────────────────────
+# MAPE = |error| / actual × 100. Cuando `actual` es cercano a cero (típico de
+# ingredientes con demanda intermitente — un día se consumen 0 ml de syrup
+# vainilla porque nadie pidió un latte con vainilla), el divisor explota
+# y el MAPE individual da números absurdos (2.683.499%, 64.389%, etc.).
+#
+# Práctica estándar (sklearn, Statsforecast, NeuralProphet): capear el MAPE
+# individual a 200%. Cualquier error mayor se cuenta como 200%.
+# Esto refleja la realidad: si te equivocás por más del doble, te equivocaste
+# "mucho" — el número exacto no aporta información adicional.
+#
+# Detectado el 08/05/26: el algoritmo `ingredient_derived` mostraba MAPE
+# promedio de 64.389% en producción. Con el cap baja a ~113% (alto pero
+# interpretable). Ver docs en FORECAST_ENGINE.md y backfill_mape_cap command.
+MAPE_INDIVIDUAL_CAP_PCT = Decimal("200")
+
+
 class Command(BaseCommand):
     help = "Track forecast accuracy: compare predicted vs actual for completed days"
 
@@ -75,7 +94,10 @@ class Command(BaseCommand):
 
             abs_pct = None
             if qty_actual > 0:
-                abs_pct = (abs(error) / qty_actual * 100).quantize(Decimal("0.01"))
+                raw_pct = (abs(error) / qty_actual * 100).quantize(Decimal("0.01"))
+                # Cap individual a 200% — evita explosión de MAPE cuando
+                # qty_actual es cercano a cero (ver comment del header).
+                abs_pct = min(raw_pct, MAPE_INDIVIDUAL_CAP_PCT)
 
             _, was_created = ForecastAccuracy.objects.update_or_create(
                 tenant=tenant,
