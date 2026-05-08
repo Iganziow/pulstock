@@ -70,7 +70,10 @@ export default function PromotionsPage() {
   const loadProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
-      const data = await apiFetch("/catalog/products/?page_size=500");
+      // Solo productos activos: si Mario selecciona uno inactivo, el
+      // backend rechaza con "Algunos productos no existen o no están activos".
+      // Filtrar acá evita que aparezcan productos soft-deleted en el picker.
+      const data = await apiFetch("/catalog/products/?page_size=500&is_active=true");
       setProducts(data?.results ?? []);
     } catch {
       // silently fail
