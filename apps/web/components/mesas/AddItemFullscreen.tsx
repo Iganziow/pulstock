@@ -599,12 +599,20 @@ function QtyEditModal({
   // Si Mario aprieta back con este modal abierto, queremos cerrar SOLO
   // este (el padre sigue abierto con el carrito intacto). Sin esto, el
   // back cerraría el AddItemFullscreen y perdería el carrito.
+  //
+  // (12/05/26) BUG: Mario reportó que el modal de cantidad TAMBIÉN se
+  // cerraba solo al escribir, igual que el padre. Misma causa:
+  // `[onCancel]` como dependency + padre re-renderizado por polling →
+  // cleanup ejecutaba `history.back()` → cerraba el modal. Fix con ref
+  // estable, listener mount-once.
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => { onCancelRef.current = onCancel; }, [onCancel]);
   useEffect(() => {
     let stateConsumed = false;
     window.history.pushState({ pulstockOverlay: "qtyEdit" }, "");
     const onPop = () => {
       stateConsumed = true;
-      onCancel();
+      onCancelRef.current();
     };
     window.addEventListener("popstate", onPop);
     return () => {
@@ -613,7 +621,8 @@ function QtyEditModal({
         window.history.back();
       }
     };
-  }, [onCancel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once
+  }, []);
 
   const press = (key: string) => {
     if (key === "back") {
