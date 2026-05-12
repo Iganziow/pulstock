@@ -186,14 +186,29 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
     onClose();
   }
 
+  // Ref estable para onClose. Nadia (12/05/26) reportó: "Pulstock no me
+  // deja adicionar productos, empiezo a escribir y se baja la ventana
+  // de adición". Causa: los useEffects de abajo usaban `[onClose]` como
+  // dependency, pero el padre pasa `onClose={() => setShowAddFullscreen(false)}`
+  // inline → nueva referencia en cada render → el polling de 15s del
+  // OrderPanel re-renderizaba el padre → los effects volvían a correr
+  // cleanup+setup → el cleanup del effect del back-button ejecutaba
+  // `window.history.back()` → cerraba el modal.
+  //
+  // Fix: capturar onClose en un ref y montar los listeners SOLO una vez
+  // (con []). El ref se actualiza si la referencia cambia, pero los
+  // listeners no se re-registran.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
   // Cerrar modal con tecla Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   // Integrar el back-button del navegador / gesto de back de Android.
   // Mario reportó: "si vuelvo para atrás me manda al dashboard". Como
@@ -209,7 +224,7 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
     window.history.pushState({ pulstockOverlay: "addItemFullscreen" }, "");
     const onPop = () => {
       stateConsumed = true;  // el browser ya consumió nuestro state
-      onClose();
+      onCloseRef.current();
     };
     window.addEventListener("popstate", onPop);
     return () => {
@@ -221,7 +236,9 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
         window.history.back();
       }
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once,
+    // onClose se accede vía onCloseRef para evitar el re-mount loop.
+  }, []);
 
   return (
     <div style={{

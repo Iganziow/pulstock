@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
@@ -409,6 +409,14 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       setPrinting(null);
     }
   }
+
+  // Handlers ESTABLES para AddItemFullscreen. Antes pasábamos arrows
+  // inline (`onClose={() => setShowAddFullscreen(false)}`) → nueva
+  // referencia en cada render → si el modal hijo tenía useEffects con
+  // `[onClose]` como dependency, se re-ejecutaban → cerraban el modal.
+  // Nadia reportó (12/05/26): "empiezo a escribir y se baja la ventana".
+  const handleAddClose = useCallback(() => setShowAddFullscreen(false), []);
+  const handleAddConfirm = useCallback((items: PendingLineDraft[]) => addToPending(items), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -879,8 +887,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         <AddItemFullscreen
           orderId={order.id}
           tableName={order.customer_name || tableName}
-          onConfirm={(items) => addToPending(items)}
-          onClose={() => setShowAddFullscreen(false)}
+          onConfirm={handleAddConfirm}
+          onClose={handleAddClose}
         />
       )}
     </div>
