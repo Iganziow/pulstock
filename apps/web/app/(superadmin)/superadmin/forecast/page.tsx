@@ -55,6 +55,16 @@ type ForecastData = {
   accuracy_trend: { date: string; avg_error: number; predictions: number }[];
   recent_7d: { avg_pct_error: number; total_predictions: number };
   training_logs?: TrainingLog[];
+  // WAPE (Weighted Absolute Percentage Error) — métrica complementaria
+  // al MAPE, más estable para demanda intermitente. Solo visible acá
+  // (superadmin), no se muestra al cliente final.
+  wape?: {
+    global_30d: number | null;
+    global_7d: number | null;
+    accuracy_pct_30d: number | null;
+    by_algorithm: { algorithm: string; wape: number; n: number }[];
+    explanation: string;
+  };
 };
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -358,6 +368,80 @@ export default function ForecastMetricsPage() {
           color={data.model_health.improved >= data.model_health.worsened ? C.green : C.red}
         />
       </div>
+
+      {/* WAPE — métrica complementaria al MAPE.
+          Visible SOLO en superadmin (uso interno). NO se muestra al
+          cliente final. Más estable que MAPE para demanda intermitente
+          (ingredientes con consumo no diario). */}
+      {data.wape && (
+        <div style={{
+          marginBottom: 24, padding: 16, borderRadius: 14,
+          background: C.card, border: `1px solid ${C.border}`,
+        }}>
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: ".02em" }}>
+              WAPE — Error ponderado por volumen
+            </div>
+            <div style={{ fontSize: 10, color: C.mute, textTransform: "uppercase", letterSpacing: ".08em" }}>
+              Diagnóstico interno · no visible al cliente
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: C.mute, marginBottom: 14, lineHeight: 1.5 }}>
+            {data.wape.explanation}
+          </div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+            <KpiCard
+              label="WAPE 30 días"
+              value={data.wape.global_30d != null ? `${data.wape.global_30d}%` : "—"}
+              sub={data.wape.accuracy_pct_30d != null
+                ? `Acierto promedio ${data.wape.accuracy_pct_30d}%`
+                : "Sin datos suficientes"}
+              color={data.wape.global_30d == null
+                ? C.mute
+                : data.wape.global_30d <= 30 ? C.green
+                : data.wape.global_30d <= 60 ? C.yellow : C.red}
+            />
+            <KpiCard
+              label="WAPE 7 días"
+              value={data.wape.global_7d != null ? `${data.wape.global_7d}%` : "—"}
+              sub="Más reciente · más relevante"
+              color={data.wape.global_7d == null
+                ? C.mute
+                : data.wape.global_7d <= 30 ? C.green
+                : data.wape.global_7d <= 60 ? C.yellow : C.red}
+            />
+          </div>
+          {data.wape.by_algorithm.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+                WAPE por algoritmo (30 días)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {data.wape.by_algorithm.map((row) => {
+                  const color = row.wape <= 30 ? C.green : row.wape <= 60 ? C.yellow : C.red;
+                  return (
+                    <div key={row.algorithm} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "8px 12px", background: C.bg, borderRadius: 8,
+                      borderLeft: `3px solid ${color}`,
+                    }}>
+                      <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{row.algorithm}</span>
+                      <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                        <span style={{ fontSize: 11, color: C.mute }}>n={row.n}</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>
+                          {row.wape}%
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Charts row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>

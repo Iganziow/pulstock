@@ -867,6 +867,80 @@ class AdminForecastMetricsView(APIView):
             row["date"] = str(row["date"])
             row["avg_error"] = round(float(row["avg_error"] or 0), 2)
 
+        # ── WAPE (Weighted Absolute Percentage Error) ──────────────────
+        # Métrica COMPLEMENTARIA al MAPE — más estable para demanda
+        # intermitente. WAPE pondera por volumen real en vez de promediar
+        # errores porcentuales individuales (que explotan cuando el real
+        # del día es 0 o casi 0).
+        #
+        # Fórmula:
+        #   WAPE = SUM(|actual - predicted|) / SUM(actual) × 100
+        #
+        # Por qué incluir esto (Mario pidió el 13/05/26):
+        #   El MAPE de ingredient_derived es 129% por culpa de días sin
+        #   consumo (Cacao usado solo 2 veces/semana). El WAPE de los
+        #   MISMOS productos puede ser mucho más bajo y dar una señal
+        #   más honesta.
+        #
+        # Solo se muestra acá (superadmin), NO al cliente final.
+        # Para el cliente seguimos con `confidence_label` y bandas.
+        from django.db.models.functions import Abs
+        wape_global_data = ForecastAccuracy.objects.filter(
+            date__gte=month_ago.date(),
+            qty_actual__gt=0,  # excluir días sin consumo (denominador 0)
+        ).aggregate(
+            sum_abs_error=Sum(Abs("error")),
+            sum_actual=Sum("qty_actual"),
+            n=Count("id"),
+        )
+        if wape_global_data["sum_actual"] and wape_global_data["sum_actual"] > 0:
+            wape_global = float(wape_global_data["sum_abs_error"]) / float(wape_global_data["sum_actual"]) * 100
+            wape_global = round(wape_global, 2)
+            # "Acierto promedio" para uso interno (si después lo queremos
+            # traducir al cliente como "acierta X de cada 10 veces"):
+            #   accuracy = max(0, 1 - wape/100)
+            wape_accuracy_pct = round(max(0.0, 100 - wape_global), 2)
+        else:
+            wape_global = None
+            wape_accuracy_pct = None
+
+        # WAPE por algoritmo — para identificar qué algo trabaja mejor
+        # en condiciones reales (vs el MAPE que sufre con intermitencia).
+        wape_by_algo_qs = ForecastAccuracy.objects.filter(
+            date__gte=month_ago.date(),
+            qty_actual__gt=0,
+        ).values("algorithm").annotate(
+            sum_abs_error=Sum(Abs("error")),
+            sum_actual=Sum("qty_actual"),
+            n=Count("id"),
+        ).order_by("algorithm")
+        wape_by_algo = []
+        for row in wape_by_algo_qs:
+            if row["sum_actual"] and row["sum_actual"] > 0:
+                w = float(row["sum_abs_error"]) / float(row["sum_actual"]) * 100
+                wape_by_algo.append({
+                    "algorithm": row["algorithm"],
+                    "wape": round(w, 2),
+                    "n": row["n"],
+                })
+
+        # WAPE últimos 7 días (más reciente, más relevante)
+        wape_7d_data = ForecastAccuracy.objects.filter(
+            date__gte=week_ago.date(),
+            qty_actual__gt=0,
+        ).aggregate(
+            sum_abs_error=Sum(Abs("error")),
+            sum_actual=Sum("qty_actual"),
+            n=Count("id"),
+        )
+        if wape_7d_data["sum_actual"] and wape_7d_data["sum_actual"] > 0:
+            wape_7d = round(
+                float(wape_7d_data["sum_abs_error"]) / float(wape_7d_data["sum_actual"]) * 100,
+                2,
+            )
+        else:
+            wape_7d = None
+
         # Modelos mejorados vs empeorados (con mape_delta)
         improved = active_models.filter(mape_delta__lt=0).count()
         worsened = active_models.filter(mape_delta__gt=0).count()
@@ -890,6 +964,20 @@ class AdminForecastMetricsView(APIView):
                 "total_predictions": recent_accuracy["total_predictions"],
             },
             "training_logs": self._get_training_logs(),
+            # WAPE (Weighted Absolute Percentage Error) — métrica
+            # complementaria al MAPE. Solo visible en superadmin.
+            "wape": {
+                "global_30d": wape_global,
+                "global_7d": wape_7d,
+                "accuracy_pct_30d": wape_accuracy_pct,
+                "by_algorithm": wape_by_algo,
+                "explanation": (
+                    "WAPE = Σ|error| / Σ|actual| × 100. Más estable que MAPE "
+                    "para demanda intermitente (ingredientes que se consumen "
+                    "algunos días sí y otros no). Excluye días con consumo "
+                    "real = 0 (denominador inválido)."
+                ),
+            },
         })
 
     def _get_training_logs(self):
