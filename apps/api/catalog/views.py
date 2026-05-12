@@ -1658,10 +1658,22 @@ class MissingCostsView(APIView):
             for row in sold_qs
         }
 
-        # Productos activos sin costo
+        # Productos activos sin costo.
+        # EXCLUIMOS los productos con receta activa: su costo se calcula
+        # automáticamente sumando ingredientes (sales/pricing.py:123 prioriza
+        # `recipe_costs[pid]` sobre `avg_cost`). Pedir costo manual de un
+        # Latte cuando ya tiene receta es ruido — Mario lo reportó
+        # (12/05/26): "los productos con receta es necesario poner costo?
+        # esta duda la tengo porque sus ingredientes ya llevan costo".
+        from catalog.models import Recipe
+        products_with_recipe = Recipe.objects.filter(
+            tenant_id=tid, is_active=True,
+        ).values_list("product_id", flat=True)
+
         missing = (
             Product.objects
             .filter(tenant_id=tid, is_active=True, cost=Decimal("0"))
+            .exclude(id__in=products_with_recipe)
             .select_related("category", "unit_obj")
             .only("id", "name", "sku", "category", "unit_obj", "unit", "price")
         )
