@@ -222,7 +222,20 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
   useEffect(() => {
     let stateConsumed = false;
     window.history.pushState({ pulstockOverlay: "addItemFullscreen" }, "");
-    const onPop = () => {
+    const onPop = (e: PopStateEvent) => {
+      // (13/05/26) Bug que reportó Mario: al confirmar el modal interno
+      // (QtyEditModal) la pantalla volvía a Mesas. Causa: QtyEditModal
+      // hacía history.back() al desmontarse, disparando popstate. Este
+      // listener cerraba el padre también porque NO chequeaba si el
+      // state actual seguía siendo el suyo.
+      //
+      // Regla correcta: cerrar SOLO si el state actual NO es nuestro
+      // overlay (es decir, el back nos sacó de él). Si el state actual
+      // sigue siendo "addItemFullscreen", el back vino de un hijo
+      // (qtyEdit) y debemos quedarnos abiertos.
+      if (e.state?.pulstockOverlay === "addItemFullscreen") {
+        return; // back vino de un hijo — no nos toca cerrar
+      }
       stateConsumed = true;  // el browser ya consumió nuestro state
       onCloseRef.current();
     };
@@ -610,7 +623,14 @@ function QtyEditModal({
   useEffect(() => {
     let stateConsumed = false;
     window.history.pushState({ pulstockOverlay: "qtyEdit" }, "");
-    const onPop = () => {
+    const onPop = (e: PopStateEvent) => {
+      // Solo cerramos si el state actual NO es el nuestro. Defensa
+      // simétrica al patrón del AddItemFullscreen padre (ver comentario
+      // allá). Si alguna vez se agrega un modal MÁS profundo encima de
+      // este, su history.back() no nos va a cerrar.
+      if (e.state?.pulstockOverlay === "qtyEdit") {
+        return;
+      }
       stateConsumed = true;
       onCancelRef.current();
     };
