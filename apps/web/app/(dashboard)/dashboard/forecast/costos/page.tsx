@@ -289,7 +289,7 @@ export default function MissingCostsPage() {
                 const validCost = inputCost && Number.isFinite(numCost) && numCost > 0;
                 const margin = validCost ? Math.max(0, price - numCost) : null;
                 const marginPct = validCost && price > 0 ? Math.round((margin! / price) * 100) : null;
-                // Sugerencia: 50% del precio como costo si no sabés cuánto vale
+                // Sugerencia: 50% del precio como costo si no sabes cuánto vale
                 const suggested = price > 0 ? Math.round(price * 0.5) : 0;
 
                 return (

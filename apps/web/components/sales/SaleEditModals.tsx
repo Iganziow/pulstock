@@ -403,7 +403,7 @@ export function EditTipModal({
         </div>
         <div style={{ fontSize: 11, color: C.mute, marginTop: 6, fontStyle: "italic" }}>
           La propina es del equipo y se trata aparte del ingreso del local.
-          Podés dividirla en varios métodos (ej. cliente paga débito y deja
+          Puedes dividirla en varios métodos (ej. cliente paga débito y deja
           $300 cash + $200 transferencia).
         </div>
       </div>

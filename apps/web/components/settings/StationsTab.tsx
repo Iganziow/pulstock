@@ -356,7 +356,7 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
                   background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 6,
                   fontSize: 11, color: C.mute, lineHeight: 1.5,
                 }}>
-                  <strong>No hay impresoras de PC para asignar.</strong> Si solo usás impresoras Bluetooth conectadas a un celular o tablet, dejá la estación sin impresora — los tickets saldrán igual en la BT del dispositivo que mande la comanda. Para asignar impresoras dedicadas por estación, necesitás un PC con el <em>Pulstock Printer Agent</em> (descargable en <span style={{ fontFamily: "monospace", color: C.accent }}>pulstock.cl/agent</span>).
+                  <strong>No hay impresoras de PC para asignar.</strong> Si solo usas impresoras Bluetooth conectadas a un celular o tablet, deja la estación sin impresora — los tickets saldrán igual en la BT del dispositivo que mande la comanda. Para asignar impresoras dedicadas por estación, necesitas un PC con el <em>Pulstock Printer Agent</em> (descargable en <span style={{ fontFamily: "monospace", color: C.accent }}>pulstock.cl/agent</span>).
                 </div>
               )}
             </div>

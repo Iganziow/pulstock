@@ -1312,7 +1312,7 @@ export default function CatalogPage() {
                   />
                 </div>
                 <Hint>
-                  Se actualiza solo con cada compra recibida (PPP). Podés ajustarlo manualmente acá.
+                  Se actualiza solo con cada compra recibida (PPP). Puedes ajustarlo manualmente aquí.
                 </Hint>
               </div>
               <div style={FL}>

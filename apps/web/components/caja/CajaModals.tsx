@@ -62,7 +62,7 @@ export function AddMovementModal({
             No hay caja abierta
           </div>
           <div style={{ fontSize: 13, color: C.mute, lineHeight: 1.5, marginBottom: 22 }}>
-            Para registrar un ingreso o egreso necesitás abrir un arqueo primero.
+            Para registrar un ingreso o egreso necesitas abrir un arqueo primero.
             Los movimientos quedan asociados a la sesión activa.
           </div>
           <Btn variant="primary" onClick={onClose}>

@@ -379,7 +379,7 @@ export default function AgentPage() {
           <div style={{ fontSize: 32, flexShrink: 0 }}>✅</div>
           <div>
             <div style={{ fontWeight: 700, marginBottom: 4, color: "#065F46" }}>
-              Después de eso, olvidate.
+              Después de eso, olvídate.
             </div>
             <div style={{ fontSize: 14, color: "#047857", lineHeight: 1.5 }}>
               El agente queda corriendo en segundo plano y arranca solo
