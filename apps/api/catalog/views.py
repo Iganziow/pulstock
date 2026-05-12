@@ -1784,21 +1784,53 @@ class ProductAvgCostUpdateView(APIView):
 class CostBulkUpdateView(APIView):
     """POST /catalog/products/costs/bulk/ — Actualización masiva de costos.
 
-    Mismo formato que PriceBulkUpdateView pero para el campo `cost`.
-    Pensado principalmente para el inline editor de "productos sin costo"
-    pero soporta también actualización individual.
+    Mismo formato que PriceBulkUpdateView pero para el costo. Pensado
+    principalmente para el inline editor de "productos sin costo" en
+    Predicción → /dashboard/forecast/costos.
 
     Body:
         { "updates": [{ "product_id": 1, "cost": "1500" }, ...] }
+
+    QUÉ ESCRIBE (09/05/26 — fix reportado por Mario)
+    ================================================
+    ANTES: escribía SOLO `Product.cost`, un campo legacy que casi
+    ningún cálculo lee. Mario editaba un costo desde Predicción y la
+    utilidad seguía mostrando el viejo `avg_cost` → "no se refleja
+    inmediatamente, parece que se calcula de noche".
+
+    AHORA: escribe `StockItem.avg_cost` (el campo que SÍ se usa en
+    reportes, predicciones, cálculo de utilidad y valorización) en
+    TODAS las bodegas del tenant donde el producto tenga StockItem.
+    Si el producto no tiene StockItem en ninguna bodega, se crea uno
+    en la bodega default del usuario (o la primera activa del tenant).
+
+    También seguimos actualizando `Product.cost` para mantener el
+    listado de "productos sin costo" consistente (es el campo que ese
+    endpoint chequea: cost = 0 → "falta cargar").
+
+    Cada cambio queda registrado en el kardex (StockMove ADJ qty=0 con
+    reason='cost_only') para auditoría.
     """
     permission_classes = [IsAuthenticated, HasTenant, IsManager]
 
     def post(self, request):
+        from inventory.models import StockItem, StockMove
+        from inventory.views import _get_or_create_stockitem_locked, c3
+        from core.models import Warehouse
+        from django.db import transaction
+
         tid = tenant_id(request)
         updates = request.data.get("updates")
 
         if not updates or not isinstance(updates, list):
             return Response({"detail": "Envía 'updates' como lista."}, status=400)
+
+        # Bodega fallback para productos sin StockItem en ninguna bodega.
+        # Prioriza default del usuario; cae a la primera activa del tenant.
+        fallback_wh_id = getattr(request.user, "default_warehouse_id", None)
+        if not fallback_wh_id:
+            wh = Warehouse.objects.filter(tenant_id=tid, is_active=True).order_by("id").first()
+            fallback_wh_id = wh.id if wh else None
 
         count = 0
         errors = []
@@ -1809,12 +1841,64 @@ class CostBulkUpdateView(APIView):
                 if new_cost < 0:
                     errors.append({"product_id": pid, "error": "costo no puede ser negativo"})
                     continue
-                # Solo actualiza productos que pertenecen al tenant
-                updated = Product.objects.filter(id=pid, tenant_id=tid).update(cost=new_cost)
-                if updated:
-                    count += 1
-                else:
+
+                # Verificar que el producto pertenece al tenant.
+                prod = Product.objects.filter(id=pid, tenant_id=tid).first()
+                if not prod:
                     errors.append({"product_id": pid, "error": "producto no encontrado"})
+                    continue
+
+                forced_avg = c3(new_cost)
+
+                with transaction.atomic():
+                    # 1. Actualizar Product.cost (legacy, para listado missing-costs).
+                    Product.objects.filter(id=pid, tenant_id=tid).update(cost=new_cost)
+
+                    # 2. Encontrar las bodegas donde el producto tiene StockItem.
+                    existing_wh_ids = list(
+                        StockItem.objects.filter(
+                            tenant_id=tid, product_id=pid,
+                        ).values_list("warehouse_id", flat=True)
+                    )
+
+                    # 3. Si no hay StockItem en ninguna bodega, crear uno en
+                    #    la bodega fallback. Sin esto el costo quedaba solo
+                    #    en Product.cost y los cálculos seguían usando 0.
+                    if not existing_wh_ids and fallback_wh_id:
+                        existing_wh_ids = [fallback_wh_id]
+
+                    if not existing_wh_ids:
+                        errors.append({
+                            "product_id": pid,
+                            "error": "el tenant no tiene bodegas para guardar el costo",
+                        })
+                        continue
+
+                    # 4. Para cada bodega, set avg_cost + kardex.
+                    for wh_id in existing_wh_ids:
+                        si = _get_or_create_stockitem_locked(
+                            tenant_id=tid, warehouse_id=wh_id, product_id=pid,
+                        )
+                        si = StockItem.objects.select_for_update().get(pk=si.pk)
+                        si.avg_cost = forced_avg
+                        si.stock_value = (si.on_hand * forced_avg).quantize(Decimal("0.001"))
+                        si.save(update_fields=["avg_cost", "stock_value", "updated_at"])
+
+                        StockMove.objects.create(
+                            tenant_id=tid,
+                            warehouse_id=wh_id,
+                            product_id=pid,
+                            move_type="ADJ",
+                            qty=Decimal("0.000"),
+                            unit_cost=forced_avg,
+                            cost_snapshot=forced_avg,
+                            value_delta=Decimal("0.000"),
+                            reason="cost_only",
+                            note="Ajuste de costo desde Predicción (costos faltantes)",
+                            created_by=request.user if request.user.is_authenticated else None,
+                        )
+
+                count += 1
             except (KeyError, InvalidOperation, ValueError, TypeError) as e:
                 errors.append({"product_id": item.get("product_id"), "error": str(e)})
 
