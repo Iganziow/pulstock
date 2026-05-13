@@ -99,9 +99,32 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if ens:
             candidates.append(ens)
 
-    # Pick best: for intermittent use MAE (MAPE unreliable with zeros)
+    # Pick best: for intermittent use MAE (MAPE unreliable with zeros).
     if demand_pattern in ("intermittent", "lumpy"):
-        best = min(candidates, key=lambda c: (c["metrics"]["mae"], c["metrics"]["mape"]))
+        # PREFERENCIA por Croston cuando demanda es intermitente
+        # ──────────────────────────────────────────────────────
+        # (13/05/26) Croston/Croston_SBA están diseñados específicamente
+        # para demanda intermitente. Otros algoritmos (simple_avg,
+        # moving_avg, theta) pueden dar MAE puntualmente menor en el
+        # backtest porque "promedian a 0" en los días sin demanda — pero
+        # operativamente son inútiles: predicen consumo todos los días
+        # cuando la realidad es esporádica.
+        #
+        # Estrategia: si Croston o Croston-SBA son candidatos viables
+        # (pasaron backtest, no devolvieron MAE sentinel de error),
+        # preferirlos. Entre los dos Croston, el de menor MAE.
+        croston_candidates = [
+            c for c in candidates
+            if c["algorithm"] in ("croston", "croston_sba")
+            and c["metrics"]["mae"] < 998
+        ]
+        if croston_candidates:
+            best = min(
+                croston_candidates,
+                key=lambda c: (c["metrics"]["mae"], c["metrics"]["mape"]),
+            )
+        else:
+            best = min(candidates, key=lambda c: (c["metrics"]["mae"], c["metrics"]["mape"]))
     else:
         best = min(candidates, key=lambda c: (c["metrics"]["mape"], c["metrics"]["mae"]))
     best["demand_pattern"] = demand_pattern
