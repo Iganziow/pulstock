@@ -1,13 +1,30 @@
 """
 compute_category_profiles
 =========================
-Nightly cron (02:30): computes per-category demand averages for Bayesian priors.
+Nightly cron (02:30): computes per-category demand prior for Bayesian forecasts.
 
 Usage:
     python manage.py compute_category_profiles
     python manage.py compute_category_profiles --tenant 1
     python manage.py compute_category_profiles --days 60
+
+Estadística usada (cambio 13/05/26)
+-----------------------------------
+Antes: promedio simple de los promedios diarios por producto.
+  Problema: 1 producto popular (ej: Café Americano vende 50/día) infla
+  el avg para todos los productos de la categoría. Resultado: el
+  category_prior predecía 13/día para "Caja torta" (real 0,1/día) →
+  WAPE 552% en producción.
+
+Ahora: MEDIANA de productos con consumo > 0.
+  - Robusta a outliers: 1 producto popular no afecta a los lentos.
+  - Excluye productos con 0 ventas en la ventana (no son señal del
+    nivel "típico" de la categoría, son ruido).
+  - Si todos los productos venden 0, devuelve 0 (categoría inactiva).
+
+Reportado por Mario el 13/05/26. Documentado en superadmin/forecast.
 """
+import statistics
 from datetime import date, timedelta
 from decimal import Decimal
 from collections import defaultdict
@@ -20,6 +37,23 @@ from django.utils import timezone
 from core.models import Tenant, Warehouse
 from catalog.models import Product
 from forecast.models import DailySales, CategoryDemandProfile
+
+
+def category_prior_estimator(per_product_avgs):
+    """
+    Calcula el "nivel típico" de demanda diaria de una categoría.
+
+    Política (13/05/26):
+      1. Excluir productos con 0 ventas (ruido — no muestran el nivel
+         típico de la categoría, solo dicen "esto no se vende").
+      2. Tomar la MEDIANA de los restantes.
+      3. Si todos son 0, devolver 0 (categoría inactiva — predicción
+         razonable: no se va a vender).
+    """
+    nonzero = [v for v in per_product_avgs if v > 0]
+    if not nonzero:
+        return 0.0
+    return statistics.median(nonzero)
 
 
 class Command(BaseCommand):
@@ -116,8 +150,13 @@ class Command(BaseCommand):
                 if not per_product_avgs:
                     continue
 
+                # MEDIANA (en vez de promedio) de productos con consumo > 0.
+                # Ver docstring del módulo para el por qué del cambio.
+                # Mantenemos el nombre `avg_daily` por retrocompat con el
+                # field y los modelos consumidores — semánticamente ahora
+                # es "nivel típico" no "promedio".
                 avg_daily = Decimal(str(
-                    sum(per_product_avgs) / len(per_product_avgs)
+                    category_prior_estimator(per_product_avgs)
                 )).quantize(Decimal("0.001"))
 
                 # DOW factors for this category+warehouse.
