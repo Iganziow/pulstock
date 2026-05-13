@@ -844,6 +844,33 @@ def train_product_model(tenant, product, warehouse_id, today,
     )
 
     if best["algorithm"] == "none" or not best["forecasts"]:
+        # FALLBACK a category_prior (13/05/26)
+        # ────────────────────────────────────
+        # Cuando ningún algoritmo es elegible o todos fallan en backtest
+        # (común con poca data + mucha intermitencia + zeros), antes
+        # solo skipeábamos. Eso dejaba al producto SIN modelo.
+        # Ahora intentamos category_prior como red de seguridad — al
+        # menos da una predicción razonable basada en la mediana de
+        # la categoría. Importa más tener algo malo que nada.
+        try:
+            from forecast.management.commands.train_forecast_models import Command
+            from forecast.models import CategoryDemandProfile
+            cp = CategoryDemandProfile.objects.filter(
+                tenant=tenant, category=product.category, warehouse_id=warehouse_id,
+            ).first() if product.category_id else None
+            if cp:
+                category_profiles = {(cp.category_id, cp.warehouse_id): cp}
+                from forecast.services import train_sparse_product
+                train_sparse_product(
+                    tenant, product, warehouse_id, today,
+                    horizon, stock_items, category_profiles, stats,
+                )
+                return
+        except Exception as e:
+            logger.warning(
+                "Fallback a category_prior falló para product %s: %s",
+                product.id, e,
+            )
         stats["skipped"] += 1
         return
 
