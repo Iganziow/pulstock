@@ -185,6 +185,30 @@ class Command(BaseCommand):
                     else:
                         dow_factors[dow] = 1.0
 
+                # NORMALIZACIÓN (13/05/26)
+                # ──────────────────────────
+                # Los dow_factors son RATIOS (consumo del día / avg_daily)
+                # y por construcción su promedio debería ser ~1.0 para
+                # que la predicción semanal cuadre con 7×avg_daily.
+                # PERO: el numerador (`dow_avg`) usa el promedio bruto
+                # de TODOS los productos de la categoría ese día, mientras
+                # que el denominador (`avg_daily`) ahora usa la MEDIANA
+                # de productos con consumo>0. Esos dos no son
+                # comparables — su ratio puede dar 30+ y eso re-infla
+                # las predicciones.
+                #
+                # Fix: renormalizar los factores >0 para que promedien
+                # exactamente 1.0. Preserva la FORMA semanal (qué día
+                # vende más vs menos) pero no escala el avg.
+                positive_factors = [v for v in dow_factors.values() if v > 0]
+                if positive_factors:
+                    factor_mean = sum(positive_factors) / len(positive_factors)
+                    if factor_mean > 0:
+                        dow_factors = {
+                            k: round(v / factor_mean, 3) if v > 0 else 0.0
+                            for k, v in dow_factors.items()
+                        }
+
                 CategoryDemandProfile.objects.update_or_create(
                     tenant=tenant,
                     category_id=cat_id,
