@@ -98,8 +98,15 @@ def _croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
 
 
 def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
-    """Walk-forward cross-validation for Croston with alpha grid search."""
-    min_train = test_days + 7
+    """Walk-forward cross-validation for Croston with alpha grid search.
+
+    (13/05/26) min_train bajado de 14 a 7 días: con 14 días totales y el
+    requisito anterior (21), Croston nunca podía ser backtesteado en el
+    inicio del modelo. Ahora con 14 días totales (7 train + 7 test)
+    Croston puede competir. Con 21+ días vuelve a usar el split más
+    holgado automáticamente porque hay más folds.
+    """
+    min_train = max(7, test_days)
     if len(daily_series) < min_train + test_days:
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0, "best_alpha": 0.15}
 
