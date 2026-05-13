@@ -788,6 +788,29 @@ def train_product_model(tenant, product, warehouse_id, today,
             promo_dates.add(dt)
         raw_series.append((dt, max(organic, Decimal("0"))))
 
+    # ── FILL ZEROS para detectar intermitencia (13/05/26) ────────────
+    # aggregate_daily_sales solo crea DailySales para días con venta.
+    # Para productos intermitentes (ej: Vasos chicos vende 1-2 veces/sem),
+    # raw_series tenía 6 entradas en vez de 30, lo que:
+    #   1) Hacía fallar el filtro `len < min_days` → no se entrenaba
+    #   2) classify_demand_pattern veía density 100% → smooth
+    # Rellenamos los huecos con 0 para que el clasificador y los
+    # algoritmos vean la realidad: hay demanda esporádica.
+    if raw_series:
+        span_start = raw_series[0][0]
+        span_end = today
+        existing_by_date = {dt: qty for dt, qty in raw_series}
+        full_series = []
+        current = span_start
+        while current <= span_end:
+            full_series.append((current, existing_by_date.get(current, Decimal("0"))))
+            current += timedelta(days=1)
+        raw_series = full_series
+
+    # min_days ahora se evalúa contra el SPAN total, no el count de
+    # filas de DailySales. Producto con 6 ventas en 30 días pasa
+    # min_days=10 (porque span=30) y entra a select_best_model donde
+    # Croston puede manejarlo mejor que category_prior.
     if len(raw_series) < min_days:
         stats["skipped"] += 1
         return
