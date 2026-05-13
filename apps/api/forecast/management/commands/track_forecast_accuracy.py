@@ -63,6 +63,21 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Tracked {total} accuracy records"))
 
+        # Recalibrar confidence_label automáticamente con el WAPE real
+        # actualizado (13/05/26). Esto resuelve el bug "el sistema dice
+        # medium pero el MAPE real es 129%". Después de cada track
+        # nocturno, los labels se actualizan a la realidad.
+        from django.core.management import call_command
+        try:
+            self.stdout.write("Recalibrando confidence_label con WAPE real...")
+            call_command("recalibrate_confidence", days=14, verbosity=0)
+        except Exception as e:
+            # No queremos que falle el track si la recalibración falla.
+            # El track es lo crítico (calcular accuracy); recal es UX.
+            self.stderr.write(self.style.WARNING(
+                f"Recalibración falló (no crítico): {e}"
+            ))
+
     def _track_day(self, tenant, target_date):
         """Compare forecasts vs actuals for one tenant on one day."""
         # Get all forecasts that were made for this date
