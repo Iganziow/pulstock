@@ -173,18 +173,28 @@ class Command(BaseCommand):
 
         trained_keys = set()  # (product_id, warehouse_id) already processed
 
-        # Batch: fetch (product_id, warehouse_id, count) in one query
-        from django.db.models import Count
+        # Batch: fetch (product_id, warehouse_id, span) in one query
+        # CAMBIO 13/05/26: usar SPAN (today - first_date + 1) en vez de
+        # COUNT de filas DailySales. aggregate_daily_sales solo crea
+        # filas para días con venta — un producto intermitente que vendió
+        # 6 días en 30 tenía n_days=6 < min_days=10 y se iba a
+        # category_prior (sin pasar por select_best_model). Con SPAN,
+        # el mismo producto tiene n_days=30 → entra al flujo de Croston.
+        from django.db.models import Count, Min
         daily_stats = (
             DailySales.objects.filter(tenant=tenant, product__in=products)
             .values("product_id", "warehouse_id")
-            .annotate(n_days=Count("id"))
+            .annotate(n_filas=Count("id"), first_date=Min("date"))
         )
-        # Map: product_id → [(warehouse_id, n_days), ...]
+        # Map: product_id → [(warehouse_id, n_days_for_filter), ...]
         product_wh_days = {}
         for row in daily_stats:
+            span = (today - row["first_date"]).days + 1 if row["first_date"] else row["n_filas"]
+            # Tomamos el mayor entre count y span (defensa por si span < count
+            # por algún edge case con fechas raras).
+            n_days_for_filter = max(row["n_filas"], span)
             product_wh_days.setdefault(row["product_id"], []).append(
-                (row["warehouse_id"], row["n_days"])
+                (row["warehouse_id"], n_days_for_filter)
             )
 
         # Identify ingredient-only products (used in recipes, for BOM forecasting)
