@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -81,21 +81,35 @@ export default function MesasPage() {
 
   // Initial load + auto-refresh.
   //
-  // Performance fixes (Mario reportó "está más lento"):
-  //   - Intervalo subido de 20s a 60s — cada refresh dispara 1 GET tables
-  //     + 1 GET por cada mesa abierta. Con 4 mesas activas = 5 requests
-  //     cada 20s = 900/hora. Con 60s baja a 300/hora (3x menos).
-  //   - Cuando el user está VIENDO una mesa específica, solo refrescamos
-  //     ESA mesa (no todas las demás orders en background). Reduce ~80%
-  //     de las requests durante uso activo.
-  //   - Pausamos el refresh cuando el documento está oculto (otra pestaña
-  //     o app en background) — el browser API document.hidden.
+  // (14/05/26) Optimización adicional: cuando el cajero está viendo una
+  // mesa específica (selectedTable != null), el OrderPanel hace su
+  // propio polling de ESA mesa cada 30s. Acá solo refrescamos la lista
+  // global de mesas (state OPEN/FREE) sin re-fetchear las orders de
+  // todas las mesas abiertas — eso reduce ~80% del tráfico durante el
+  // uso activo (operar una mesa).
+  //
+  // Mario reportó (14/05) que el navegador estaba haciendo 84 req/min.
+  // Con esta optimización + el fix de refs estables del OrderPanel, ese
+  // número baja a ~5-8 req/min para uso normal.
+  //
+  // Refs estables: usamos selectedTableRef para que el polling NO se
+  // reinicie cada vez que el usuario cambia de mesa seleccionada. El
+  // setInterval queda activo SOLO una vez (montaje del componente).
+  const selectedTableRef = useRef(selectedTable);
+  useEffect(() => { selectedTableRef.current = selectedTable; }, [selectedTable]);
+
   useEffect(() => {
     let active = true;
     async function refresh() {
       if (typeof document !== "undefined" && document.hidden) return;
       const tbls = await loadTables();
-      if (active) await loadAllOrders(tbls);
+      if (!active) return;
+      // Si NO hay mesa seleccionada (vista de salón), refrescamos todas
+      // las orders. Si SÍ hay mesa seleccionada, OrderPanel ya hace su
+      // propio polling — acá solo actualizamos la lista de mesas.
+      if (!selectedTableRef.current) {
+        await loadAllOrders(tbls);
+      }
     }
     refresh();
     const id = setInterval(refresh, 60_000);

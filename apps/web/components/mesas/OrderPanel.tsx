@@ -64,26 +64,43 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     return idemKeyRef.current;
   }
 
-  // Polling: refrescar la mesa cada 15s para mitigar el caso de
+  // Polling: refrescar la mesa cada 30s para mitigar el caso de
   // concurrencia entre dispositivos (cajero A agrega items, cajero B
   // ve los cambios sin tener que cerrar y reabrir la mesa).
-  // Se PAUSA si hay modal de pago abierto (no querer refrescar mientras
-  // el cajero está cobrando), o si está confirmando pendientes.
+  //
+  // (14/05/26) Cambios para reducir carga del navegador (Mario reportó
+  // 84 req/min cuando solo deberían ser ~4):
+  //   - Subido de 15s → 30s (la mitad de tráfico).
+  //   - Refs estables para showPayment/confirmingPending/cancelling y
+  //     onOrderUpdate. Sin esto, CADA cambio de modal o re-render del
+  //     padre disparaba cleanup+setup del setInterval. En el peor caso
+  //     (race condition durante el cleanup), el clearInterval no se
+  //     ejecutaba antes de crear el nuevo → setIntervals duplicados
+  //     acumulándose. Con refs, el effect SOLO depende de order.id.
+  const pollingStateRef = useRef({ showPayment, confirmingPending, cancelling });
   useEffect(() => {
-    if (showPayment || confirmingPending || cancelling) return;
+    pollingStateRef.current = { showPayment, confirmingPending, cancelling };
+  }, [showPayment, confirmingPending, cancelling]);
+  const onOrderUpdateRef = useRef(onOrderUpdate);
+  useEffect(() => { onOrderUpdateRef.current = onOrderUpdate; }, [onOrderUpdate]);
+
+  useEffect(() => {
     const interval = setInterval(async () => {
-      // No refrescar si la pestaña está oculta — ahorra requests si
-      // el cajero dejó la mesa abierta en una pestaña secundaria.
+      // Pausa el polling si hay modal de pago/confirm/cancel activo,
+      // o si la pestaña no está visible (cajero dejó la mesa en otra
+      // pestaña/app y no necesita refrescos en background).
+      const st = pollingStateRef.current;
+      if (st.showPayment || st.confirmingPending || st.cancelling) return;
       if (typeof document !== "undefined" && document.hidden) return;
       try {
         const updated = await apiFetch(`/tables/orders/${order.id}/`);
-        onOrderUpdate(updated);
+        onOrderUpdateRef.current(updated);
       } catch {
         // 404/network: el parent maneja el error en el próximo render
       }
-    }, 15000);
+    }, 30000);
     return () => clearInterval(interval);
-  }, [order.id, showPayment, confirmingPending, cancelling, onOrderUpdate]);
+  }, [order.id]);
 
   // Acumula items del AddItemFullscreen en pendingItems. Si el mismo
   // producto ya está, suma cantidades.
