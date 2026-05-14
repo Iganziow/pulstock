@@ -116,6 +116,29 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Banner informativo cuando el usuario llegó acá por sesión expirada
+  // (el redirect viene desde apiFetch con ?reason=session_expired).
+  // Mario reportó (14/05/26): después de un logout forzado, el navegador
+  // mostraba "El servidor tardó demasiado" sin contexto. Ahora informamos
+  // claramente que la sesión expiró y debe loguearse de nuevo.
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("reason");
+    if (reason === "session_expired") {
+      setInfoMsg("Tu sesión expiró por inactividad. Inicia sesión para continuar.");
+    } else if (reason === "no_session") {
+      setInfoMsg("Para continuar, inicia sesión.");
+    }
+    // Limpiar el query param después de leerlo (estética).
+    if (reason) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reason");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -205,6 +228,23 @@ export default function LoginPage() {
               Ingresa a tu cuenta
             </p>
           </div>
+
+          {/* Banner informativo (sesión expirada). Se muestra ANTES del
+              error de credenciales — si el user llega del redirect y
+              después se equivoca de password, el banner desaparece. */}
+          {infoMsg && !err && (
+            <div className="error-bar" style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "12px 16px", borderRadius: 12,
+              background: C.amberBg, border: `1px solid ${C.amberBd}`,
+              marginBottom: 20,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinecap="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span style={{ fontSize: 13, color: C.amber, fontWeight: 500 }}>{infoMsg}</span>
+            </div>
+          )}
 
           {/* Error */}
           {err && (
