@@ -52,31 +52,34 @@ export default function MesasPage() {
     apiFetch("/core/me/").then(d => setUserRole(d?.role || "")).catch(() => setUserRole(""));
   }, []);
 
-  // Load all tables
+  // Load all tables CON sus orders activas inline (?include_orders=true).
+  // (15/05/26) Mario reportó "lentitud con local lleno". Antes:
+  //   1 GET /tables/tables/ + N GET /tables/{id}/order/ (loadAllOrders)
+  // Con 10 mesas OPEN eran 11 requests por refresh (y este flujo se
+  // dispara 5 veces: initial, polling 60s, openOrder, createCounterOrder,
+  // refreshOrder). Ahora 1 sola request lo hace todo. Backend devuelve
+  // active_order COMPLETO (lines + subtotal_unpaid) cuando hay orden activa.
   const loadTables = useCallback(async () => {
     try {
-      const data = await apiFetch("/tables/tables/");
-      setTables(data || []);
-      return data || [];
+      const data = await apiFetch("/tables/tables/?include_orders=true");
+      const list: Table[] = data || [];
+      setTables(list);
+      // Mantener allOrders actualizado a partir del active_order que ya
+      // viene en cada mesa — sin requests adicionales. Eliminamos
+      // loadAllOrders por completo.
+      const map: Record<number, Order> = {};
+      for (const t of list) {
+        if (t.status === "OPEN" && t.active_order && (t.active_order as any).lines) {
+          map[t.id] = t.active_order as unknown as Order;
+        }
+      }
+      setAllOrders(map);
+      return list;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al cargar mesas";
       setOpenErr(msg);
       return [];
     } finally { setLoading(false); }
-  }, []);
-
-  // Load all open orders (for summary panel)
-  const loadAllOrders = useCallback(async (tbls: Table[]) => {
-    const openTables = tbls.filter(t => t.status === "OPEN" && t.active_order);
-    if (openTables.length === 0) { setAllOrders({}); return; }
-    try {
-      const orders = await Promise.all(
-        openTables.map(t => apiFetch(`/tables/tables/${t.id}/order/`).catch(() => null))
-      );
-      const map: Record<number, Order> = {};
-      openTables.forEach((t, i) => { if (orders[i]) map[t.id] = orders[i]; });
-      setAllOrders(map);
-    } catch { /* ignore */ }
   }, []);
 
   // Initial load + auto-refresh.
@@ -102,19 +105,15 @@ export default function MesasPage() {
     let active = true;
     async function refresh() {
       if (typeof document !== "undefined" && document.hidden) return;
-      const tbls = await loadTables();
+      // loadTables ahora trae las orders inline (?include_orders=true) y
+      // pobla allOrders en el mismo step. No necesita un segundo fetch.
+      await loadTables();
       if (!active) return;
-      // Si NO hay mesa seleccionada (vista de salón), refrescamos todas
-      // las orders. Si SÍ hay mesa seleccionada, OrderPanel ya hace su
-      // propio polling — acá solo actualizamos la lista de mesas.
-      if (!selectedTableRef.current) {
-        await loadAllOrders(tbls);
-      }
     }
     refresh();
     const id = setInterval(refresh, 60_000);
     return () => { active = false; clearInterval(id); };
-  }, [loadTables, loadAllOrders]);
+  }, [loadTables]);
 
   // Derived data
   const regularTables = tables.filter(t => !t.is_counter);
@@ -153,8 +152,8 @@ export default function MesasPage() {
     try {
       const data = await apiFetch(`/tables/tables/${table.id}/open/`, { method: "POST", body: JSON.stringify({}) });
       setOrder(data);
-      const tbls = await loadTables();
-      await loadAllOrders(tbls);
+      // loadTables ya pobla allOrders inline — sin loadAllOrders extra.
+      await loadTables();
       setSelectedTable(t => t ? { ...t, status: "OPEN" } : t);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al abrir la mesa";
@@ -169,8 +168,7 @@ export default function MesasPage() {
         method: "POST",
         body: JSON.stringify({ customer_name: customerName.trim() }),
       });
-      const tbls = await loadTables();
-      await loadAllOrders(tbls);
+      await loadTables();
       const ct: Table = {
         id: data.table_id, name: data.table_name, capacity: 1, status: "OPEN",
         is_active: true, zone: "", is_counter: true,
@@ -187,7 +185,6 @@ export default function MesasPage() {
 
   async function refreshOrder() {
     const tbls = await loadTables();
-    await loadAllOrders(tbls);
     if (!selectedTable) return;
     const t = tbls.find((x: Table) => x.id === selectedTable.id);
     if (t) {

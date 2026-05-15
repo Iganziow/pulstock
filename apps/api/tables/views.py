@@ -34,6 +34,16 @@ def _w(request):
 
 
 def _table_data(table):
+    return _table_data_with_order(table, include_lines=False)
+
+
+def _table_data_with_order(table, include_lines=False):
+    """
+    Serializa una mesa con su orden activa.
+    Si include_lines=True, devuelve la orden COMPLETA (lines + subtotal_unpaid)
+    en active_order, equivalente a llamar /tables/{id}/order/. Permite que
+    el frontend cargue todo en 1 sola request en vez de 1 + N.
+    """
     active_order = None
     if table.status == Table.STATUS_OPEN:
         # IMPORTANTE: usar `.all()` (no `.filter()`) para aprovechar el
@@ -46,19 +56,43 @@ def _table_data(table):
         open_orders = list(table.orders.all())
         order = open_orders[0] if open_orders else None
         if order:
+            all_lines = list(order.lines.all())
             active_lines = [
-                l for l in order.lines.all()
+                l for l in all_lines
                 if not l.is_paid and not l.is_cancelled
             ]
-            active_order = {
-                "id": order.id,
-                "opened_at": order.opened_at.isoformat(),
-                "items_count": len(active_lines),
-                "subtotal": str(
-                    sum(l.qty * l.unit_price for l in active_lines)
-                ),
-                "customer_name": order.customer_name,
-            }
+            if include_lines:
+                # Versión completa equivalente a /tables/{id}/order/, pero
+                # construida con los lines YA prefetched (no dispara queries
+                # nuevas). Ordenamos en Python para no invalidar el cache.
+                sorted_lines = sorted(all_lines, key=lambda l: l.added_at)
+                active_order = {
+                    "id": order.id,
+                    "table_id": order.table_id,
+                    "table_name": table.name,  # del select_related
+                    "status": order.status,
+                    "opened_by": order.opened_by.get_full_name() or order.opened_by.email,
+                    "opened_at": order.opened_at.isoformat(),
+                    "closed_at": order.closed_at.isoformat() if order.closed_at else None,
+                    "customer_name": order.customer_name,
+                    "note": order.note,
+                    "warehouse_id": order.warehouse_id,
+                    "lines": [_line_data(l) for l in sorted_lines],
+                    "subtotal_unpaid": str(
+                        sum((l.qty * l.unit_price).quantize(Decimal("0.01")) for l in active_lines)
+                    ),
+                }
+            else:
+                # Resumen liviano (legacy)
+                active_order = {
+                    "id": order.id,
+                    "opened_at": order.opened_at.isoformat(),
+                    "items_count": len(active_lines),
+                    "subtotal": str(
+                        sum(l.qty * l.unit_price for l in active_lines)
+                    ),
+                    "customer_name": order.customer_name,
+                }
     return {
         "id":           table.id,
         "name":         table.name,
@@ -140,12 +174,34 @@ def _order_data(order, include_lines=False):
 
 class TableListCreate(APIView):
     """GET /tables/tables/ — list active tables with current order summary.
-       POST /tables/tables/ — create a table."""
+       POST /tables/tables/ — create a table.
+
+    Query params:
+      ?include_orders=true — incluir el detalle COMPLETO de la orden activa
+                             de cada mesa (lines, subtotal_unpaid). Sin esto,
+                             solo devuelve el resumen (id, items_count, subtotal).
+
+    Mario reportó lentitud con local lleno. El frontend de /dashboard/mesas
+    hacía 1 GET /tables/tables/ + N GET /tables/{id}/order/ para precargar
+    detalles de cada mesa OPEN (loadAllOrders). Con 10 mesas activas son
+    11 requests por refresh + 11 cada 60s del polling padre. Ahora con
+    ?include_orders=true es 1 sola request con todos los detalles inline.
+    """
     permission_classes = [IsAuthenticated, HasTenant]
 
     def get(self, request):
         t_id = _t(request); s_id = _s(request)
         from .models import OpenOrder, OpenOrderLine
+        include_orders = (request.query_params.get("include_orders", "").lower()
+                          in ("true", "1", "yes"))
+        # Si include_orders=true, prefetch más agresivo: necesitamos product
+        # y added_by para serializar las líneas completas en _order_data.
+        if include_orders:
+            lines_prefetch = OpenOrderLine.objects.select_related(
+                "product", "product__category", "added_by",
+            ).order_by("added_at")
+        else:
+            lines_prefetch = OpenOrderLine.objects.all()
         tables = (
             Table.objects
             .filter(tenant_id=t_id, store_id=s_id, is_active=True)
@@ -154,12 +210,19 @@ class TableListCreate(APIView):
                     "orders",
                     queryset=OpenOrder.objects.filter(
                         status=OpenOrder.STATUS_OPEN
-                    ).prefetch_related("lines"),
+                    ).select_related(
+                        "table", "opened_by",
+                    ).prefetch_related(
+                        Prefetch("lines", queryset=lines_prefetch),
+                    ),
                 )
             )
             .order_by("name")[:200]  # Cap to prevent unbounded response
         )
-        return Response([_table_data(t) for t in tables])
+        return Response([
+            _table_data_with_order(t, include_lines=include_orders)
+            for t in tables
+        ])
 
     def post(self, request):
         t_id = _t(request); s_id = _s(request)
