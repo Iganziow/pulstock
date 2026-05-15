@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.http_cache import browser_cache
 from core.permissions import HasTenant, IsManager
 
 logger = logging.getLogger(__name__)
@@ -254,9 +255,15 @@ class PromotionDetailView(APIView):
 # ── Active promotions for POS ─────────────────────────────────────────────
 
 class ActivePromotionsForProductsView(APIView):
-    """GET /api/promotions/active-for-products/?product_ids=1,2,3"""
+    """GET /api/promotions/active-for-products/?product_ids=1,2,3
+
+    Cache: 60s privado. Las promociones cambian poco (Mario las crea/edita
+    desde admin, no en caliente). Mejora notoria en panel POS / mesas que
+    consultan este endpoint en cada apertura.
+    """
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @browser_cache(max_age=60)
     def get(self, request):
         raw = request.query_params.get("product_ids", "")
         try:

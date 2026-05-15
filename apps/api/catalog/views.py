@@ -1,11 +1,13 @@
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q, Prefetch, Exists, OuterRef, Count, F, Case, When, Value
 from django.db.models.functions import Greatest
+from django.utils.decorators import method_decorator
 from rest_framework import generics, serializers, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from decimal import Decimal,InvalidOperation
+from api.http_cache import browser_cache
 from core.permissions import HasTenant, IsManager, IsManagerOrReadOnly
 from .models import Category, Product, Barcode, Recipe, RecipeLine, Unit
 from .serializers import (
@@ -72,11 +74,16 @@ class CategoryDetail(generics.RetrieveUpdateAPIView):
 # -----------------------
 # Products
 # -----------------------
+@method_decorator(browser_cache(max_age=30), name="get")
 class ProductListCreate(generics.ListCreateAPIView):
     """
     Catálogo:
     - GET /api/catalog/products/?q=
     - POST /api/catalog/products/
+
+    Cache: GET 30s privado (browser-only). El catálogo cambia poco durante
+    el día — Mario puede ver un producto recién creado con hasta 30s de
+    delay (aceptable). El POST/PATCH no se cachean (decorador solo aplica a get).
     """
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
 
