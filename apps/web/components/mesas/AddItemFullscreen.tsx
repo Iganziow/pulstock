@@ -103,31 +103,42 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
       .catch(() => setCategories([]));
   }, []);
 
-  // (15/05/26) BUSQUEDA LOCAL — antes cada keystroke disparaba una request:
-  //   debounce 280ms + RTT 246ms (Chile↔Helsinki) + 35ms backend + 246ms = ~810ms PER LETTER
-  //   "Emp" (3 letras) → ~2.5 segundos perceptuales
+  // (15/05/26) BUSQUEDA HIBRIDA LOCAL+BACKEND — auto-detect por tamaño tenant.
   //
-  // Mario tiene <500 productos. Cargamos TODOS al abrir (1 request,
-  // cacheada 30s con browser_cache backend) y filtramos LOCAL en cada
-  // keystroke → INSTANTÁNEO (0ms, sin red).
+  // Antes cada keystroke disparaba una request:
+  //   debounce 280ms + RTT 246ms (Chile↔Helsinki) + 35ms backend + 246ms
+  //   = ~810ms PER LETTER. "Emp" (3 letras) → 2.5 segundos perceptuales.
   //
-  // Si en el futuro algún tenant tiene >2000 productos, el filtro local
-  // sigue siendo rápido en JS pero la primera carga tardaría más. Para
-  // entonces agregar fallback a búsqueda backend cuando q.length >= 2.
+  // Approach hibrido (Pulstock es SaaS, debe escalar a tenants grandes):
+  //   - Tenants chicos (<500 productos): cargamos TODO al abrir, filtramos
+  //     LOCAL en cada keystroke → INSTANTÁNEO (0ms).
+  //   - Tenants grandes (>=500 productos): seguimos search en backend con
+  //     debounce 250ms (no podemos cargar 5000+ productos al abrir).
+  //
+  // Detector: si la primera request trae count > N, asumimos tenant grande.
+  // Threshold elegido: 500 productos (~50KB brotli, carga aceptable en 4G).
+  const SMALL_TENANT_THRESHOLD = 500;
   const [allProducts, setAllProducts] = useState<CatalogProduct[]>([]);
+  const [hasAllProducts, setHasAllProducts] = useState(false);
 
-  // Cargar TODOS los productos UNA VEZ al montar (cacheado 30s en browser).
+  // Cargar primera página al montar — eso nos dice cuántos productos hay
+  // en total (count del backend) y decide el modo.
   useEffect(() => {
     setLoadingProducts(true);
-    apiFetch("/catalog/products/?page_size=500")
+    apiFetch(`/catalog/products/?page_size=${SMALL_TENANT_THRESHOLD}`)
       .then((data: any) => {
         const list: CatalogProduct[] = Array.isArray(data) ? data : (data?.results ?? []);
+        const totalCount = data?.count ?? list.length;
         const activeList = list.filter(p => p.is_active);
         setAllProducts(activeList);
+        // Si trajimos TODOS los del tenant en esta página → modo local.
+        // Si hay más en backend → modo backend search (para tenants grandes).
+        const allLoaded = totalCount <= list.length;
+        setHasAllProducts(allLoaded);
 
-        // Pre-cargar promos en bulk para TODOS los productos (1 sola request)
-        // → click en "+" instant + filtro local con precio promo correcto.
-        if (activeList.length > 0) {
+        // Pre-cargar promos para los visibles. Si tenant grande, las promos
+        // se cargan dinámicamente al hacer search en backend.
+        if (allLoaded && activeList.length > 0) {
           const ids = activeList.map(p => p.id).join(",");
           apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
             .then((promoData: any) => {
@@ -139,38 +150,98 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
               }
               setPromoPriceMap(next);
             })
-            .catch(() => { /* sin promos: precio normal del producto */ });
+            .catch(() => { /* sin promos: precio normal */ });
         }
       })
       .catch(() => setAllProducts([]))
       .finally(() => setLoadingProducts(false));
   }, []);
 
-  // Filtrado local — instantáneo en cada keystroke. Sin debounce, sin red.
-  // Search por: name, sku, barcode (mismo behavior que backend `?q=`).
-  // Si no hay search, filtra por categoría activa.
+  // Filtro: local INSTANTÁNEO si tenemos todos, backend con debounce si no.
   useEffect(() => {
-    setSearching(false);
     const qq = q.trim().toLowerCase();
-    let filtered = allProducts;
-    if (qq) {
-      filtered = allProducts.filter(p => {
-        const name = (p.name || "").toLowerCase();
-        const sku = (p.sku || "").toLowerCase();
-        // p.barcodes es un array de Barcode objects (cada uno tiene `code`)
-        // Algunos serializers lo devuelven como array de strings, contemplamos ambos.
-        const barcodes = (p as any).barcodes || [];
-        const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
-          const code = typeof b === "string" ? b : (b?.code || "");
-          return code.toLowerCase().includes(qq);
+
+    // ── MODO LOCAL: tenant chico, todo en memoria, filtro instantáneo ──
+    if (hasAllProducts) {
+      setSearching(false);
+      let filtered = allProducts;
+      if (qq) {
+        filtered = allProducts.filter(p => {
+          const name = (p.name || "").toLowerCase();
+          const sku = (p.sku || "").toLowerCase();
+          const barcodes = (p as any).barcodes || [];
+          const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
+            const code = typeof b === "string" ? b : (b?.code || "");
+            return code.toLowerCase().includes(qq);
+          });
+          return name.includes(qq) || sku.includes(qq) || barcodeMatch;
         });
-        return name.includes(qq) || sku.includes(qq) || barcodeMatch;
-      });
-    } else if (activeCatId !== "all") {
-      filtered = allProducts.filter(p => (p as any).category?.id === activeCatId);
+      } else if (activeCatId !== "all") {
+        filtered = allProducts.filter(p => (p as any).category?.id === activeCatId);
+      }
+      setProducts(filtered);
+      return;
     }
-    setProducts(filtered);
-  }, [q, activeCatId, allProducts]);
+
+    // ── MODO BACKEND: tenant grande, search remoto con debounce ──
+    // Si no hay search ni filtro, mostramos los primeros 500 que cargamos
+    // (el browsing inicial). Cuando el user escribe, va al backend.
+    if (!qq && activeCatId === "all") {
+      setProducts(allProducts);
+      return;
+    }
+    if (!qq && activeCatId !== "all") {
+      // Filtro por categoría sin search: pedir al backend para no perder productos
+      // de esa cat que estén más allá de los primeros 500.
+      setSearching(true);
+      clearTimeout(debounce.current);
+      apiFetch(`/catalog/products/?page_size=60&category=${activeCatId}`)
+        .then((data: any) => {
+          const list: CatalogProduct[] = Array.isArray(data) ? data : (data?.results ?? []);
+          setProducts(list.filter(p => p.is_active));
+        })
+        .catch(() => setProducts([]))
+        .finally(() => setSearching(false));
+      return;
+    }
+    // Hay search — debounce + backend
+    setSearching(true);
+    clearTimeout(debounce.current);
+    debounce.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set("page_size", "60");
+        params.set("q", qq);
+        const data: any = await apiFetch(`/catalog/products/?${params.toString()}`);
+        const list: CatalogProduct[] = Array.isArray(data) ? data : (data?.results ?? []);
+        const activeList = list.filter(p => p.is_active);
+        setProducts(activeList);
+        // Bulk fetch promos de los resultados de esta búsqueda
+        if (activeList.length > 0) {
+          const ids = activeList.map(p => p.id).join(",");
+          apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
+            .then((promoData: any) => {
+              setPromoPriceMap(prev => {
+                const next = new Map(prev);
+                for (const promo of promoData?.results ?? []) {
+                  if (promo.product_id && promo.promo_price) {
+                    next.set(promo.product_id, String(promo.promo_price));
+                  }
+                }
+                return next;
+              });
+            })
+            .catch(() => {});
+        }
+      } catch {
+        setProducts([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(debounce.current);
+  }, [q, activeCatId, allProducts, hasAllProducts]);
 
 
   // ── Helpers ──

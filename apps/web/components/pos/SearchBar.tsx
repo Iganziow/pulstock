@@ -47,11 +47,66 @@ export function SearchBar({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Debounced search for suggestions
+  // (15/05/26) BUSQUEDA HIBRIDA — auto-detect por tamaño tenant.
+  // Tenants chicos (<500 productos): cargamos TODO al montar, filtro local
+  // instantáneo (sin debounce, sin red). Tenants grandes (>=500): backend
+  // con debounce 280ms (no se puede cargar 5000+ productos al abrir POS).
+  const SMALL_TENANT_THRESHOLD = 500;
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [hasAllProducts, setHasAllProducts] = useState(false);
+
+  useEffect(() => {
+    apiFetch(`/catalog/products/?page_size=${SMALL_TENANT_THRESHOLD}`)
+      .then((data: any) => {
+        const list: Product[] = Array.isArray(data) ? data : (data?.results ?? []);
+        const totalCount = data?.count ?? list.length;
+        const activeList = list.filter(p => p.is_active);
+        setAllProducts(activeList);
+        const allLoaded = totalCount <= list.length;
+        setHasAllProducts(allLoaded);
+
+        // Pre-cargar promos solo si tenemos todos (tenant chico).
+        if (allLoaded && activeList.length > 0) {
+          const ids = activeList.map(p => p.id).join(",");
+          apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
+            .then((promoData: any) => {
+              const map: Record<number, PromoInfo> = {};
+              for (const p of promoData?.results ?? []) map[p.product_id] = p;
+              onPromosFound(map);
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => setAllProducts([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Filtro hibrido: local instantáneo o backend con debounce.
   useEffect(() => {
     const q = term.trim();
     if (!q || q.length < 2) { setSuggestions([]); setShowSuggestions(false); return; }
+    const qq = q.toLowerCase();
 
+    // ── MODO LOCAL (tenant chico) ──
+    if (hasAllProducts) {
+      setSearching(false);
+      const filtered = allProducts.filter(p => {
+        const name = (p.name || "").toLowerCase();
+        const sku = ((p as any).sku || "").toLowerCase();
+        const barcodes = (p as any).barcodes || [];
+        const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
+          const code = typeof b === "string" ? b : (b?.code || "");
+          return code.toLowerCase().includes(qq);
+        });
+        return name.includes(qq) || sku.includes(qq) || barcodeMatch;
+      }).slice(0, 8);
+      setSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+      setSuggHighlight(0);
+      return;
+    }
+
+    // ── MODO BACKEND (tenant grande) ──
     setSearching(true);
     const t = setTimeout(async () => {
       try {
@@ -61,7 +116,6 @@ export function SearchBar({
         setSuggestions(active);
         setShowSuggestions(active.length > 0);
         setSuggHighlight(0);
-        // Fetch active promos for these products
         if (active.length > 0) {
           try {
             const ids = active.map((p) => p.id).join(",");
@@ -76,7 +130,7 @@ export function SearchBar({
       } finally { setSearching(false); }
     }, 280);
     return () => { clearTimeout(t); setSearching(false); };
-  }, [term, onPromosFound]);
+  }, [term, allProducts, hasAllProducts, onPromosFound]);
 
   // ── Lookup (exact -- barcode/SKU) ──
   const lookupAndAdd = useCallback(async (raw: string) => {

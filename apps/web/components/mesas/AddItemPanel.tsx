@@ -29,24 +29,30 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
   const [err, setErr] = useState("");
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Pre-cargado de promos al recibir results: el click en "+" se vuelve
-  // instant en vez de esperar 1-2s la red. Misma fix que AddItemFullscreen.
+  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [promoPriceMap, setPromoPriceMap] = useState<Map<number, string>>(new Map());
-  // (15/05/26) BUSQUEDA LOCAL — antes cada keystroke hacia request:
-  //   debounce 250ms + 246ms RTT + 35ms backend + 246ms = ~780ms PER LETTER
-  // Ahora cargamos TODOS los productos al montar (1 request, cacheada
-  // 30s en browser) y filtramos local. Filtrar 500 productos en JS = <1ms.
+  // (15/05/26) BUSQUEDA HIBRIDA — auto-detect por tamaño tenant.
+  // Tenants chicos (<500): cargamos TODO al montar, filtro local instant.
+  // Tenants grandes (>=500): backend search con debounce (no podemos
+  // cargar 5000+ productos al abrir cada vez). Pulstock es SaaS y debe
+  // escalar — el threshold protege a tenants grandes futuros.
+  const SMALL_TENANT_THRESHOLD = 500;
   const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [hasAllProducts, setHasAllProducts] = useState(false);
 
-  // Cargar todos los productos UNA VEZ al montar el panel.
+  // Cargar primera página al montar — count del backend define el modo.
   useEffect(() => {
-    apiFetch("/catalog/products/?page_size=500&is_active=true")
+    apiFetch(`/catalog/products/?page_size=${SMALL_TENANT_THRESHOLD}&is_active=true`)
       .then((data: any) => {
         const list: Product[] = data?.results || data || [];
+        const totalCount = data?.count ?? list.length;
         setAllProducts(list);
+        const allLoaded = totalCount <= list.length;
+        setHasAllProducts(allLoaded);
 
-        // Bulk fetch de promos para TODOS (1 request) → click instant.
-        if (list.length > 0) {
+        // Bulk fetch promos solo si tenemos todos (tenant chico). Si es
+        // tenant grande, cargamos promos por search en backend.
+        if (allLoaded && list.length > 0) {
           const ids = list.map(p => p.id).join(",");
           apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
             .then((promoData: any) => {
@@ -64,23 +70,62 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
       .catch(() => setAllProducts([]));
   }, []);
 
-  // Filtrado local INSTANTÁNEO en cada keystroke.
+  // Filtro hibrido: local si tenant chico, backend con debounce si grande.
   useEffect(() => {
     const qq = q.trim().toLowerCase();
     if (!qq) { setResults([]); return; }
-    setSearching(false);
-    const filtered = allProducts.filter(p => {
-      const name = (p.name || "").toLowerCase();
-      const sku = ((p as any).sku || "").toLowerCase();
-      const barcodes = (p as any).barcodes || [];
-      const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
-        const code = typeof b === "string" ? b : (b?.code || "");
-        return code.toLowerCase().includes(qq);
-      });
-      return name.includes(qq) || sku.includes(qq) || barcodeMatch;
-    }).slice(0, 15);  // mismo limit que antes para UX
-    setResults(filtered);
-  }, [q, allProducts]);
+
+    // ── MODO LOCAL (tenant chico) ──
+    if (hasAllProducts) {
+      setSearching(false);
+      const filtered = allProducts.filter(p => {
+        const name = (p.name || "").toLowerCase();
+        const sku = ((p as any).sku || "").toLowerCase();
+        const barcodes = (p as any).barcodes || [];
+        const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
+          const code = typeof b === "string" ? b : (b?.code || "");
+          return code.toLowerCase().includes(qq);
+        });
+        return name.includes(qq) || sku.includes(qq) || barcodeMatch;
+      }).slice(0, 15);
+      setResults(filtered);
+      return;
+    }
+
+    // ── MODO BACKEND (tenant grande) ──
+    setSearching(true);
+    clearTimeout(debounce.current);
+    debounce.current = setTimeout(async () => {
+      try {
+        const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(qq)}&is_active=true&page_size=15`);
+        const list: Product[] = data?.results || data || [];
+        setResults(list);
+        // Cargar promos de los resultados (ya no precargamos todos)
+        if (list.length > 0) {
+          const ids = list.map(p => p.id).join(",");
+          apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
+            .then((promoData: any) => {
+              setPromoPriceMap(prev => {
+                const next = new Map(prev);
+                for (const promo of promoData?.results ?? []) {
+                  if (promo.product_id && promo.promo_price) {
+                    next.set(promo.product_id, String(promo.promo_price));
+                  }
+                }
+                return next;
+              });
+            })
+            .catch(() => {});
+        }
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(debounce.current);
+  }, [q, allProducts, hasAllProducts]);
 
   // Sin async — instant. Lee promo del map pre-cargado o cae al precio
   // normal. Antes hacía apiFetch por cada click → 1-2s de delay.
