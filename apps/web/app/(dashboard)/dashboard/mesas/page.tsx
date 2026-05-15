@@ -233,15 +233,23 @@ export default function MesasPage() {
           </div>
         </div>
 
-        {/* Zone tabs */}
+        {/* Zone tabs — flexShrink:0 + scrollbar oculto. Sin esto, en mobile
+            con varias zonas, los items se encogen y se ven cortados. */}
         {zones.length > 0 && (
-          <div style={{ display: "flex", gap: 4, overflowX: "auto" }}>
+          <div style={{
+            display: "flex", gap: 4,
+            overflowX: "auto", overflowY: "hidden",
+            scrollbarWidth: "none",
+            WebkitOverflowScrolling: "touch",
+          }} className="hide-scrollbar-mesas">
+            <style>{`.hide-scrollbar-mesas::-webkit-scrollbar{display:none;}`}</style>
             <button onClick={() => setActiveZone("__all__")} style={{
               padding: "5px 14px", borderRadius: 99, fontSize: 12, fontWeight: 600,
               border: `1px solid ${activeZone === "__all__" ? C.accent : C.border}`,
               background: activeZone === "__all__" ? C.accent : C.surface,
               color: activeZone === "__all__" ? "#fff" : C.mid,
               cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+              flexShrink: 0,
             }}>
               Todas
             </button>
@@ -252,6 +260,7 @@ export default function MesasPage() {
                 background: activeZone === z ? C.accent : C.surface,
                 color: activeZone === z ? "#fff" : C.mid,
                 cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                flexShrink: 0,
               }}>
                 {z}
               </button>

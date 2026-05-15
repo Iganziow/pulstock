@@ -239,8 +239,19 @@ export default function CajaPage() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0, overflowX: "auto", alignItems: "center" }}>
+      {/* Tabs — flexShrink:0 + scrollbar oculto pero scroll funciona en mobile.
+          (15/05/26) Mario reporto "Movimi..." cortado en mobile. Causa: sin
+          flexShrink:0 los items se encogen aunque tengan whiteSpace:nowrap;
+          Movimientos quedaba mas chico que el resto y se truncaba. */}
+      <div style={{
+        display: "flex", gap: 4, marginBottom: 20,
+        borderBottom: `1px solid ${C.border}`, paddingBottom: 0,
+        overflowX: "auto", overflowY: "hidden",
+        alignItems: "center",
+        scrollbarWidth: "none",  // Firefox
+        WebkitOverflowScrolling: "touch",  // iOS smooth scroll
+      }} className="hide-scrollbar">
+        <style>{`.hide-scrollbar::-webkit-scrollbar{display:none;}`}</style>
         {(["live", "history", "tips"] as const).map(t => {
           const labels = { live: "Arqueo activo", history: "Historial", tips: "Propinas" };
           return (
@@ -251,6 +262,7 @@ export default function CajaPage() {
               borderBottom: tab === t ? `2px solid ${C.accent}` : "2px solid transparent",
               marginBottom: -1,
               fontFamily: "inherit",
+              flexShrink: 0,  // No encoger — usar scroll horizontal
             }}>
               {labels[t]}
             </button>
@@ -266,6 +278,7 @@ export default function CajaPage() {
             color: C.mid, textDecoration: "none", whiteSpace: "nowrap",
             borderBottom: "2px solid transparent", marginBottom: -1,
             display: "inline-flex", alignItems: "center", gap: 4,
+            flexShrink: 0,
           }}
         >
           Movimientos <span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>

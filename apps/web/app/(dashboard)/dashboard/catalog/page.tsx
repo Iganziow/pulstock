@@ -811,7 +811,7 @@ export default function CatalogPage() {
             {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categoría</div>}
             <div style={{ textAlign:"right" }}>Precio</div>
             {!mob && <div style={{ textAlign:"right" }}>Costo</div>}
-            {!mob && <div>Barcodes</div>}<div style={{ textAlign:"center" }}>Activo</div>
+            {!mob && <div>Barcodes</div>}<div style={{ textAlign:"center" }}>{mob ? "•" : "Activo"}</div>
             <div style={{ textAlign:"right" }}>Acciones</div>
           </div>
 
@@ -927,9 +927,28 @@ export default function CatalogPage() {
                   ) : <span style={{ color:C.mute }}>{"—"}</span>}
                 </div>}
 
-                {/* Status */}
+                {/* Status — en mobile solo un dot (texto cortado en columna 60px).
+                    En desktop badge completo "Activo"/"Inactivo". */}
                 <div style={{ display:"flex", justifyContent:"center", gap:6, flexWrap:"wrap" }}>
-                  <Badge color={p.is_active?"green":"orange"}>{p.is_active?"Activo":"Inactivo"}</Badge>
+                  {mob ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleActive(p)}
+                      disabled={saving}
+                      title={p.is_active ? "Activo (toca para desactivar)" : "Inactivo (toca para activar)"}
+                      aria-label={p.is_active ? "Producto activo" : "Producto inactivo"}
+                      style={{
+                        width: 24, height: 24, borderRadius: "50%",
+                        border: `2px solid ${p.is_active ? C.green : C.amber}`,
+                        background: p.is_active ? C.green : C.amber,
+                        cursor: saving ? "not-allowed" : "pointer",
+                        opacity: saving ? 0.5 : 1,
+                        padding: 0,
+                      }}
+                    />
+                  ) : (
+                    <Badge color={p.is_active?"green":"orange"}>{p.is_active?"Activo":"Inactivo"}</Badge>
+                  )}
                 </div>
 
                 {/* Actions */}
