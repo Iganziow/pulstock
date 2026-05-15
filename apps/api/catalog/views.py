@@ -46,7 +46,13 @@ def _prefetch_barcodes_ordered():
 # -----------------------
 # Categories
 # -----------------------
+@method_decorator(browser_cache(max_age=120), name="get")
 class CategoryListCreate(generics.ListCreateAPIView):
+    """
+    Cache: GET 120s privado. Las categorías cambian muy poco (Mario crea
+    1-2 al mes). Mejora notable en /dashboard/catalog y AddItemFullscreen
+    (mesas) que llaman este endpoint en cada apertura/navegación.
+    """
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = CategorySerializer
 
@@ -1539,8 +1545,13 @@ class ProductRecipeView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(browser_cache(max_age=300), name="get")
 class UnitList(generics.ListAPIView):
-    """GET /catalog/units/ → lista de unidades del tenant."""
+    """GET /catalog/units/ → lista de unidades del tenant.
+
+    Cache: 300s (5 min). Las unidades (kg, g, ml, etc.) prácticamente
+    no cambian — Mario las crea una vez al setear el tenant.
+    """
     permission_classes = [IsAuthenticated, HasTenant, IsManagerOrReadOnly]
     serializer_class = UnitSerializer
     pagination_class = None

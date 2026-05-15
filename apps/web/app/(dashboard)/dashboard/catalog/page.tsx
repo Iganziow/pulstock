@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
@@ -344,10 +344,22 @@ export default function CatalogPage() {
     } finally { setLoading(false); }
   }, []);
 
+  // (15/05/26) FIX: el debounce de 350ms solo debe aplicar cuando Mario
+  // está TIPEANDO en search, no para la carga inicial ni para clicks de
+  // página/filtro. Antes hacía esperar medio segundo cada vez que abrías
+  // el catálogo o clickeabas paginación, aunque el backend responde en
+  // 15ms. Ahora: search → debounce 350ms (evita 5 requests por palabra),
+  // todo lo demás → inmediato.
+  const prevQRef = useRef(q);
   useEffect(() => {
-    const t = setTimeout(() => load(endpoint), 350);
-    return () => clearTimeout(t);
-  }, [endpoint, load]);
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(endpoint), 350);
+      return () => clearTimeout(t);
+    }
+    load(endpoint);
+  }, [endpoint, load, q]);
 
   // Carga de categorías
   const loadCategories = useCallback(async () => {
