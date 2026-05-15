@@ -103,30 +103,30 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
       .catch(() => setCategories([]));
   }, []);
 
-  // Cargar productos al cambiar tab o búsqueda. Search global ignora la tab.
-  useEffect(() => {
-    clearTimeout(debounce.current);
-    const params = new URLSearchParams();
-    params.set("page_size", "60");
-    if (q.trim()) {
-      // Buscar global (case-insensitive en name/sku/barcode) — no filtramos
-      // por categoría porque el usuario está buscando algo específico.
-      params.set("q", q.trim());
-    } else if (activeCatId !== "all") {
-      params.set("category", String(activeCatId));
-    }
+  // (15/05/26) BUSQUEDA LOCAL — antes cada keystroke disparaba una request:
+  //   debounce 280ms + RTT 246ms (Chile↔Helsinki) + 35ms backend + 246ms = ~810ms PER LETTER
+  //   "Emp" (3 letras) → ~2.5 segundos perceptuales
+  //
+  // Mario tiene <500 productos. Cargamos TODOS al abrir (1 request,
+  // cacheada 30s con browser_cache backend) y filtramos LOCAL en cada
+  // keystroke → INSTANTÁNEO (0ms, sin red).
+  //
+  // Si en el futuro algún tenant tiene >2000 productos, el filtro local
+  // sigue siendo rápido en JS pero la primera carga tardaría más. Para
+  // entonces agregar fallback a búsqueda backend cuando q.length >= 2.
+  const [allProducts, setAllProducts] = useState<CatalogProduct[]>([]);
 
-    debounce.current = setTimeout(async () => {
-      setSearching(!!q.trim());
-      setLoadingProducts(!q.trim());
-      try {
-        const data: any = await apiFetch(`/catalog/products/?${params.toString()}`);
+  // Cargar TODOS los productos UNA VEZ al montar (cacheado 30s en browser).
+  useEffect(() => {
+    setLoadingProducts(true);
+    apiFetch("/catalog/products/?page_size=500")
+      .then((data: any) => {
         const list: CatalogProduct[] = Array.isArray(data) ? data : (data?.results ?? []);
         const activeList = list.filter(p => p.is_active);
-        setProducts(activeList);
+        setAllProducts(activeList);
 
-        // Pre-cargar promos en bulk para todos los productos visibles
-        // (1 sola request) → el click en "+" ya no espera red.
+        // Pre-cargar promos en bulk para TODOS los productos (1 sola request)
+        // → click en "+" instant + filtro local con precio promo correcto.
         if (activeList.length > 0) {
           const ids = activeList.map(p => p.id).join(",");
           apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
@@ -141,16 +141,37 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
             })
             .catch(() => { /* sin promos: precio normal del producto */ });
         }
-      } catch {
-        setProducts([]);
-      } finally {
-        setSearching(false);
-        setLoadingProducts(false);
-      }
-    }, q.trim() ? 280 : 0);
+      })
+      .catch(() => setAllProducts([]))
+      .finally(() => setLoadingProducts(false));
+  }, []);
 
-    return () => { clearTimeout(debounce.current); };
-  }, [q, activeCatId]);
+  // Filtrado local — instantáneo en cada keystroke. Sin debounce, sin red.
+  // Search por: name, sku, barcode (mismo behavior que backend `?q=`).
+  // Si no hay search, filtra por categoría activa.
+  useEffect(() => {
+    setSearching(false);
+    const qq = q.trim().toLowerCase();
+    let filtered = allProducts;
+    if (qq) {
+      filtered = allProducts.filter(p => {
+        const name = (p.name || "").toLowerCase();
+        const sku = (p.sku || "").toLowerCase();
+        // p.barcodes es un array de Barcode objects (cada uno tiene `code`)
+        // Algunos serializers lo devuelven como array de strings, contemplamos ambos.
+        const barcodes = (p as any).barcodes || [];
+        const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
+          const code = typeof b === "string" ? b : (b?.code || "");
+          return code.toLowerCase().includes(qq);
+        });
+        return name.includes(qq) || sku.includes(qq) || barcodeMatch;
+      });
+    } else if (activeCatId !== "all") {
+      filtered = allProducts.filter(p => (p as any).category?.id === activeCatId);
+    }
+    setProducts(filtered);
+  }, [q, activeCatId, allProducts]);
+
 
   // ── Helpers ──
   // Resuelve el precio efectivo: promo_price si hay promoción activa

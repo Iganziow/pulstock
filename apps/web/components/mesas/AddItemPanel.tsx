@@ -28,24 +28,24 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [editingNote, setEditingNote] = useState<number | null>(null);
-  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   // Pre-cargado de promos al recibir results: el click en "+" se vuelve
   // instant en vez de esperar 1-2s la red. Misma fix que AddItemFullscreen.
   const [promoPriceMap, setPromoPriceMap] = useState<Map<number, string>>(new Map());
+  // (15/05/26) BUSQUEDA LOCAL — antes cada keystroke hacia request:
+  //   debounce 250ms + 246ms RTT + 35ms backend + 246ms = ~780ms PER LETTER
+  // Ahora cargamos TODOS los productos al montar (1 request, cacheada
+  // 30s en browser) y filtramos local. Filtrar 500 productos en JS = <1ms.
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
 
+  // Cargar todos los productos UNA VEZ al montar el panel.
   useEffect(() => {
-    if (!q.trim()) { setResults([]); return; }
-    clearTimeout(debounce.current);
-    debounce.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(q)}&is_active=true&page_size=15`);
+    apiFetch("/catalog/products/?page_size=500&is_active=true")
+      .then((data: any) => {
         const list: Product[] = data?.results || data || [];
-        setResults(list);
+        setAllProducts(list);
 
-        // Bulk fetch de promos para los resultados (1 request chica) →
-        // addToCart no espera red.
+        // Bulk fetch de promos para TODOS (1 request) → click instant.
         if (list.length > 0) {
           const ids = list.map(p => p.id).join(",");
           apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
@@ -58,12 +58,29 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
               }
               setPromoPriceMap(next);
             })
-            .catch(() => { /* sin promos: precio normal */ });
+            .catch(() => {});
         }
-      } catch { setResults([]); }
-      finally { setSearching(false); }
-    }, 250);
-  }, [q]);
+      })
+      .catch(() => setAllProducts([]));
+  }, []);
+
+  // Filtrado local INSTANTÁNEO en cada keystroke.
+  useEffect(() => {
+    const qq = q.trim().toLowerCase();
+    if (!qq) { setResults([]); return; }
+    setSearching(false);
+    const filtered = allProducts.filter(p => {
+      const name = (p.name || "").toLowerCase();
+      const sku = ((p as any).sku || "").toLowerCase();
+      const barcodes = (p as any).barcodes || [];
+      const barcodeMatch = Array.isArray(barcodes) && barcodes.some((b: any) => {
+        const code = typeof b === "string" ? b : (b?.code || "");
+        return code.toLowerCase().includes(qq);
+      });
+      return name.includes(qq) || sku.includes(qq) || barcodeMatch;
+    }).slice(0, 15);  // mismo limit que antes para UX
+    setResults(filtered);
+  }, [q, allProducts]);
 
   // Sin async — instant. Lee promo del map pre-cargado o cae al precio
   // normal. Antes hacía apiFetch por cada click → 1-2s de delay.
