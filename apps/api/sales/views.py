@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 
 from django.db import transaction, IntegrityError
-from django.db.models import F, Q, Sum, Count, Avg, Prefetch
+from django.db.models import F, Q, Sum, Count, Avg, Prefetch, Exists, OuterRef
 from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -201,6 +201,50 @@ class SaleList(generics.ListAPIView):
         sale_type_param = (self.request.query_params.get("sale_type") or "").strip()
         if sale_type_param:
             qs = qs.filter(sale_type=sale_type_param)
+
+        # ── Filtros nuevos (15/05/26) — Mario pidió poder filtrar para
+        # encontrar diferencias en el cuadre de caja, igual que Fudo. ──
+
+        # Cajero (created_by_id) — aceptamos id numérico o username/email
+        cashier = (self.request.query_params.get("cashier") or "").strip()
+        if cashier:
+            if cashier.isdigit():
+                qs = qs.filter(created_by_id=int(cashier))
+            else:
+                qs = qs.filter(
+                    Q(created_by__username__icontains=cashier) |
+                    Q(created_by__email__icontains=cashier)
+                )
+
+        # Medio de pago — match si la venta tuvo AL MENOS un SalePayment
+        # con ese método. Usa Exists para no inflar el queryset con joins.
+        payment_method = (self.request.query_params.get("payment_method") or "").strip().lower()
+        if payment_method:
+            from .models import SalePayment
+            qs = qs.filter(
+                Exists(SalePayment.objects.filter(
+                    sale_id=OuterRef("pk"),
+                    method=payment_method,
+                ))
+            )
+
+        # Mesa — id numérico de Table (vía OpenOrder.table_id)
+        table = (self.request.query_params.get("table") or "").strip()
+        if table.isdigit():
+            qs = qs.filter(open_order__table_id=int(table))
+
+        # Cliente — texto libre matchea customer_name de la OpenOrder
+        # (ej: "Jairo", "Cliente 5", etc.). icontains para ser flexible.
+        customer = (self.request.query_params.get("customer") or "").strip()
+        if customer:
+            qs = qs.filter(open_order__customer_name__icontains=customer)
+
+        # Solo ventas con propina — útil para auditar tips del turno
+        has_tip = (self.request.query_params.get("has_tip") or "").strip().lower()
+        if has_tip in ("true", "1", "yes"):
+            qs = qs.filter(tip__gt=0)
+        elif has_tip in ("false", "0", "no"):
+            qs = qs.filter(Q(tip__isnull=True) | Q(tip=0))
 
         return qs
 

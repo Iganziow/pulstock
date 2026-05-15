@@ -37,6 +37,16 @@ export default function SalesPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo]     = useState("");
   const [warehouseId, setWarehouseId] = useState<number|"ALL">("ALL");
+  // Filtros nuevos (Mario 14/05): para encontrar diferencias de cuadre.
+  // Toggle "Más filtros" oculta/muestra los avanzados para no saturar la UI
+  // por defecto.
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [cashier, setCashier]   = useState<number|"ALL">("ALL");
+  const [paymentMethod, setPaymentMethod] = useState<"ALL"|"cash"|"debit"|"card"|"transfer">("ALL");
+  const [customer, setCustomer] = useState("");
+  const [hasTip, setHasTip]     = useState<"ALL"|"YES"|"NO">("ALL");
+  // Lista de cajeros del tenant — solo se carga al abrir "Más filtros".
+  const [cashiers, setCashiers] = useState<Array<{id:number; name:string}>>([]);
 
   // Selected row -> detail panel
   const [selectedId, setSelectedId] = useState<number|null>(null);
@@ -49,6 +59,11 @@ export default function SalesPage() {
     if (qq) p.set("q", qq);
     if (status !== "ALL") p.set("status", status);
     if (warehouseId !== "ALL") p.set("warehouse_id", String(warehouseId));
+    if (cashier !== "ALL") p.set("cashier", String(cashier));
+    if (paymentMethod !== "ALL") p.set("payment_method", paymentMethod);
+    if (customer.trim()) p.set("customer", customer.trim());
+    if (hasTip === "YES") p.set("has_tip", "true");
+    else if (hasTip === "NO") p.set("has_tip", "false");
     if (range !== "ALL") {
       const now = new Date();
       let start = new Date(now);
@@ -67,7 +82,7 @@ export default function SalesPage() {
     }
     const qs = p.toString();
     return qs ? `${base}?${qs}` : base;
-  }, [q, status, range, warehouseId, customFrom, customTo]);
+  }, [q, status, range, warehouseId, customFrom, customTo, cashier, paymentMethod, customer, hasTip]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -125,6 +140,32 @@ export default function SalesPage() {
       } catch { setWarehouses([]); }
     })();
   }, []);
+
+  // Lista de cajeros — lazy: solo cargar cuando Mario abre "Más filtros"
+  // y nunca antes (evita hit innecesario en /core/users/ que requiere
+  // permisos de manager). Una sola vez por sesión.
+  useEffect(() => {
+    if (!showMoreFilters || cashiers.length > 0) return;
+    (async () => {
+      try {
+        const data: any = await apiFetch("/core/users/");
+        const list = Array.isArray(data) ? data : (data?.results ?? []);
+        const mapped = list
+          .filter((u: any) => u.is_active !== false)
+          .map((u: any) => ({
+            id: u.id,
+            name: (u.first_name || u.last_name)
+              ? `${u.first_name || ""} ${u.last_name || ""}`.trim()
+              : (u.username || u.email || `Usuario #${u.id}`),
+          }));
+        setCashiers(mapped);
+      } catch {
+        // Sin permisos (cashier) o error — el dropdown queda vacío y
+        // el filtro de cajero no se puede usar. No es bloqueante.
+        setCashiers([]);
+      }
+    })();
+  }, [showMoreFilters, cashiers.length]);
 
   useEffect(() => {
     const t = setTimeout(() => load(), 250);
@@ -345,7 +386,90 @@ export default function SalesPage() {
             {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}{w.warehouse_type==="sales_floor"?" (Sala)":" (Bodega)"}</option>)}
           </select>
         )}
+
+        {/* Toggle Más filtros (Mario lo pidió 14/05 para auditar cuadre) */}
+        <button type="button" onClick={() => setShowMoreFilters(v => !v)} style={{
+          height: 36, padding: "0 12px",
+          border: `1px solid ${(cashier !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") ? C.accent : C.border}`,
+          borderRadius: C.r, background: showMoreFilters ? C.accentBg : C.surface,
+          color: showMoreFilters ? C.accent : C.mid,
+          fontSize: 12, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
+          </svg>
+          {showMoreFilters ? "Ocultar filtros" : "Más filtros"}
+        </button>
       </div>
+
+      {/* Fila adicional con filtros avanzados (cajero, medio de pago,
+          cliente, propinas) — para encontrar diferencias en el cuadre. */}
+      {showMoreFilters && (
+        <div style={{
+          display:"flex", gap:8, alignItems:"center",
+          padding:"10px 14px", marginBottom:12,
+          background:C.bg, border:`1px solid ${C.border}`, borderRadius:C.rMd,
+          flexWrap:"wrap",
+        }}>
+          {/* Cajero */}
+          <select value={cashier} onChange={e => setCashier(e.target.value === "ALL" ? "ALL" : Number(e.target.value))} style={{
+            height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+            borderRadius:C.r, fontSize:13, background:C.surface,
+            minWidth: 140,
+          }}>
+            <option value="ALL">Todos los cajeros</option>
+            {cashiers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+
+          {/* Medio de pago */}
+          <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as any)} style={{
+            height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+            borderRadius:C.r, fontSize:13, background:C.surface,
+          }}>
+            <option value="ALL">Todos los medios</option>
+            <option value="cash">Efectivo</option>
+            <option value="debit">Débito</option>
+            <option value="card">Crédito</option>
+            <option value="transfer">Transferencia</option>
+          </select>
+
+          {/* Cliente / mesa */}
+          <input
+            value={customer}
+            onChange={e => setCustomer(e.target.value)}
+            placeholder="Cliente o mesa…"
+            style={{
+              height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+              borderRadius:C.r, fontSize:13, background:C.surface,
+              minWidth: 160,
+            }}
+          />
+
+          {/* Propinas */}
+          <select value={hasTip} onChange={e => setHasTip(e.target.value as any)} style={{
+            height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+            borderRadius:C.r, fontSize:13, background:C.surface,
+          }}>
+            <option value="ALL">Con/sin propina</option>
+            <option value="YES">Solo con propina</option>
+            <option value="NO">Sin propina</option>
+          </select>
+
+          {/* Limpiar filtros avanzados */}
+          {(cashier !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") && (
+            <button type="button" onClick={() => {
+              setCashier("ALL"); setPaymentMethod("ALL"); setCustomer(""); setHasTip("ALL");
+            }} style={{
+              height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+              borderRadius:C.r, fontSize:12, background:C.surface,
+              color:C.mute, cursor:"pointer",
+            }}>
+              Limpiar
+            </button>
+          )}
+        </div>
+      )}
 
       {/* MAIN: TABLE + PANEL */}
       <div style={{ display:"flex", gap:14, alignItems:"flex-start", flexDirection:mob?"column":"row" }}>
