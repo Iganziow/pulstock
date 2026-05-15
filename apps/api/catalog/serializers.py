@@ -122,11 +122,34 @@ class BarcodeSerializer(serializers.ModelSerializer):
 
 
 # -----------------------
+# Category (NESTED — minimal for embedding in Product responses)
+# -----------------------
+# Versión liviana de CategorySerializer que SOLO devuelve `id` y `name`.
+# Existe porque el CategorySerializer completo incluye `children_count`
+# (SerializerMethodField que llama `obj.children.count()` cuando NO hay
+# annotation). Cuando se anida en ProductReadSerializer y se serializa
+# una lista de productos, dispara un N+1 brutal: 1 COUNT(*) por cada
+# producto contra `catalog_category` (50+ queries por request).
+#
+# El frontend solo lee `category?.name` y `category?.id` en mesas, POS
+# y catálogo — no necesita los demás campos al listar productos.
+# Para el endpoint /api/catalog/categories/ seguimos usando el
+# CategorySerializer completo con annotation.
+class CategoryNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ["id", "name"]
+
+
+# -----------------------
 # Product (READ)
 # Devuelve category + barcodes list
 # -----------------------
 class ProductReadSerializer(serializers.ModelSerializer):
-    category   = CategorySerializer(read_only=True)
+    # Anidado liviano (id+name) en vez de CategorySerializer completo —
+    # ver nota en CategoryNestedSerializer arriba (evita N+1 de COUNT
+    # children por cada producto).
+    category   = CategoryNestedSerializer(read_only=True)
     barcodes   = BarcodeSerializer(many=True, read_only=True)
     has_recipe = serializers.SerializerMethodField()
     unit_obj_id = serializers.IntegerField(read_only=True, default=None)
