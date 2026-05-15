@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
@@ -26,9 +26,15 @@ export default function SalesPage() {
   const mob = useIsMobile();
 
   const [items, setItems]       = useState<SaleRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading]   = useState(true);
   const [err, setErr]           = useState<string|null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  // Paginacion (Mario 15/05): antes el frontend solo mostraba la pagina 1
+  // y NO tenia controles para ver el resto. Marbrava ya tiene 309 ventas
+  // → Mario solo veia las 50 mas recientes.
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;  // matchea el default DRF
 
   // Filters
   const [q, setQ]               = useState("");
@@ -55,6 +61,7 @@ export default function SalesPage() {
   const endpoint = useMemo(() => {
     const base = "/sales/sales/list/";
     const p    = new URLSearchParams();
+    p.set("page", String(page));
     const qq   = q.trim();
     if (qq) p.set("q", qq);
     if (status !== "ALL") p.set("status", status);
@@ -82,14 +89,25 @@ export default function SalesPage() {
     }
     const qs = p.toString();
     return qs ? `${base}?${qs}` : base;
+  }, [q, status, range, warehouseId, customFrom, customTo, cashier, paymentMethod, customer, hasTip, page]);
+
+  // Reset a página 1 cuando cambia CUALQUIER filtro (no cuando cambia
+  // page solo). Sin esto, si Mario está en página 5 y filtra por cash,
+  // queda en página 5 de una lista filtrada que quizás solo tiene 1 página.
+  useEffect(() => {
+    setPage(1);
   }, [q, status, range, warehouseId, customFrom, customTo, cashier, paymentMethod, customer, hasTip]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
       const data = await apiFetch(endpoint);
-      setItems(data?.results ?? data ?? []);
-    } catch (e:any) { setErr(e?.message ?? "Error cargando ventas"); setItems([]); }
+      const list = data?.results ?? data ?? [];
+      setItems(list);
+      // Backend DRF devuelve `count` con el total filtrado (no solo de
+      // esta página). Lo usamos para mostrar paginación + métricas reales.
+      setTotalCount(typeof data?.count === "number" ? data.count : list.length);
+    } catch (e:any) { setErr(e?.message ?? "Error cargando ventas"); setItems([]); setTotalCount(0); }
     finally { setLoading(false); }
   }, [endpoint]);
 
@@ -167,29 +185,45 @@ export default function SalesPage() {
     })();
   }, [showMoreFilters, cashiers.length]);
 
+  // (15/05/26) Igual fix que /dashboard/catalog: el debounce 250ms solo
+  // debe aplicar al SEARCH (Mario tipea), no a clicks de filtro/página.
+  // Antes esperaba 250ms en cada cambio de filtro aunque el backend ya
+  // respondía en 30-100ms.
+  const prevQRef = useRef(q);
   useEffect(() => {
-    const t = setTimeout(() => load(), 250);
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
     // Si cambian los filtros, descartamos el cache de export para no
     // exportar datos viejos por error.
     setExportRows(null);
-    return () => clearTimeout(t);
-  }, [load]);
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [load, q]);
 
   // ── Metrics ─────────────────────────────────────────────────────────────────
+  // NOTA: las metricas (total, profit, etc.) se calculan SOLO sobre los
+  // items de la pagina actual — no del total filtrado. Para tener metricas
+  // exactas del filtro completo, habria que pedirlas al backend (endpoint
+  // separado) o pre-cargar todas las paginas (caro). Por ahora mostramos
+  // "ventas" con el totalCount real del backend, y los demas con la pagina
+  // (etiquetados claramente para no engañar a Mario).
   const metrics = useMemo(() => {
     const completed = items.filter(s => s.status.toUpperCase() === "COMPLETED");
     const total     = completed.reduce((a, s) => a + toNum(s.total), 0);
     const profit    = completed.reduce((a, s) => a + toNum(s.gross_profit), 0);
     const pct       = total > 0 ? Math.round((profit / total) * 100) : 0;
     return {
-      ventas:    items.length,
+      ventas:    totalCount,  // total filtrado real (todas las páginas)
       completadas: completed.length,
       total,
       profit,
       pct,
       anuladas:  items.filter(s => s.status.toUpperCase() === "VOID").length,
     };
-  }, [items]);
+  }, [items, totalCount]);
 
   // ─────────────────────────────── RENDER ──────────────────────────────────
   return (
@@ -604,11 +638,58 @@ export default function SalesPage() {
           </div>
           </div>
 
-          {!loading && items.length > 0 && (
-            <div style={{ padding:"10px 4px", fontSize:12, color:C.mute }}>
-              {items.length} venta{items.length!==1?"s":""} · haz clic en una fila para ver el detalle
-            </div>
-          )}
+          {!loading && totalCount > 0 && (() => {
+            const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+            const fromIdx = (page - 1) * PAGE_SIZE + 1;
+            const toIdx   = Math.min(page * PAGE_SIZE, totalCount);
+            const canPrev = page > 1;
+            const canNext = page < totalPages;
+            const goTo = (p: number) => setPage(Math.max(1, Math.min(totalPages, p)));
+            // Numero de paginas visibles: actual ± 2 con elipsis
+            const pageNums: (number|"...")[] = [];
+            if (totalPages <= 7) {
+              for (let i = 1; i <= totalPages; i++) pageNums.push(i);
+            } else {
+              pageNums.push(1);
+              if (page > 4) pageNums.push("...");
+              for (let i = Math.max(2, page - 2); i <= Math.min(totalPages - 1, page + 2); i++) pageNums.push(i);
+              if (page < totalPages - 3) pageNums.push("...");
+              pageNums.push(totalPages);
+            }
+            const PageBtn = ({ children, onClick, disabled, active }: { children: any; onClick: () => void; disabled?: boolean; active?: boolean }) => (
+              <button type="button" onClick={onClick} disabled={disabled} style={{
+                minWidth: 32, height: 32, padding: "0 8px",
+                border: `1px solid ${active ? C.accent : C.border}`,
+                borderRadius: C.r,
+                background: active ? C.accent : C.surface,
+                color: active ? "#fff" : (disabled ? C.mute : C.mid),
+                fontSize: 12, fontWeight: active ? 700 : 500,
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.5 : 1,
+              }}>{children}</button>
+            );
+            return (
+              <div style={{
+                padding: "12px 4px", display: "flex", alignItems: "center",
+                justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+              }}>
+                <div style={{ fontSize: 12, color: C.mute }}>
+                  Mostrando <strong style={{ color: C.mid }}>{fromIdx}–{toIdx}</strong> de <strong style={{ color: C.mid }}>{totalCount}</strong> ventas
+                </div>
+                {totalPages > 1 && (
+                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <PageBtn onClick={() => goTo(page - 1)} disabled={!canPrev}>‹</PageBtn>
+                    {pageNums.map((p, i) => p === "..." ? (
+                      <span key={`e${i}`} style={{ padding: "0 4px", color: C.mute, fontSize: 12 }}>…</span>
+                    ) : (
+                      <PageBtn key={p} onClick={() => goTo(p)} active={p === page}>{p}</PageBtn>
+                    ))}
+                    <PageBtn onClick={() => goTo(page + 1)} disabled={!canNext}>›</PageBtn>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* DETAIL PANEL */}

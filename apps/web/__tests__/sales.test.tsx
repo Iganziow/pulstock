@@ -77,8 +77,11 @@ describe("SalesPage", () => {
 
   it("shows total count", async () => {
     render(<SalesPage />);
+    // (15/05/26) Ahora hay dos lugares que muestran "2": el card de
+    // métrica arriba ("Ventas: 2") y el footer paginado ("Mostrando 1–2
+    // de 2 ventas"). getAllByText asegura que aparece al menos una vez.
     await waitFor(() => {
-      expect(screen.getByText("2")).toBeInTheDocument();
+      expect(screen.getAllByText("2").length).toBeGreaterThan(0);
     });
   });
 });
