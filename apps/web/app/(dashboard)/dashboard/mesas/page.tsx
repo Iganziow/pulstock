@@ -125,7 +125,15 @@ export default function MesasPage() {
   const occupiedCount = regularTables.filter(t => t.status === "OPEN").length;
 
   async function loadOrder(tableId: number) {
-    setOrderLoading(true); setOrder(null);
+    // (15/05/26) FIX: NO setOrder(null) al inicio. Antes hacíamos
+    // `setOrder(null)` antes del fetch, lo que desmontaba <OrderPanel>
+    // momentáneamente. Si el usuario tenía un modal abierto (Adicionar
+    // productos / Cobrar) → el modal se desmontaba con el padre →
+    // visualmente "se abre y se cierra una ventana" (Mario lo reportó).
+    //
+    // Ahora: dejamos el order viejo visible mientras carga el nuevo.
+    // Solo limpiamos en caso de error real.
+    setOrderLoading(true);
     try { const data = await apiFetch(`/tables/tables/${tableId}/order/`); setOrder(data); }
     catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al cargar la orden";

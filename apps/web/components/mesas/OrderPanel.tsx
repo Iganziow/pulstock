@@ -76,26 +76,45 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   // (14/05/26) Cambios para reducir carga del navegador (Mario reportó
   // 84 req/min cuando solo deberían ser ~4):
   //   - Subido de 15s → 30s (la mitad de tráfico).
-  //   - Refs estables para showPayment/confirmingPending/cancelling y
-  //     onOrderUpdate. Sin esto, CADA cambio de modal o re-render del
-  //     padre disparaba cleanup+setup del setInterval. En el peor caso
-  //     (race condition durante el cleanup), el clearInterval no se
-  //     ejecutaba antes de crear el nuevo → setIntervals duplicados
-  //     acumulándose. Con refs, el effect SOLO depende de order.id.
-  const pollingStateRef = useRef({ showPayment, confirmingPending, cancelling });
+  //   - Refs estables para los modales activos. Sin esto, CADA cambio de
+  //     modal o re-render del padre disparaba cleanup+setup del
+  //     setInterval. En el peor caso (race condition durante el cleanup),
+  //     el clearInterval no se ejecutaba antes de crear el nuevo →
+  //     setIntervals duplicados acumulándose. Con refs, el effect SOLO
+  //     depende de order.id.
+  //
+  // (15/05/26) FIX BUG VISUAL "se abre y se cierra ventana":
+  // Mario reportó que a veces el modal de Adicionar productos hacía
+  // flash visual o se cerraba solo. Causa: el polling NO pausaba para
+  // showAddFullscreen ni quickPayLine — solo para showPayment / confirm
+  // / cancel. Resultado: cada 30s mientras Mario elegía productos en
+  // pantalla fullscreen, llegaba una respuesta del polling, el padre
+  // seteaba un nuevo objeto `order`, y el re-render del padre causaba
+  // flash en el modal child. Ahora pausamos para CUALQUIER modal abierto.
+  const pollingStateRef = useRef({ showPayment, confirmingPending, cancelling, showAddFullscreen, hasQuickPay: false });
   useEffect(() => {
-    pollingStateRef.current = { showPayment, confirmingPending, cancelling };
-  }, [showPayment, confirmingPending, cancelling]);
+    pollingStateRef.current = {
+      showPayment,
+      confirmingPending,
+      cancelling,
+      showAddFullscreen,
+      // El check real de quickPayLine se hace abajo via closure — pero
+      // refleshamos el flag acá para que el polling lo lea sin trigger
+      // del effect.
+      hasQuickPay: pollingStateRef.current.hasQuickPay,
+    };
+  }, [showPayment, confirmingPending, cancelling, showAddFullscreen]);
   const onOrderUpdateRef = useRef(onOrderUpdate);
   useEffect(() => { onOrderUpdateRef.current = onOrderUpdate; }, [onOrderUpdate]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      // Pausa el polling si hay modal de pago/confirm/cancel activo,
-      // o si la pestaña no está visible (cajero dejó la mesa en otra
-      // pestaña/app y no necesita refrescos en background).
+      // Pausa el polling si hay CUALQUIER modal activo, o si la pestaña
+      // no está visible (cajero dejó la mesa en otra pestaña/app y no
+      // necesita refrescos en background).
       const st = pollingStateRef.current;
       if (st.showPayment || st.confirmingPending || st.cancelling) return;
+      if (st.showAddFullscreen || st.hasQuickPay) return;
       if (typeof document !== "undefined" && document.hidden) return;
       try {
         const updated = await apiFetch(`/tables/orders/${order.id}/`);
@@ -160,12 +179,14 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       });
       setPendingItems([]);  // limpiar después del éxito
       idemKeyRef.current = null;  // próximo carrito = nueva key
-      // Refrescar mesa
+      // Refrescar mesa SIN llamar onRefresh: ese hace setOrder(null) en
+      // el padre → desmonta este componente y los modales abiertos. Con
+      // onOrderUpdate basta — el padre ya tiene la versión actualizada
+      // sin necesidad de re-fetch.
       try {
         const updated = await apiFetch(`/tables/orders/${order.id}/`);
         onOrderUpdate(updated);
-      } catch { /* el parent refresh lo cubre */ }
-      onRefresh();
+      } catch { /* parent ya tiene el order anterior */ }
     } catch (e: unknown) {
       setPendingErr(e instanceof Error ? e.message : "Error al confirmar");
     } finally {
@@ -201,6 +222,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const paidLines = order.lines.filter(l => l.is_paid);
 
   const [quickPayLine, setQuickPayLine] = useState<OrderLine | null>(null);
+  // Reflejar quickPayLine en el ref del polling (declarado arriba) para
+  // pausar el refresh mientras el modal de cobro rápido está abierto.
+  useEffect(() => {
+    pollingStateRef.current.hasQuickPay = quickPayLine !== null;
+  }, [quickPayLine]);
 
   async function handleSendComanda() {
     // Comanda: ticket sin precios para cocina/bar/despacho. Se splittea
@@ -849,11 +875,13 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
                 Agregar productos
               </div>
               <AddItemPanel orderId={order.id} onAdded={async () => {
+                // SIN onRefresh: ese causa setOrder(null) en el padre →
+                // desmonta el OrderPanel + cualquier modal abierto. Con
+                // onOrderUpdate alcanza para refrescar la mesa actual.
                 try {
                   const updated = await apiFetch(`/tables/orders/${order.id}/`);
                   onOrderUpdate(updated);
-                } catch { /* parent refresh will cover it */ }
-                onRefresh();
+                } catch { /* parent mantiene order anterior */ }
               }} />
             </>
           )}
