@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
@@ -97,9 +97,12 @@ export default function StockPage() {
     (async () => {
       setLoading(true);
       try {
-        const me = (await apiFetch("/core/me/")) as Me;
+        // Paralelo: ambas no dependen entre si — ahorra ~30-100ms
+        const [me, whs] = await Promise.all([
+          apiFetch("/core/me/"),
+          apiFetch("/core/warehouses/"),
+        ]) as [Me, Warehouse[]];
         if (!me?.tenant_id) { setMeErr("Tu usuario no tiene tenant asignado."); return; }
-        const whs = (await apiFetch("/core/warehouses/")) as Warehouse[];
         const list = Array.isArray(whs) ? whs : [];
         setWarehouses(list);
         const active = list.filter(w => w.is_active);
@@ -129,7 +132,20 @@ export default function StockPage() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { if (!endpoint) return; const t = setTimeout(() => load(), 250); return () => clearTimeout(t); }, [endpoint]); // eslint-disable-line
+  // (15/05/26) Mismo fix que catalog/sales: el debounce 250ms solo debe
+  // aplicar al SEARCH (Mario tipea), no a clicks de filtro/paginacion.
+  // Antes esperaba 250ms en cada cambio aunque backend respondia en 30ms.
+  const prevQRefStock = useRef(q);
+  useEffect(() => {
+    if (!endpoint) return;
+    const qChanged = prevQRefStock.current !== q;
+    prevQRefStock.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [endpoint, q]); // eslint-disable-line
 
   function showOk(msg: string) { setOkMsg(msg); setTimeout(() => setOkMsg(null), 3500); }
 

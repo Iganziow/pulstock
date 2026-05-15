@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import type { Me } from "@/lib/me";
@@ -48,9 +48,14 @@ export default function InventoryPage(){
     (async()=>{
       setLoading(true);
       try{
-        const me=(await apiFetch("/core/me/")) as Me;
+        // Paralelo: ambas no dependen entre si (warehouses se filtra
+        // luego por me.default_warehouse_id). Antes serial = me_time +
+        // warehouses_time; ahora = max(ambos) ~ ahorra 30-100ms.
+        const [me, whs] = await Promise.all([
+          apiFetch("/core/me/"),
+          apiFetch("/core/warehouses/"),
+        ]) as [Me, Warehouse[]];
         if(!me?.tenant_id){setMeErr("Sin tenant asignado.");return;}
-        const whs=(await apiFetch("/core/warehouses/")) as Warehouse[];
         const list=Array.isArray(whs)?whs:[];
         setWhs(list);
         const active=list.filter(w=>w.is_active);
@@ -76,7 +81,18 @@ export default function InventoryPage(){
     finally{setLoading(false);}
   }
 
-  useEffect(()=>{if(!endpoint)return;const t=setTimeout(()=>load(),250);return()=>clearTimeout(t);},[endpoint]); // eslint-disable-line
+  // Debounce solo cuando cambia search (no en cambio de bodega/filtros)
+  const prevQRef = useRef(q);
+  useEffect(() => {
+    if (!endpoint) return;
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [endpoint, q]); // eslint-disable-line
 
   const metrics=useMemo(()=>{
     const zero=items.filter(r=>toNum(r.on_hand)<=0).length;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
@@ -65,7 +65,18 @@ export default function KardexReportPage(){
     finally{setLoading(false);}
   }
 
-  useEffect(()=>{if(!endpoint)return;const t=setTimeout(()=>load(),250);return()=>clearTimeout(t);},[endpoint]); // eslint-disable-line
+  // Debounce solo cuando cambia search (no en cambio de filtros/paginas)
+  const prevQRef = useRef(q);
+  useEffect(() => {
+    if (!endpoint) return;
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [endpoint, q]); // eslint-disable-line
 
   const canPrev=offset>0;
   const canNext=offset+limit<count;

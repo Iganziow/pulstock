@@ -123,37 +123,37 @@ export default function PosPage() {
     saveCartDraft({ cart, globalDiscountType, globalDiscountValue, saleNote, payRows, tipAmount });
   }, [cartLoaded, cart, globalDiscountType, globalDiscountValue, saleNote, payRows, tipAmount]);
 
-  // ── /core/me/ ──────────────────────────────────────────────────────────────
+  // ── /core/me/ + /core/warehouses/ en PARALELO ──────────────────────────────
+  // (15/05/26) Antes eran 2 useEffects en cascada serial: cargaba me,
+  // SETEABA me, eso disparaba el segundo useEffect, recien ahi cargaba
+  // warehouses. Ahora ambos en Promise.all → POS arranca ~50-100ms antes.
   useEffect(() => {
     (async () => {
       try {
-        const data = (await apiFetch("/core/me/")) as Me;
-        setMe(data);
-        if (!data?.tenant_id) { setMeErr("Tu usuario no tiene tenant asignado."); return; }
+        const [meData, ws] = await Promise.all([
+          apiFetch("/core/me/"),
+          apiFetch("/core/warehouses/"),
+        ]) as [Me, Warehouse[]];
+        setMe(meData);
+        if (!meData?.tenant_id) { setMeErr("Tu usuario no tiene tenant asignado."); return; }
         setMeErr(null);
-      } catch (e: any) { setMeErr(e?.message ?? "No se pudo cargar /core/me/"); }
-    })();
-  }, []);
 
-  // ── /core/warehouses/ ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!me?.tenant_id) return;
-    (async () => {
-      try {
-        const ws   = (await apiFetch("/core/warehouses/")) as Warehouse[];
         const list = Array.isArray(ws) ? ws : [];
         setWarehouses(list);
         if (list.length === 0) { setWarehouseId(null); return; }
         const stored     = typeof window !== "undefined" ? localStorage.getItem(POS_WAREHOUSE_STORAGE_KEY) : null;
         const storedId   = stored ? Number(stored) : null;
         const hasStored  = storedId && list.some((w) => w.id === storedId);
-        const hasDefault = me.default_warehouse_id && list.some((w) => w.id === me.default_warehouse_id);
-        const nextId     = hasStored ? storedId! : hasDefault ? me.default_warehouse_id! : list[0].id;
+        const hasDefault = meData.default_warehouse_id && list.some((w) => w.id === meData.default_warehouse_id);
+        const nextId     = hasStored ? storedId! : hasDefault ? meData.default_warehouse_id! : list[0].id;
         setWarehouseId(nextId);
         try { localStorage.setItem(POS_WAREHOUSE_STORAGE_KEY, String(nextId)); } catch (e) { logger.error("POS: error guardando bodega seleccionada:", e); }
-      } catch (e) { logger.error("POS: error cargando bodegas:", e); setWarehouseId(null); }
+      } catch (e: any) {
+        setMeErr(e?.message ?? "No se pudo cargar configuracion del POS");
+        logger.error("POS: error cargando me+warehouses:", e);
+      }
     })();
-  }, [me?.tenant_id, me?.default_warehouse_id]);
+  }, []);
 
   // ── Totals ─────────────────────────────────────────────────────────────────
 

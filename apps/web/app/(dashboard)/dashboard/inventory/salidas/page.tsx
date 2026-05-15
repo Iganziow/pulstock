@@ -85,9 +85,12 @@ export default function SalidasPage() {
     (async () => {
       setBooting(true);
       try {
-        const me = (await apiFetch("/core/me/")) as Me;
+        // Paralelo: ahorra ~30-100ms vs serial
+        const [me, whs] = await Promise.all([
+          apiFetch("/core/me/"),
+          apiFetch("/core/warehouses/"),
+        ]) as [Me, Warehouse[]];
         if (!me?.tenant_id) { setBootErr("Tu usuario no tiene tenant asignado."); return; }
-        const whs = (await apiFetch("/core/warehouses/")) as Warehouse[];
         const list = Array.isArray(whs) ? whs : [];
         const active = list.filter(w => w.is_active);
         setWarehouses(active);

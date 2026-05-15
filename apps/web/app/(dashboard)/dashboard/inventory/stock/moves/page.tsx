@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
@@ -75,7 +75,17 @@ export default function MovesPage(){
     (async()=>{try{const ws=(await apiFetch("/core/warehouses/")) as Warehouse[];setWarehouses(Array.isArray(ws)?ws:[]);}catch{setWarehouses([]);}})();
   },[]);
 
-  useEffect(()=>{const t=setTimeout(()=>load(),250);return()=>clearTimeout(t);},[endpoint]); // eslint-disable-line
+  // Debounce solo cuando cambia search
+  const prevQRef = useRef(q);
+  useEffect(() => {
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [endpoint, q]); // eslint-disable-line
 
   // counts by type for quick summary
   const summary=useMemo(()=>{

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
@@ -116,7 +116,17 @@ export default function PurchasesListPage(){
     (async()=>{try{const ws=(await apiFetch("/core/warehouses/")) as Warehouse[];setWarehouses(Array.isArray(ws)?ws:[]);}catch{setWarehouses([]);}})();
   },[]);
 
-  useEffect(()=>{const t=setTimeout(()=>load(),250);return()=>clearTimeout(t);},[load]);
+  // Debounce solo cuando cambia search
+  const prevQRef = useRef(q);
+  useEffect(() => {
+    const qChanged = prevQRef.current !== q;
+    prevQRef.current = q;
+    if (qChanged) {
+      const t = setTimeout(() => load(), 250);
+      return () => clearTimeout(t);
+    }
+    load();
+  }, [load, q]);
 
   const metrics = useMemo(()=>{
     const posted=items.filter(p=>p.status.toUpperCase()==="POSTED");
