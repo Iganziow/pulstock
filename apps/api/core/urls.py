@@ -1,3 +1,5 @@
+import logging
+
 from django.urls import path
 from django.utils.decorators import method_decorator
 from rest_framework.views import APIView
@@ -10,6 +12,8 @@ from stores.services import ensure_user_tenant_and_store
 from core.permissions import HasTenant, IsOwner, IsManager
 from core.models import Warehouse, User, AlertPreference
 from core.views import MeView
+
+logger = logging.getLogger(__name__)
 
 
 class BootstrapView(APIView):
