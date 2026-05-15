@@ -74,6 +74,13 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
   const [saving, setSaving]             = useState(false);
   const [err, setErr]                   = useState("");
   const debounce                        = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Mapa productId → unit_price con promo activa aplicada (o null si no hay promo).
+  // (15/05/26) Mario reportó delay de 1-2s al presionar "+" en un producto.
+  // Causa: addToCart hacía `apiFetch('/promotions/active-for-products/?ids=X')`
+  // EN CADA CLICK antes de actualizar el carrito → bloqueaba la UI con la red.
+  // Fix: pre-cargar las promos para TODOS los productos visibles UNA vez al
+  // cargar la lista, guardar en este map, y leer del map al click (instant).
+  const [promoPriceMap, setPromoPriceMap] = useState<Map<number, string>>(new Map());
 
   // Modal para editar cantidad (caso "93 gramos de chocolate"). Mario
   // pidió que sea más amigable: en móvil tipear el número directo en el
@@ -115,7 +122,25 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
       try {
         const data: any = await apiFetch(`/catalog/products/?${params.toString()}`);
         const list: CatalogProduct[] = Array.isArray(data) ? data : (data?.results ?? []);
-        setProducts(list.filter(p => p.is_active));
+        const activeList = list.filter(p => p.is_active);
+        setProducts(activeList);
+
+        // Pre-cargar promos en bulk para todos los productos visibles
+        // (1 sola request) → el click en "+" ya no espera red.
+        if (activeList.length > 0) {
+          const ids = activeList.map(p => p.id).join(",");
+          apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
+            .then((promoData: any) => {
+              const next = new Map<number, string>();
+              for (const promo of promoData?.results ?? []) {
+                if (promo.product_id && promo.promo_price) {
+                  next.set(promo.product_id, String(promo.promo_price));
+                }
+              }
+              setPromoPriceMap(next);
+            })
+            .catch(() => { /* sin promos: precio normal del producto */ });
+        }
       } catch {
         setProducts([]);
       } finally {
@@ -128,17 +153,19 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
   }, [q, activeCatId]);
 
   // ── Helpers ──
-  // Mismo fix que AddItemPanel: si hay promo activa, usar promo_price
-  // en vez del precio del catálogo. Sin esto, Mario veía $500 en la
-  // mesa aunque la promo bajara el cobro a $350 al cerrar.
-  const addToCart = async (p: CatalogProduct) => {
-    let unit_price = p.price || "0";
-    try {
-      const data = await apiFetch(`/promotions/active-for-products/?product_ids=${p.id}`);
-      const promo = data?.results?.[0];
-      if (promo?.promo_price) unit_price = String(promo.promo_price);
-    } catch { /* sin promo activa: precio normal */ }
+  // Resuelve el precio efectivo: promo_price si hay promoción activa
+  // (pre-cargada en promoPriceMap), o el price del catálogo. Lo hacemos
+  // local sin red — el click en "+" debe ser INSTANT. La promo viene
+  // del bulk fetch que dispara el useEffect de carga de productos.
+  const getEffectivePrice = (p: CatalogProduct): string => {
+    return promoPriceMap.get(p.id) ?? (p.price || "0");
+  };
 
+  // Sin async — actualizar el cart inmediatamente al click. Antes esto
+  // hacía un apiFetch a /promotions/active-for-products/?product_ids=X
+  // que generaba 1-2s de delay perceptual en cada "+". Ahora es instant.
+  const addToCart = (p: CatalogProduct) => {
+    const unit_price = getEffectivePrice(p);
     setCart(prev => {
       const existing = prev.find(c => c.product.id === p.id);
       if (existing) return prev.map(c => c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c);
@@ -564,7 +591,10 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
                 return [...prev, {
                   product: editingProduct,
                   qty: newQty,
-                  unit_price: editingProduct.price || "0",
+                  // getEffectivePrice aplica promo si existe (consistente
+                  // con addToCart). Sin esto, escribir cantidad en modal
+                  // ignoraba la promoción activa.
+                  unit_price: getEffectivePrice(editingProduct),
                   note: "",
                 }];
               }

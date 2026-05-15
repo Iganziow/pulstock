@@ -30,6 +30,9 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
   const [editingNote, setEditingNote] = useState<number | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Pre-cargado de promos al recibir results: el click en "+" se vuelve
+  // instant en vez de esperar 1-2s la red. Misma fix que AddItemFullscreen.
+  const [promoPriceMap, setPromoPriceMap] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
     if (!q.trim()) { setResults([]); return; }
@@ -38,27 +41,35 @@ export function AddItemPanel({ orderId, onAdded }: AddItemPanelProps) {
       setSearching(true);
       try {
         const data = await apiFetch(`/catalog/products/?q=${encodeURIComponent(q)}&is_active=true&page_size=15`);
-        setResults(data?.results || data || []);
+        const list: Product[] = data?.results || data || [];
+        setResults(list);
+
+        // Bulk fetch de promos para los resultados (1 request chica) →
+        // addToCart no espera red.
+        if (list.length > 0) {
+          const ids = list.map(p => p.id).join(",");
+          apiFetch(`/promotions/active-for-products/?product_ids=${ids}`)
+            .then((promoData: any) => {
+              const next = new Map<number, string>();
+              for (const promo of promoData?.results ?? []) {
+                if (promo.product_id && promo.promo_price) {
+                  next.set(promo.product_id, String(promo.promo_price));
+                }
+              }
+              setPromoPriceMap(next);
+            })
+            .catch(() => { /* sin promos: precio normal */ });
+        }
       } catch { setResults([]); }
       finally { setSearching(false); }
     }, 250);
   }, [q]);
 
-  async function addToCart(p: Product) {
+  // Sin async — instant. Lee promo del map pre-cargado o cae al precio
+  // normal. Antes hacía apiFetch por cada click → 1-2s de delay.
+  function addToCart(p: Product) {
     setQ(""); setResults([]);
-
-    // Consultar promo activa para este producto. Antes el carrito de
-    // mesa usaba `p.price` directo y Mario veía el precio normal aunque
-    // el producto estuviera en promo (la promo solo se aplicaba al
-    // cobrar, sorpresa al cliente). Ahora reflejamos el promo_price
-    // desde el primer click — igual que /dashboard/pos.
-    let unit_price = p.price || "0";
-    try {
-      const data = await apiFetch(`/promotions/active-for-products/?product_ids=${p.id}`);
-      const promo = data?.results?.[0];
-      if (promo?.promo_price) unit_price = String(promo.promo_price);
-    } catch { /* sin promo activa: usamos precio normal */ }
-
+    const unit_price = promoPriceMap.get(p.id) ?? (p.price || "0");
     setCart(prev => {
       const existing = prev.find(c => c.product.id === p.id);
       if (existing) return prev.map(c => c.product.id === p.id ? { ...c, qty: c.qty + 1 } : c);
