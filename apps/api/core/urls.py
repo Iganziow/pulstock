@@ -828,9 +828,13 @@ class NotificationsView(APIView):
             try:
                 from forecast.models import Forecast
                 from django.utils import timezone
+                # FIX: el campo es `forecast_date`, no `date`. Antes tiraba
+                # FieldError silencioso (capturado por el except below) →
+                # las notificaciones de "se agota pronto" NUNCA llegaban
+                # al frontend. Detectado por smoke tests post-deploy.
                 urgent = (
                     Forecast.objects
-                    .filter(tenant_id=tid, date=timezone.now().date())
+                    .filter(tenant_id=tid, forecast_date=timezone.now().date())
                     .filter(days_to_stockout__isnull=False, days_to_stockout__lte=3)
                     .select_related("product")[:5]
                 )
@@ -852,8 +856,10 @@ class NotificationsView(APIView):
         if prefs.sugerencia_compra:
             try:
                 from forecast.models import PurchaseSuggestion
+                # FIX: el choice es "PENDING" (uppercase), no "pending".
+                # Mismo bug silenciado por except — sugerencias nunca llegaban.
                 pending = PurchaseSuggestion.objects.filter(
-                    tenant_id=tid, status="pending"
+                    tenant_id=tid, status="PENDING"
                 ).count()
                 if pending > 0:
                     notifications.append({
