@@ -36,13 +36,24 @@ def _w(request):
 def _table_data(table):
     active_order = None
     if table.status == Table.STATUS_OPEN:
-        order = table.orders.filter(status=OpenOrder.STATUS_OPEN).first()
+        # IMPORTANTE: usar `.all()` (no `.filter()`) para aprovechar el
+        # prefetch_related del view. El prefetch YA filtra por
+        # status=STATUS_OPEN, así que cualquier `.filter()` adicional
+        # invalida el cache y dispara una query nueva. Igual con `lines`:
+        # el prefetch trae TODAS las líneas y filtramos en Python (in-memory)
+        # con comprehension. Con 10 mesas OPEN esto baja de ~30 queries a
+        # ~3 queries totales (Mario reportó "el local lleno" — escala lineal).
+        open_orders = list(table.orders.all())
+        order = open_orders[0] if open_orders else None
         if order:
-            active_lines = order.lines.filter(is_paid=False, is_cancelled=False)
+            active_lines = [
+                l for l in order.lines.all()
+                if not l.is_paid and not l.is_cancelled
+            ]
             active_order = {
                 "id": order.id,
                 "opened_at": order.opened_at.isoformat(),
-                "items_count": active_lines.count(),
+                "items_count": len(active_lines),
                 "subtotal": str(
                     sum(l.qty * l.unit_price for l in active_lines)
                 ),
