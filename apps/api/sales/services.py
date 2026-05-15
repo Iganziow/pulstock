@@ -241,6 +241,24 @@ def create_sale(
             shortages.append({"product_id": pid, "available": str(si.on_hand), "required": str(required_qty)})
 
     if shortages:
+        # Enriquecer con `name` y `unit` (símbolo: "u", "g", "ml", etc.) para
+        # que el frontend pueda mostrar exactamente qué producto faltó —
+        # como hace Fudo: "FANTA 350cc: 0.0 unid." en vez del genérico
+        # "No hay stock suficiente". Una sola query para todos los pids.
+        # Product ya está importado a nivel de módulo (línea 18) — NO
+        # importarlo de nuevo acá: shadow + UnboundLocalError porque Python
+        # marca `Product` como local en toda la función si lo asignás dentro.
+        # Si por alguna razón no encontramos el producto (raro), fallback a
+        # "Producto #ID" para no romper la respuesta.
+        short_pids = [s["product_id"] for s in shortages]
+        product_info = {
+            p["id"]: p for p in
+            Product.objects.filter(id__in=short_pids).values("id", "name", "unit_obj__code")
+        }
+        for s in shortages:
+            info = product_info.get(s["product_id"], {})
+            s["name"] = info.get("name") or f"Producto #{s['product_id']}"
+            s["unit"] = info.get("unit_obj__code") or "u"
         raise StockShortageError(shortages)
 
     # ── 6. Create Sale record ────────────────────────────────────────

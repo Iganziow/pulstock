@@ -8,6 +8,21 @@ import { MesaBtn as Btn } from "./MesaBtn";
 import { OrderLine, PaymentRow } from "./types";
 import { fmt, PAY_METHODS } from "./helpers";
 
+/**
+ * Detalle de cada producto sin stock que el backend devuelve cuando el
+ * checkout falla con 409. Antes el frontend mostraba un genérico ("No hay
+ * stock suficiente") y Mario tenía que ir a buscar en el inventario cuál
+ * producto faltaba. Ahora replicamos lo que hace Fudo: lista exacta como
+ * "FANTA 350cc: 0 disponible / 2 requerido".
+ */
+export interface StockShortage {
+  product_id: number;
+  name: string;
+  available: string;
+  required: string;
+  unit: string;
+}
+
 interface PaymentModalProps {
   total: number;
   tableName: string;
@@ -17,10 +32,11 @@ interface PaymentModalProps {
   unpaidLines: OrderLine[];
   canConsumoInterno?: boolean;
   error?: string;
+  shortages?: StockShortage[];
 }
 
 export function PaymentModal({
-  total, tableName, onConfirm, onClose, loading, unpaidLines, canConsumoInterno, error,
+  total, tableName, onConfirm, onClose, loading, unpaidLines, canConsumoInterno, error, shortages,
 }: PaymentModalProps) {
   const [rows, setRows] = useState<PaymentRow[]>([{ method: "cash", amount: "" }]);
   const [tipStr, setTipStr] = useState("");
@@ -392,16 +408,33 @@ export function PaymentModal({
           por la sección "Mesa grande" arriba (junto a Forma de pago), que
           además de mostrar lo de cada uno, crea N filas listas para editar. */}
 
-      {/* Error from checkout attempt */}
-      {error && (
+      {/* Error from checkout attempt — si el backend devolvió `shortages`
+          (lista detallada de productos sin stock), la mostramos como Fudo.
+          Si solo tenemos el string genérico, fallback al mensaje legible. */}
+      {(error || (shortages && shortages.length > 0)) && (
         <div style={{
           padding: "10px 14px", marginBottom: 10, borderRadius: C.r,
           background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
           fontSize: 12, fontWeight: 600,
         }}>
-          {error.includes("Insufficient stock") || error.includes("stock")
-            ? "No hay stock suficiente para completar esta venta. Verifica el inventario."
-            : error}
+          {shortages && shortages.length > 0 ? (
+            <>
+              <div style={{ marginBottom: 6 }}>
+                {shortages.length === 1 ? "Producto sin stock:" : `${shortages.length} productos sin stock:`}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontWeight: 500 }}>
+                {shortages.map((s) => (
+                  <li key={s.product_id} style={{ marginBottom: 2 }}>
+                    <strong>{s.name}</strong>: {s.available} {s.unit} disponible{Number(s.required) > 1 ? `, ${s.required} ${s.unit} requerido` : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : error?.includes("Insufficient stock") || error?.includes("stock") ? (
+            "No hay stock suficiente para completar esta venta. Verifica el inventario."
+          ) : (
+            error
+          )}
         </div>
       )}
 

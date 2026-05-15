@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MesaBtn as Btn } from "./MesaBtn";
-import { PaymentModal } from "./PaymentModal";
+import { PaymentModal, type StockShortage } from "./PaymentModal";
 import { AddItemPanel } from "./AddItemPanel";
 import { AddItemFullscreen, type PendingLineDraft } from "./AddItemFullscreen";
 import { Order, OrderLine, PaymentRow } from "./types";
@@ -36,6 +36,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [cancelReason, setCancelReason] = useState("");
   const [payLoading, setPayLoading] = useState(false);
   const [payErr, setPayErr] = useState("");
+  // Cuando el backend rechaza el cobro con 409 por stock insuficiente,
+  // viene un array `shortages` con detalle por producto. Lo guardamos
+  // separado del string genérico para que el modal lo muestre como Fudo
+  // (lista exacta: "FANTA 350cc: 0 u disponible").
+  const [payShortages, setPayShortages] = useState<StockShortage[] | null>(null);
   const [successMsg, setSuccessMsg] = useState("");
   // Lock por botón para evitar doble-click. Mario reportó: si apreta
   // muchas veces el botón de imprimir, salía error (la BT no soporta
@@ -341,7 +346,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
   const [lastSaleId, setLastSaleId] = useState<number | null>(null);
 
   async function handleCheckout(payments: PaymentRow[], tip: number, mode: "all" | "partial", lineIds: number[], saleType?: string) {
-    setPayLoading(true); setPayErr("");
+    setPayLoading(true); setPayErr(""); setPayShortages(null);
     try {
       const payArr = payments.map(r => ({ method: r.method, amount: Number(r.amount) }));
       const res = await apiFetch(`/tables/orders/${order.id}/checkout/`, {
@@ -373,6 +378,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error al cobrar";
       setPayErr(msg);
+      // Si el backend devolvió 409 con `shortages` (lista de productos
+      // sin stock), la pasamos al modal para mostrar detalle por producto
+      // en vez del genérico "No hay stock suficiente".
+      if (e instanceof ApiError && e.status === 409 && Array.isArray(e.data?.shortages)) {
+        setPayShortages(e.data.shortages as StockShortage[]);
+      }
     } finally { setPayLoading(false); }
   }
 
@@ -885,12 +896,14 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       {showPayment && (
         <PaymentModal total={Number(order.subtotal_unpaid)} tableName={order.customer_name || tableName}
           unpaidLines={unpaidLines} onClose={() => setShowPayment(false)}
-          loading={payLoading} onConfirm={handleCheckout} canConsumoInterno={canConsumoInterno} error={payErr} />
+          loading={payLoading} onConfirm={handleCheckout} canConsumoInterno={canConsumoInterno}
+          error={payErr} shortages={payShortages || undefined} />
       )}
       {quickPayLine && (
         <PaymentModal total={Number(quickPayLine.line_total)} tableName={`${quickPayLine.product_name}`}
           unpaidLines={[quickPayLine]} onClose={() => setQuickPayLine(null)}
-          loading={payLoading} onConfirm={(payments, tip, _mode, _lineIds) => {
+          loading={payLoading} error={payErr} shortages={payShortages || undefined}
+          onConfirm={(payments, tip, _mode, _lineIds) => {
             handleCheckout(payments, tip, "partial", [quickPayLine.id]);
             setQuickPayLine(null);
           }} />
