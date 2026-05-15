@@ -802,10 +802,11 @@ class NotificationsView(APIView):
         if prefs.stock_bajo:
             from inventory.models import StockItem
             from catalog.models import Product
+            from django.db.models import F
             low_items = (
                 StockItem.objects
                 .filter(tenant_id=tid, product__is_active=True, product__min_stock__gt=0)
-                .filter(on_hand__lt=models.F("product__min_stock"))
+                .filter(on_hand__lt=F("product__min_stock"))
                 .select_related("product")[:10]
             )
             for si in low_items:

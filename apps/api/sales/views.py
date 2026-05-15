@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 
 from django.db import transaction, IntegrityError
-from django.db.models import F, Q, Sum, Count, Avg
+from django.db.models import F, Q, Sum, Count, Avg, Prefetch
 from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -216,13 +216,32 @@ class SaleDetail(generics.RetrieveAPIView):
         if not store_id:
             return Sale.objects.none()
 
+        # Prefetch agresivo del producto de cada line para evitar N+1.
+        # Sin esto, el SaleDetailSerializer disparaba 5+ queries POR LINE
+        # (category, unit_obj, recipe, barcodes, stockitem.avg_cost) →
+        # una venta de 5 lines hacía ~40 queries. Ahora es constante.
         return (
             Sale.objects.filter(
                 tenant_id=t_id,
                 store_id=store_id,
             )
             .select_related("warehouse", "created_by", "store")
-            .prefetch_related("lines__product", "payments", "tips")
+            .prefetch_related(
+                Prefetch(
+                    "lines",
+                    queryset=SaleLine.objects.select_related(
+                        "product",
+                        "product__category",
+                        "product__unit_obj",
+                        "product__recipe",
+                    ).prefetch_related(
+                        "product__barcodes",
+                        "product__stockitem_set",
+                    ),
+                ),
+                "payments",
+                "tips",
+            )
         )
 
     def retrieve(self, request, *args, **kwargs):
