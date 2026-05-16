@@ -216,22 +216,67 @@ def _session_summary(session):
     # todas las ventas existentes; este path es solo defensivo.
     from sales.models import SaleTip
 
-    saletip_totals = (
+    # (16/05/26) PARCHE — Mario reportó: "tip cash que veo NO coincide con
+    # lo que recibí físicamente". Causa raíz: en ventas split (cash + debit),
+    # create_sale distribuye la propina PROPORCIONALMENTE entre métodos →
+    # tip $1,060 de venta con $1K cash + $9.6K debit queda como cash $96.36
+    # + debit $963.64. Pero la propina cash real fue $1,060 (cliente dejó
+    # billete suelto). Decimales raros = reparto proporcional automático.
+    #
+    # FIX TEMPORAL (sin tocar create_sale ni migrar datos):
+    # Detectar cuándo el SaleTip viene del reparto auto vs edición manual:
+    #
+    #   "Reparto automático" = SaleTip.methods ⊆ SalePayment.methods
+    #     (cada tip tiene un payment del mismo método) → APLICAR smart cash
+    #
+    #   "Edición manual" = SaleTip tiene algún método QUE NO está en payments
+    #     (ej. tip transfer cuando solo hay payment cash) → RESPETAR el split
+    #     (el dueño editó intencionalmente: cliente dejó propina por canal
+    #      distinto al pago)
+    #
+    # Regla smart cash: cuando es reparto automático y la venta tuvo cash
+    # en payment, asumimos toda la propina fue cash (típico cafetería —
+    # mayoría pago con tarjeta + propina en billete).
+    #
+    # Total tips no cambia. Solo cambia atribución de cuánto va a cash.
+    # Fix raíz pendiente: aceptar tips_in explícito en create_sale.
+
+    # Cargar SalePayments por sale_id para conocer métodos usados
+    sale_payment_methods = {}  # sale_id → set of methods
+    for sp in SalePayment.objects.filter(sale_id__in=sale_ids_in_range).values("sale_id", "method"):
+        sale_payment_methods.setdefault(sp["sale_id"], set()).add(sp["method"])
+
+    # Cargar SaleTip rows agrupados por sale para evaluar la heurística
+    saletip_rows_all = list(
         SaleTip.objects
         .filter(sale_id__in=sale_ids_in_range)
-        .values("method")
-        .annotate(total=Sum("amount"), count=Count("id"))
+        .values("sale_id", "method", "amount")
     )
-    sales_with_saletips = set(
-        SaleTip.objects
-        .filter(sale_id__in=sale_ids_in_range)
-        .values_list("sale_id", flat=True)
-        .distinct()
-    )
-    for row in saletip_totals:
-        m = _bucket(row["method"])
-        tips_by_method[m] += row["total"]
-        tip_count_by_method[m] += row["count"]
+    tips_by_sale = {}  # sale_id → list of (method, amount)
+    for r in saletip_rows_all:
+        tips_by_sale.setdefault(r["sale_id"], []).append((r["method"], r["amount"]))
+
+    sales_with_saletips = set(tips_by_sale.keys())
+
+    for sid, tip_list in tips_by_sale.items():
+        pay_methods = sale_payment_methods.get(sid, set())
+        tip_methods = {m for m, _ in tip_list}
+        total_tip = sum((a for _, a in tip_list), zero)
+
+        # ¿Es reparto automático? Todos los tip methods están en payments
+        is_auto_split = tip_methods.issubset(pay_methods) and len(tip_methods) > 1
+        has_cash_payment = "cash" in pay_methods
+
+        if is_auto_split and has_cash_payment:
+            # SMART CASH: toda la propina a cash (cuenta como 1 venta con tip cash)
+            tips_by_method["cash"] += total_tip
+            tip_count_by_method["cash"] += 1
+        else:
+            # Respetar el split del SaleTip (edición manual o caso simple)
+            for method, amount in tip_list:
+                m = _bucket(method)
+                tips_by_method[m] += amount
+                tip_count_by_method[m] += 1
 
     # Path legacy para ventas con tip>0 pero sin filas SaleTip.
     # `.only()` minimiza columnas traídas — el loop solo usa tip,
