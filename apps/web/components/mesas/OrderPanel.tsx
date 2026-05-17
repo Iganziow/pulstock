@@ -271,7 +271,9 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           reference: ref,
           stationName: stationName || (g.stationId ? `Estación #${g.stationId}` : "Comanda"),
           lines: g.lines.map(l => ({ name: l.product_name, qty: l.qty, total: l.line_total })),
-          attendedBy: order.opened_by,
+          // En comanda/pre-cuenta lo importante es quien ATIENDE
+          // (garzon). Si no hay garzon asignado, fallback al opened_by.
+          attendedBy: order.waiter?.name || order.opened_by,
           date: new Date(),
         };
         const r = await printUniversal({
@@ -502,7 +504,10 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </div>
           <div style={{ fontSize: 10, color: C.mute }}>
             {order.customer_name && <>{tableName} &middot; </>}
-            {order.opened_by} &middot; {fmtTime(order.opened_at)} &middot; {timeAgo(order.opened_at)}
+            {/* Mostrar el GARZON si esta asignado (Fudo-style). Si no,
+                caemos al opened_by (cajero) para compat con ordenes
+                viejas anteriores al sistema de garzon. */}
+            {order.waiter?.name || order.opened_by} &middot; {fmtTime(order.opened_at)} &middot; {timeAgo(order.opened_at)}
           </div>
         </div>
         {unpaidLines.length > 0 && (

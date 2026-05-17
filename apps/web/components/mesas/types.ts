@@ -53,6 +53,10 @@ export interface Order {
   customer_name: string;
   note: string;
   warehouse_id: number;
+  /** Garzon que atiende la mesa (Fudo-style). Puede ser distinto al
+      cajero que la abrio (opened_by). Null si nadie quedo asignado. */
+  waiter_id?: number | null;
+  waiter?: { id: number; name: string } | null;
   lines: OrderLine[];
   subtotal_unpaid: string;
 }
