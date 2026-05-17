@@ -58,6 +58,18 @@ class OpenOrder(models.Model):
     table     = models.ForeignKey(Table, on_delete=models.PROTECT, related_name="orders")
     status    = models.CharField(max_length=8, choices=STATUS_CHOICES, default=STATUS_OPEN)
     opened_by = models.ForeignKey("core.User", on_delete=models.PROTECT, related_name="opened_orders")
+    # waiter: usuario que ATIENDE la mesa (puede ser distinto al que cobra).
+    # Mario lo pidio (16/05/26): igual que Fudo, al abrir la mesa elige
+    # el garzon. Despues sirve para filtrar ventas y propinas por garzon
+    # (no por cajero). Nullable para retro-compat con orders existentes.
+    # Si waiter es null, se asume que el opened_by atendio (heuristica
+    # del frontend) — pero campo separado para distinguir explicito.
+    waiter    = models.ForeignKey(
+        "core.User", on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="orders_attended",
+        help_text="Garzon/mozo que atiende la mesa (Fudo-style)",
+    )
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     customer_name = models.CharField(max_length=100, blank=True, default="")

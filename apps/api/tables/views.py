@@ -140,6 +140,13 @@ def _line_data(line):
 
 
 def _order_data(order, include_lines=False):
+    waiter_data = None
+    if order.waiter_id:
+        waiter_data = {
+            "id": order.waiter_id,
+            "name": (order.waiter.get_full_name() or order.waiter.email
+                     if hasattr(order, "waiter") and order.waiter else f"User #{order.waiter_id}"),
+        }
     d = {
         "id":         order.id,
         "table_id":   order.table_id,
@@ -151,6 +158,8 @@ def _order_data(order, include_lines=False):
         "customer_name": order.customer_name,
         "note":       order.note,
         "warehouse_id": order.warehouse_id,
+        "waiter_id":  order.waiter_id,
+        "waiter":     waiter_data,
     }
     if include_lines:
         # select_related en product__category para que _line_data() no haga
@@ -396,12 +405,23 @@ class OpenOrderView(APIView):
 
         note = (request.data.get("note") or "").strip()
         customer_name = (request.data.get("customer_name") or "").strip()
+        # waiter_id opcional — quien ATIENDE la mesa (puede ser distinto al
+        # opened_by/cashier). Validar que pertenezca al tenant si viene.
+        from core.models import User
+        waiter_id = request.data.get("waiter_id")
+        waiter = None
+        if waiter_id:
+            try:
+                waiter = User.objects.get(id=int(waiter_id), tenant_id=t_id, is_active=True)
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response({"detail": "Garzón no válido."}, status=400)
         order = OpenOrder.objects.create(
             tenant_id=t_id,
             store_id=s_id,
             warehouse_id=w_id,
             table=table,
             opened_by=request.user,
+            waiter=waiter,
             customer_name=customer_name,
             note=note,
         )
@@ -772,12 +792,22 @@ class CounterOrderView(APIView):
 
         # Open order on the counter table
         customer_name = (request.data.get("customer_name") or "").strip()
+        # waiter_id opcional (mismo patron que OpenOrderView)
+        from core.models import User
+        waiter_id = request.data.get("waiter_id")
+        waiter = None
+        if waiter_id:
+            try:
+                waiter = User.objects.get(id=int(waiter_id), tenant_id=t_id, is_active=True)
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response({"detail": "Garzón no válido."}, status=400)
         order = OpenOrder.objects.create(
             tenant_id=t_id,
             store_id=s_id,
             warehouse_id=w_id,
             table=counter_table,
             opened_by=request.user,
+            waiter=waiter,
             customer_name=customer_name,
             note="Pedido para llevar",
         )

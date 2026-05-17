@@ -66,6 +66,8 @@ class SaleListSerializer(serializers.ModelSerializer):
     Incluye campos de costo para reportes.
     """
     table_name = serializers.SerializerMethodField()
+    waiter_id = serializers.SerializerMethodField()
+    waiter_name = serializers.SerializerMethodField()
 
     def get_table_name(self, obj):
         if obj.open_order_id:
@@ -74,6 +76,29 @@ class SaleListSerializer(serializers.ModelSerializer):
             except (AttributeError, ObjectDoesNotExist):
                 return None
         return None
+
+    def get_waiter_id(self, obj):
+        if not obj.open_order_id:
+            return None
+        try:
+            return obj.open_order.waiter_id
+        except (AttributeError, ObjectDoesNotExist):
+            return None
+
+    def get_waiter_name(self, obj):
+        if not obj.open_order_id:
+            return None
+        try:
+            w = obj.open_order.waiter
+        except (AttributeError, ObjectDoesNotExist):
+            return None
+        if not w:
+            return None
+        full = " ".join(filter(None, [
+            getattr(w, "first_name", "") or "",
+            getattr(w, "last_name", "") or "",
+        ])).strip()
+        return full or getattr(w, "username", "") or None
 
     class Meta:
         model = Sale
@@ -93,6 +118,8 @@ class SaleListSerializer(serializers.ModelSerializer):
             "created_by_id",
             "open_order_id",
             "table_name",
+            "waiter_id",
+            "waiter_name",
         ]
 
 

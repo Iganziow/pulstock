@@ -16,6 +16,11 @@ export type SaleRow = {
   created_by_id: number;
   open_order_id?: number | null;
   table_name?: string | null;
+  /** Garzon/mozo que atendio la mesa (Fudo-style). Puede ser distinto
+      al cajero (created_by). Null si la venta no vino de una mesa
+      (POS directo) o es legacy (anterior al 16/05/26). */
+  waiter_id?: number | null;
+  waiter_name?: string | null;
 };
 
 export type Product = { id: number; name: string; sku?: string | null };

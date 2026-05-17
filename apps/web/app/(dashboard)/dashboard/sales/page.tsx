@@ -48,6 +48,7 @@ export default function SalesPage() {
   // por defecto.
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [cashier, setCashier]   = useState<number|"ALL">("ALL");
+  const [waiter, setWaiter]     = useState<number|"ALL">("ALL");
   const [paymentMethod, setPaymentMethod] = useState<"ALL"|"cash"|"debit"|"card"|"transfer">("ALL");
   const [customer, setCustomer] = useState("");
   const [hasTip, setHasTip]     = useState<"ALL"|"YES"|"NO">("ALL");
@@ -67,6 +68,7 @@ export default function SalesPage() {
     if (status !== "ALL") p.set("status", status);
     if (warehouseId !== "ALL") p.set("warehouse_id", String(warehouseId));
     if (cashier !== "ALL") p.set("cashier", String(cashier));
+    if (waiter !== "ALL") p.set("waiter", String(waiter));
     if (paymentMethod !== "ALL") p.set("payment_method", paymentMethod);
     if (customer.trim()) p.set("customer", customer.trim());
     if (hasTip === "YES") p.set("has_tip", "true");
@@ -89,14 +91,14 @@ export default function SalesPage() {
     }
     const qs = p.toString();
     return qs ? `${base}?${qs}` : base;
-  }, [q, status, range, warehouseId, customFrom, customTo, cashier, paymentMethod, customer, hasTip, page]);
+  }, [q, status, range, warehouseId, customFrom, customTo, cashier, waiter, paymentMethod, customer, hasTip, page]);
 
   // Reset a página 1 cuando cambia CUALQUIER filtro (no cuando cambia
   // page solo). Sin esto, si Mario está en página 5 y filtra por cash,
   // queda en página 5 de una lista filtrada que quizás solo tiene 1 página.
   useEffect(() => {
     setPage(1);
-  }, [q, status, range, warehouseId, customFrom, customTo, cashier, paymentMethod, customer, hasTip]);
+  }, [q, status, range, warehouseId, customFrom, customTo, cashier, waiter, paymentMethod, customer, hasTip]);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -424,7 +426,7 @@ export default function SalesPage() {
         {/* Toggle Más filtros (Mario lo pidió 14/05 para auditar cuadre) */}
         <button type="button" onClick={() => setShowMoreFilters(v => !v)} style={{
           height: 36, padding: "0 12px",
-          border: `1px solid ${(cashier !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") ? C.accent : C.border}`,
+          border: `1px solid ${(cashier !== "ALL" || waiter !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") ? C.accent : C.border}`,
           borderRadius: C.r, background: showMoreFilters ? C.accentBg : C.surface,
           color: showMoreFilters ? C.accent : C.mid,
           fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -453,6 +455,25 @@ export default function SalesPage() {
             minWidth: 140,
           }}>
             <option value="ALL">Todos los cajeros</option>
+            {cashiers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+
+          {/* Garzón — quien ATENDIO la mesa (puede diferir del cajero
+              que cobro). Mario 16/05/26: imprescindible para que cada
+              garzon pueda filtrar SUS propias propinas. */}
+          <select
+            value={waiter === "ALL" ? "" : String(waiter)}
+            onChange={e => setWaiter(e.target.value === "" ? "ALL" : Number(e.target.value))}
+            style={{
+              height:36, padding:"0 10px", border:`1px solid ${C.border}`,
+              borderRadius:C.r, fontSize:13, background:C.surface,
+              minWidth: 150,
+            }}
+          >
+            <option value="">Todos los garzones</option>
+            {/* Reusamos la misma lista de cajeros que ya carga el panel
+                "más filtros" — porque cualquier user del tenant puede
+                ser garzón (mismos roles que cajero). */}
             {cashiers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
 
@@ -491,9 +512,9 @@ export default function SalesPage() {
           </select>
 
           {/* Limpiar filtros avanzados */}
-          {(cashier !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") && (
+          {(cashier !== "ALL" || waiter !== "ALL" || paymentMethod !== "ALL" || customer.trim() || hasTip !== "ALL") && (
             <button type="button" onClick={() => {
-              setCashier("ALL"); setPaymentMethod("ALL"); setCustomer(""); setHasTip("ALL");
+              setCashier("ALL"); setWaiter("ALL"); setPaymentMethod("ALL"); setCustomer(""); setHasTip("ALL");
             }} style={{
               height:36, padding:"0 10px", border:`1px solid ${C.border}`,
               borderRadius:C.r, fontSize:12, background:C.surface,

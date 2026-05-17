@@ -170,7 +170,7 @@ class SaleList(generics.ListAPIView):
                 tenant_id=t_id,
                 store_id=store_id,
             )
-            .select_related("warehouse", "created_by", "store", "open_order__table")
+            .select_related("warehouse", "created_by", "store", "open_order__table", "open_order__waiter")
             .order_by(ordering)
         )
 
@@ -245,6 +245,22 @@ class SaleList(generics.ListAPIView):
             qs = qs.filter(tip__gt=0)
         elif has_tip in ("false", "0", "no"):
             qs = qs.filter(Q(tip__isnull=True) | Q(tip=0))
+
+        # Garzón / Mesero (waiter del OpenOrder) — Mario lo pidió (16/05/26):
+        # poder filtrar ventas por QUIÉN ATENDIÓ la mesa, no por quién cobró.
+        # Crítico para que cada garzón vea SUS propinas reales.
+        # Acepta id numérico o username/email (igual que cashier).
+        waiter = (self.request.query_params.get("waiter") or "").strip()
+        if waiter:
+            if waiter.isdigit():
+                qs = qs.filter(open_order__waiter_id=int(waiter))
+            else:
+                qs = qs.filter(
+                    Q(open_order__waiter__username__icontains=waiter) |
+                    Q(open_order__waiter__email__icontains=waiter) |
+                    Q(open_order__waiter__first_name__icontains=waiter) |
+                    Q(open_order__waiter__last_name__icontains=waiter)
+                )
 
         return qs
 
@@ -744,6 +760,37 @@ class TipsSummaryView(APIView):
             created_at__date__lte=date_to,
         )
 
+        # Filtros opcionales (Mario 16/05/26 — para ver TUS propinas
+        # como garzón, no las del cajero que cobró).
+        waiter = (request.query_params.get("waiter") or "").strip()
+        if waiter:
+            if waiter.isdigit():
+                qs = qs.filter(open_order__waiter_id=int(waiter))
+            else:
+                qs = qs.filter(
+                    Q(open_order__waiter__username__icontains=waiter) |
+                    Q(open_order__waiter__first_name__icontains=waiter) |
+                    Q(open_order__waiter__last_name__icontains=waiter)
+                )
+        cashier = (request.query_params.get("cashier") or "").strip()
+        if cashier:
+            if cashier.isdigit():
+                qs = qs.filter(created_by_id=int(cashier))
+            else:
+                qs = qs.filter(
+                    Q(created_by__username__icontains=cashier) |
+                    Q(created_by__first_name__icontains=cashier) |
+                    Q(created_by__last_name__icontains=cashier)
+                )
+        payment_method = (request.query_params.get("payment_method") or "").strip().lower()
+        if payment_method:
+            from .models import SalePayment
+            qs = qs.filter(
+                Exists(SalePayment.objects.filter(
+                    sale_id=OuterRef("pk"), method=payment_method,
+                ))
+            )
+
         agg = qs.aggregate(
             total_tips=Coalesce(Sum("tip"), Decimal("0")),
             count_with_tip=Count("id", filter=Q(tip__gt=0)),
@@ -960,9 +1007,22 @@ class TipsListView(APIView):
             # venta es split — eso lo informamos pero filtramos amplio.
             qs = qs.filter(payments__method=payment_method).distinct()
 
+        # Garzón (waiter del OpenOrder) — Mario 16/05/26
+        waiter = (p.get("waiter") or "").strip()
+        if waiter:
+            if waiter.isdigit():
+                qs = qs.filter(open_order__waiter_id=int(waiter))
+            else:
+                qs = qs.filter(
+                    Q(open_order__waiter__username__icontains=waiter) |
+                    Q(open_order__waiter__first_name__icontains=waiter) |
+                    Q(open_order__waiter__last_name__icontains=waiter)
+                )
+
         # Optimización: traer todo en 1 query con joins
         qs = qs.select_related(
-            "created_by", "cash_session__register", "open_order__table",
+            "created_by", "cash_session__register",
+            "open_order__table", "open_order__waiter",
         ).prefetch_related("payments", "tips").order_by("-created_at")
 
         # Totales del filtro completo (antes de paginar)
@@ -1041,13 +1101,29 @@ class TipsListView(APIView):
                 if table_name is not None:
                     table_name = str(table_name)
 
-            # Cajero/garzón: full name → username fallback
+            # Cajero: full name → username fallback
             user = sale.created_by
             full_name = " ".join(filter(None, [
                 getattr(user, "first_name", "") or "",
                 getattr(user, "last_name", "") or "",
             ])).strip()
             cashier_name = full_name or getattr(user, "username", "") or "—"
+
+            # Garzon/mozo: viene de open_order.waiter (Fudo-style). Mario
+            # pidio (16/05/26) que las propinas se filtren por garzon, no
+            # por cajero — porque el garzon es quien atendio. Fallback a
+            # null si no hay waiter (POS directo, ventas legacy).
+            waiter_id = None
+            waiter_name = None
+            if sale.open_order_id and getattr(sale.open_order, "waiter_id", None):
+                w = sale.open_order.waiter
+                if w:
+                    waiter_id = w.id
+                    waiter_full = " ".join(filter(None, [
+                        getattr(w, "first_name", "") or "",
+                        getattr(w, "last_name", "") or "",
+                    ])).strip()
+                    waiter_name = waiter_full or getattr(w, "username", "") or None
 
             # Caja
             register_name = None
@@ -1061,6 +1137,8 @@ class TipsListView(APIView):
                 "table_name": table_name,
                 "cashier_id": user.id,
                 "cashier_name": cashier_name,
+                "waiter_id": waiter_id,
+                "waiter_name": waiter_name,
                 "payment_method": method,
                 "payment_method_label": method_label,
                 "total_sale": str(sale.total),
@@ -1094,6 +1172,7 @@ class TipsListView(APIView):
                 "cashier_id": int(cashier_id) if cashier_id and str(cashier_id).isdigit() else None,
                 "register_id": int(register_id) if register_id and str(register_id).isdigit() else None,
                 "payment_method": payment_method or None,
+                "waiter": waiter or None,
                 "sale_type": sale_type,
             },
         })

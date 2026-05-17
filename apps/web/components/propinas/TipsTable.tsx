@@ -24,6 +24,10 @@ interface TipRow {
   table_name: string | null;
   cashier_id: number;
   cashier_name: string;
+  /** Garzon/mozo que atendio la mesa (Fudo-style). Puede ser distinto
+      al cajero. Null si la venta no vino de una mesa (POS directo). */
+  waiter_id: number | null;
+  waiter_name: string | null;
   payment_method: string;
   payment_method_label: string;
   total_sale: string;
@@ -97,6 +101,7 @@ export function TipsTable({
   const [dateFrom, setDateFrom] = useState(daysAgoISO(defaultDaysRange - 1));
   const [dateTo, setDateTo] = useState(todayISO());
   const [cashierId, setCashierId] = useState<string>("");
+  const [waiterId, setWaiterId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [registerId, setRegisterId] = useState<string>("");
   const [page, setPage] = useState(1);
@@ -104,17 +109,27 @@ export function TipsTable({
 
   const [data, setData] = useState<TipsListResponse | null>(null);
   const [cashiers, setCashiers] = useState<{ id: number; name: string }[]>([]);
+  // Lista de garzones del tenant — viene de /core/staff/ (lighweight).
+  // Cualquier usuario activo puede ser garzón (mismos roles que cajero,
+  // por eso reusamos la misma lista cuando no hay un endpoint dedicado).
+  const [waiters, setWaiters] = useState<{ id: number; name: string }[]>([]);
   const [registers, setRegisters] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Cargar lista de cajeros y cajas para selectores (1 vez al montar)
+  // Cargar lista de garzones (=staff) + cajas (1 vez al montar)
   useEffect(() => {
     let cancelled = false;
-    // Cajeros: derivamos de la lista de propinas (no hay endpoint ad-hoc).
     // Cajas: /caja/registers/
     apiFetch("/caja/registers/")
       .then((d: any) => { if (!cancelled && Array.isArray(d)) setRegisters(d.map((r: any) => ({ id: r.id, name: r.name }))); })
+      .catch(() => {});
+    // Staff (garzones): /core/staff/ — accesible para cualquier user del tenant
+    apiFetch("/core/staff/")
+      .then((d: any) => {
+        if (cancelled || !Array.isArray(d)) return;
+        setWaiters(d.map((u: any) => ({ id: u.id, name: u.display_name || u.username })));
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -124,12 +139,13 @@ export function TipsTable({
     if (dateFrom) u.set("date_from", dateFrom);
     if (dateTo) u.set("date_to", dateTo);
     if (cashierId) u.set("cashier_id", cashierId);
+    if (waiterId) u.set("waiter", waiterId);
     if (paymentMethod) u.set("payment_method", paymentMethod);
     if (registerId) u.set("register_id", registerId);
     u.set("page", String(page));
     u.set("page_size", String(pageSize));
     return u.toString();
-  }, [dateFrom, dateTo, cashierId, paymentMethod, registerId, page, pageSize]);
+  }, [dateFrom, dateTo, cashierId, waiterId, paymentMethod, registerId, page, pageSize]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -159,7 +175,7 @@ export function TipsTable({
   useEffect(() => { load(); }, [load]);
 
   // Reset page cuando cambian filtros (excepto page mismo)
-  useEffect(() => { setPage(1); }, [dateFrom, dateTo, cashierId, paymentMethod, registerId]);
+  useEffect(() => { setPage(1); }, [dateFrom, dateTo, cashierId, waiterId, paymentMethod, registerId]);
 
   const padCell = compact ? "8px 10px" : "11px 14px";
   const fontHead = compact ? 11 : 12;
@@ -184,7 +200,18 @@ export function TipsTable({
           <FilterField label="Hasta">
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
           </FilterField>
-          <FilterField label="Garzón / Cajero">
+          <FilterField label="Garzón">
+            {/* Filtro Garzon (Mario 16/05/26): quien ATENDIO la mesa.
+                Critico para que cada garzon vea SUS propinas — no las
+                del cajero que cobro. */}
+            <select value={waiterId} onChange={e => setWaiterId(e.target.value)} style={inputStyle}>
+              <option value="">Todos</option>
+              {waiters.map(w => (
+                <option key={w.id} value={String(w.id)}>{w.name}</option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Cajero">
             <select value={cashierId} onChange={e => setCashierId(e.target.value)} style={inputStyle}>
               <option value="">Todos</option>
               {cashiers.map(c => (
@@ -264,12 +291,13 @@ export function TipsTable({
         )}
         {!loading && data && data.results.length > 0 && (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
               <thead>
                 <tr style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
                   <Th compact={compact}>Fecha</Th>
                   <Th compact={compact} center>Mesa</Th>
-                  <Th compact={compact}>Garzón / Cajero</Th>
+                  <Th compact={compact}>Garzón</Th>
+                  <Th compact={compact}>Cajero</Th>
                   <Th compact={compact}>Medio de pago</Th>
                   <Th compact={compact} right>Total Venta</Th>
                   <Th compact={compact} right>Propina</Th>
@@ -283,6 +311,9 @@ export function TipsTable({
                     </Td>
                     <Td compact={compact} center style={{ fontWeight: row.table_name ? 700 : 400, color: row.table_name ? C.text : C.mute }}>
                       {row.table_name || "—"}
+                    </Td>
+                    <Td compact={compact} style={{ fontWeight: 600, color: row.waiter_name ? C.text : C.mute }}>
+                      {row.waiter_name || "—"}
                     </Td>
                     <Td compact={compact} style={{ fontWeight: 600 }}>{row.cashier_name}</Td>
                     <Td compact={compact}>

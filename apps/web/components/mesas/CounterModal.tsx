@@ -2,18 +2,31 @@
 
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
+import { WaiterSelect } from "@/components/WaiterSelect";
 import { MesaBtn as Btn } from "./MesaBtn";
 import { MesaModal } from "./MesaModal";
 
 interface CounterModalProps {
   counterName: string;
   onChangeName: (v: string) => void;
+  waiterId?: number | null;
+  onChangeWaiter?: (id: number | null) => void;
+  storeId?: number | null;
   counterLoading: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }
 
-export function CounterModal({ counterName, onChangeName, counterLoading, onClose, onConfirm }: CounterModalProps) {
+export function CounterModal({
+  counterName,
+  onChangeName,
+  waiterId = null,
+  onChangeWaiter,
+  storeId = null,
+  counterLoading,
+  onClose,
+  onConfirm,
+}: CounterModalProps) {
   return (
     <MesaModal title="Nuevo pedido para llevar" onClose={onClose} width={380}>
       <div style={{ marginBottom: 14 }}>
@@ -28,6 +41,17 @@ export function CounterModal({ counterName, onChangeName, counterLoading, onClos
           Se mostrará en la comanda para identificar al cliente.
         </div>
       </div>
+      {onChangeWaiter && (
+        <div style={{ marginBottom: 14 }}>
+          <WaiterSelect
+            value={waiterId}
+            onChange={onChangeWaiter}
+            storeId={storeId}
+            label="Garzón"
+            placeholder="Sin asignar"
+          />
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
         <Btn variant="primary" full disabled={counterLoading} onClick={onConfirm}>

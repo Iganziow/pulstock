@@ -6,6 +6,7 @@ import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
 import { Btn } from "@/components/ui/Button";
+import { WaiterSelect } from "@/components/WaiterSelect";
 import {
   TableCard,
   OrderPanel,
@@ -45,11 +46,24 @@ export default function MesasPage() {
   const [showCounterModal, setShowCounterModal] = useState(false);
   const [viewMode] = useState<"grid">("grid");
   const [counterName, setCounterName] = useState("");
+  const [counterWaiterId, setCounterWaiterId] = useState<number | null>(null);
   const [userRole, setUserRole] = useState("");
+  const [userId, setUserId] = useState<number | null>(null);
+  const [activeStoreId, setActiveStoreId] = useState<number | null>(null);
+  // Garzon seleccionado al abrir una mesa libre. Default = el usuario
+  // logueado (el cajero que mas usa este flujo). Si quiere asignar a otro
+  // garzon, lo cambia desde el dropdown antes de "Abrir comanda".
+  const [openWaiterId, setOpenWaiterId] = useState<number | null>(null);
 
-  // Fetch user role for consumo interno permission
+  // Fetch user info for consumo interno permission + default waiter
   useEffect(() => {
-    apiFetch("/core/me/").then(d => setUserRole(d?.role || "")).catch(() => setUserRole(""));
+    apiFetch("/core/me/").then(d => {
+      setUserRole(d?.role || "");
+      setUserId(d?.id || null);
+      setActiveStoreId(d?.active_store_id || null);
+      // Default: el garzon al abrir mesa es el usuario logueado.
+      if (d?.id) setOpenWaiterId(d.id);
+    }).catch(() => setUserRole(""));
   }, []);
 
   // Load all tables CON sus orders activas inline (?include_orders=true).
@@ -150,7 +164,14 @@ export default function MesasPage() {
   async function openOrder(table: Table) {
     setOpeningTable(table.id); setOpenErr("");
     try {
-      const data = await apiFetch(`/tables/tables/${table.id}/open/`, { method: "POST", body: JSON.stringify({}) });
+      const body: Record<string, unknown> = {};
+      // Mando waiter_id solo si esta seteado. Si es null, backend deja
+      // waiter en null (legacy / "sin asignar").
+      if (openWaiterId != null) body.waiter_id = openWaiterId;
+      const data = await apiFetch(`/tables/tables/${table.id}/open/`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       setOrder(data);
       // loadTables ya pobla allOrders inline — sin loadAllOrders extra.
       await loadTables();
@@ -161,12 +182,14 @@ export default function MesasPage() {
     } finally { setOpeningTable(null); }
   }
 
-  async function createCounterOrder(customerName: string) {
+  async function createCounterOrder(customerName: string, waiterId: number | null) {
     setCounterLoading(true); setOpenErr("");
     try {
+      const body: Record<string, unknown> = { customer_name: customerName.trim() };
+      if (waiterId != null) body.waiter_id = waiterId;
       const data = await apiFetch("/tables/counter-order/", {
         method: "POST",
-        body: JSON.stringify({ customer_name: customerName.trim() }),
+        body: JSON.stringify(body),
       });
       await loadTables();
       const ct: Table = {
@@ -197,12 +220,14 @@ export default function MesasPage() {
 
   function handleNewCounter() {
     setCounterName("");
+    // Default: el garzon del pedido para llevar es el usuario logueado.
+    setCounterWaiterId(userId);
     setShowCounterModal(true);
   }
 
   function handleCounterConfirm() {
     setShowCounterModal(false);
-    createCounterOrder(counterName);
+    createCounterOrder(counterName, counterWaiterId);
   }
 
   return (
@@ -339,6 +364,9 @@ export default function MesasPage() {
           <CounterModal
             counterName={counterName}
             onChangeName={setCounterName}
+            waiterId={counterWaiterId}
+            onChangeWaiter={setCounterWaiterId}
+            storeId={activeStoreId}
             counterLoading={counterLoading}
             onClose={() => setShowCounterModal(false)}
             onConfirm={handleCounterConfirm}
@@ -367,6 +395,20 @@ export default function MesasPage() {
                   {selectedTable.zone ? `${selectedTable.zone} · ` : ""}{selectedTable.capacity} personas &middot; Libre
                 </div>
                 {openErr && <div style={{ marginBottom: 12, padding: "6px 10px", borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 11, width: "100%", maxWidth: 280 }}>{openErr}</div>}
+                {/* Selector de garzon — Fudo-style. Mario (16/05/26):
+                    "al abrir la mesa elige el garzon, despues filtras
+                    propinas por garzon, no por cajero". Default: el
+                    propio usuario logueado (lo mas comun: el cajero
+                    atiende). Cambiar si otro garzon esta sirviendo. */}
+                <div style={{ width: "100%", maxWidth: 280, marginBottom: 12 }}>
+                  <WaiterSelect
+                    value={openWaiterId}
+                    onChange={setOpenWaiterId}
+                    storeId={activeStoreId}
+                    label="Garzón"
+                    placeholder="Sin asignar"
+                  />
+                </div>
                 <MesaBtn variant="primary" size="lg" disabled={openingTable === selectedTable.id} onClick={() => openOrder(selectedTable)}>
                   {openingTable === selectedTable.id ? <Spinner size={14} /> : null}
                   {openingTable === selectedTable.id ? "Abriendo…" : "Abrir comanda"}

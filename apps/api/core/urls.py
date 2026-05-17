@@ -431,6 +431,53 @@ class StoreDetailView(APIView):
         return Response({"ok": True, "updated": updated})
 
 
+class TenantStaffView(APIView):
+    """
+    GET /api/core/staff/  — lista LIGERA de usuarios activos del tenant.
+
+    Pensado para dropdowns donde cualquier usuario del local necesita
+    elegir un compañero (ej: garzón al abrir una mesa Fudo-style, asignar
+    una tarea). A diferencia de /core/users/ (que es manager-only y
+    devuelve datos sensibles como email/last_login), este endpoint:
+      - lo puede llamar cualquier usuario autenticado del tenant
+      - devuelve solo id, first_name, last_name, username, role
+      - filtra is_active=True
+      - opcionalmente filtra por store_id (?store_id=N) para mostrar
+        solo el staff con acceso a ese local
+
+    Para el caso garzón el frontend pasa el active_store_id del usuario.
+    """
+    permission_classes = [IsAuthenticated, HasTenant]
+
+    def get(self, request):
+        t_id = request.user.tenant_id
+        qs = User.objects.filter(tenant_id=t_id, is_active=True)
+
+        store_id = request.query_params.get("store_id")
+        if store_id and str(store_id).isdigit():
+            from core.models import UserStoreAccess
+            user_ids = UserStoreAccess.objects.filter(
+                tenant_id=t_id, store_id=int(store_id),
+            ).values_list("user_id", flat=True)
+            qs = qs.filter(id__in=list(user_ids))
+
+        qs = qs.order_by("first_name", "last_name", "username")
+        return Response([
+            {
+                "id": u.id,
+                "username": u.username,
+                "first_name": u.first_name,
+                "last_name": u.last_name,
+                "role": u.role,
+                "display_name": (
+                    " ".join(filter(None, [u.first_name, u.last_name])).strip()
+                    or u.username
+                ),
+            }
+            for u in qs
+        ])
+
+
 class TenantUsersView(APIView):
     """
     GET  /api/core/users/         — list users of this tenant
@@ -945,6 +992,7 @@ urlpatterns = [
     path("settings/", TenantSettingsView.as_view()),
     path("stores/", StoreListView.as_view()),
     path("stores/<int:store_id>/", StoreDetailView.as_view()),
+    path("staff/", TenantStaffView.as_view()),
     path("users/", TenantUsersView.as_view()),
     path("users/<int:user_id>/", TenantUserDetailView.as_view()),
     path("alerts/", AlertPreferenceView.as_view()),
