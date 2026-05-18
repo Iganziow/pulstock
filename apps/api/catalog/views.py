@@ -247,6 +247,7 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
 
         # Snapshot for audit
         old_price = str(instance.price)
+        old_cost = instance.cost  # Decimal — para sync de PPP si cambia
         old_name = instance.name
 
         write_ser = ProductWriteSerializer(instance, data=request.data, partial=partial, context={"request": request})
@@ -260,6 +261,47 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
             .prefetch_related(_prefetch_barcodes_ordered(), "stockitem_set")
             .first()
         )
+
+        # ── PPP SYNC (Mario 18/05/26) ────────────────────────────────────
+        # Hasta hoy editar Product.cost desde el catalogo era un PLACEBO:
+        # solo guardaba el campo en Product, pero StockItem.avg_cost (que
+        # es lo que el sistema usa REALMENTE para calcular costo de venta)
+        # quedaba intacto. La UI dice "Puedes ajustarlo manualmente aqui"
+        # → si el usuario lo edita, tiene que afectar el costo real.
+        #
+        # Comportamiento nuevo: si cambio el cost, sincronizar TODOS los
+        # StockItem del producto del tenant (avg_cost + recalcular
+        # stock_value = on_hand × new_cost) y crear StockMove tipo ADJ
+        # con reason="MANUAL_COST_ADJUST" para auditoria.
+        if "cost" in request.data and obj.cost != old_cost:
+            from inventory.models import StockItem, StockMove
+            from django.utils import timezone as _tz
+            t_id = tenant_id(request)
+            new_cost = Decimal(str(obj.cost or 0)).quantize(Decimal("0.001"))
+            stockitems = list(StockItem.objects.filter(
+                tenant_id=t_id, product=obj,
+            ))
+            for si in stockitems:
+                prev_avg = si.avg_cost
+                prev_value = si.stock_value
+                si.avg_cost = new_cost
+                si.stock_value = (si.on_hand * new_cost).quantize(Decimal("0.001"))
+                si.save(update_fields=["avg_cost", "stock_value"])
+                # Auditoria: deja constancia del cambio manual de PPP.
+                StockMove.objects.create(
+                    tenant_id=t_id,
+                    warehouse_id=si.warehouse_id,
+                    product=obj,
+                    created_by=request.user if request.user.is_authenticated else None,
+                    move_type=StockMove.ADJ,
+                    qty=Decimal("0"),
+                    unit_cost=new_cost,
+                    cost_snapshot=new_cost,
+                    value_delta=(si.stock_value - prev_value).quantize(Decimal("0.001")),
+                    reason="MANUAL_COST_ADJUST",
+                    note=f"PPP ajustado desde catalogo: ${prev_avg} → ${new_cost}",
+                    created_at=_tz.now(),
+                )
 
         # Audit log
         from core.models import log_audit
