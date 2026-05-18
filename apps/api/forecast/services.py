@@ -339,8 +339,17 @@ def get_margin_data(tenant_id, product_ids, warehouse_ids, days=30):
 # PRODUCT FORECAST LIST
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_product_forecasts(tenant_id, warehouse_ids, sort="stockout", page=1, page_size=50):
-    """Return paginated list of products with forecast data."""
+def get_product_forecasts(
+    tenant_id, warehouse_ids, sort="stockout", page=1, page_size=50,
+    *, search="", category="", risk="",
+):
+    """Return paginated list of products with forecast data.
+
+    Filtros opcionales (Mario 18/05/26):
+      search   — texto libre, matchea nombre o SKU del producto
+      category — id numerico o nombre de categoria
+      risk     — critical(<=3d) / high(<=7d) / medium(<=14d) / ok(>14d o null)
+    """
     today = date.today()
 
     # Mario 18/05/26: excluir productos con receta activa. Su stock viene
@@ -352,6 +361,18 @@ def get_product_forecasts(tenant_id, warehouse_ids, sort="stockout", page=1, pag
     ).select_related("product", "product__category")
     if products_with_recipe:
         models_qs = models_qs.exclude(product_id__in=products_with_recipe)
+
+    # Filtros (a nivel ORM para no traer todo y filtrar en Python)
+    if search:
+        models_qs = models_qs.filter(
+            Q(product__name__icontains=search) |
+            Q(product__sku__icontains=search)
+        )
+    if category:
+        if category.isdigit():
+            models_qs = models_qs.filter(product__category_id=int(category))
+        else:
+            models_qs = models_qs.filter(product__category__name__icontains=category)
 
     # Demand next 7 days
     demand_7d = dict(
@@ -446,6 +467,32 @@ def get_product_forecasts(tenant_id, warehouse_ids, sort="stockout", page=1, pag
 
     results.sort(key=sort_key)
 
+    # Filtro risk — se aplica DESPUES de armar los results porque
+    # days_to_stockout viene del Forecast (no del ForecastModel) y ya lo
+    # tenemos resuelto por producto en r["days_to_stockout"].
+    if risk:
+        def _matches_risk(r):
+            dto = r["days_to_stockout"]
+            if risk == "critical":
+                return dto is not None and dto <= 3
+            if risk == "high":
+                return dto is not None and dto <= 7
+            if risk == "medium":
+                return dto is not None and dto <= 14
+            if risk == "ok":
+                return dto is None or dto > 14
+            return True
+        results = [r for r in results if _matches_risk(r)]
+
+    # Lista de categorias disponibles (post-filtros de search/category,
+    # antes de risk para que el dropdown muestre todas las opciones).
+    # Frontend espera "categories" en el response.
+    seen_categories = {}
+    for r in results:
+        if r["category"]:
+            seen_categories[r["category"]] = True
+    categories_list = sorted(seen_categories.keys())
+
     # Paginate
     total = len(results)
     start = (page - 1) * page_size
@@ -456,6 +503,8 @@ def get_product_forecasts(tenant_id, warehouse_ids, sort="stockout", page=1, pag
         "count": total,
         "page": page,
         "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
+        "categories": categories_list,
     }
 
 

@@ -67,7 +67,9 @@ class ForecastDashboardView(APIView):
 # FORECAST PRODUCTS LIST
 # ══════════════════════════════════════════════════════════════════════════════
 class ForecastProductListView(APIView):
-    """GET /api/forecast/products/?warehouse_id=&sort=stockout&page=1&page_size=50"""
+    """GET /api/forecast/products/?warehouse_id=&sort=stockout&page=1&page_size=50
+        &search=<texto>&category=<id|nombre>&risk=critical|high|medium|ok
+    """
     permission_classes = [RequireFeature("has_forecast")]
 
     def get(self, request):
@@ -79,12 +81,20 @@ class ForecastProductListView(APIView):
         sort_by = request.query_params.get("sort", "stockout")
         page = max(1, safe_int(request.query_params.get("page"), 1))
         page_size = min(100, max(1, safe_int(request.query_params.get("page_size"), 50)))
+        # Mario 18/05/26: el frontend ya mandaba estos params pero el
+        # backend los ignoraba (filtro placebo). Ahora los procesamos.
+        search = (request.query_params.get("search") or "").strip()
+        category = (request.query_params.get("category") or "").strip()
+        risk = (request.query_params.get("risk") or "").strip().lower()
 
         wh_ids = services.get_warehouse_ids(t_id, s_id, wh_id)
         if not wh_ids:
-            return Response({"results": [], "count": 0, "page": page})
+            return Response({"results": [], "count": 0, "page": page, "categories": []})
 
-        data = services.get_product_forecasts(t_id, wh_ids, sort_by, page, page_size)
+        data = services.get_product_forecasts(
+            t_id, wh_ids, sort_by, page, page_size,
+            search=search, category=category, risk=risk,
+        )
         return Response(data)
 
 

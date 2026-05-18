@@ -162,6 +162,70 @@ def test_alerts_exclude_recipe_products(tenant, warehouse):
 # get_dashboard_kpis
 # ────────────────────────────────────────────────────────────────────────────
 
+# ────────────────────────────────────────────────────────────────────────────
+# Filtros search / category / risk en get_product_forecasts
+# ────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_forecast_search_filter(tenant, warehouse):
+    """?search=extra matchea por nombre/sku, no devuelve productos no relacionados."""
+    p1 = _make_product(tenant, "Extra syrup")
+    p2 = _make_product(tenant, "Café tolva caturra")
+    p3 = _make_product(tenant, "Té floral")
+    for p in (p1, p2, p3):
+        m = _make_forecast_model(tenant, warehouse, p)
+        _make_forecast(tenant, warehouse, p, m, date.today() + timedelta(days=1), 5)
+
+    data = get_product_forecasts(tenant.id, [warehouse.id], search="extra")
+    names = {r["product_name"] for r in data["results"]}
+    assert names == {"Extra syrup"}
+    assert data["count"] == 1
+
+
+@pytest.mark.django_db
+def test_forecast_search_matches_sku(tenant, warehouse):
+    p = _make_product(tenant, "Producto X", sku="SKU-XYZ-123")
+    m = _make_forecast_model(tenant, warehouse, p)
+    _make_forecast(tenant, warehouse, p, m, date.today() + timedelta(days=1), 5)
+    data = get_product_forecasts(tenant.id, [warehouse.id], search="XYZ")
+    assert data["count"] == 1
+
+
+@pytest.mark.django_db
+def test_forecast_risk_filter_critical(tenant, warehouse):
+    """?risk=critical solo devuelve productos con days_to_stockout <= 3."""
+    p1 = _make_product(tenant, "Critico")
+    p2 = _make_product(tenant, "Alto")
+    p3 = _make_product(tenant, "Ok")
+    m1 = _make_forecast_model(tenant, warehouse, p1)
+    m2 = _make_forecast_model(tenant, warehouse, p2)
+    m3 = _make_forecast_model(tenant, warehouse, p3)
+    tomorrow = date.today() + timedelta(days=1)
+    _make_forecast(tenant, warehouse, p1, m1, tomorrow, 2)
+    _make_forecast(tenant, warehouse, p2, m2, tomorrow, 6)
+    _make_forecast(tenant, warehouse, p3, m3, tomorrow, 30)
+
+    data = get_product_forecasts(tenant.id, [warehouse.id], risk="critical")
+    names = {r["product_name"] for r in data["results"]}
+    assert names == {"Critico"}
+
+
+@pytest.mark.django_db
+def test_forecast_response_includes_categories(tenant, warehouse):
+    """El response trae la lista de categorias para alimentar el dropdown."""
+    from catalog.models import Category
+    cat1 = Category.objects.create(tenant=tenant, name="Bebidas")
+    cat2 = Category.objects.create(tenant=tenant, name="Snacks")
+    p1 = Product.objects.create(tenant=tenant, name="Latte", category=cat1, price=Decimal("3000"), is_active=True)
+    p2 = Product.objects.create(tenant=tenant, name="Galleta", category=cat2, price=Decimal("1000"), is_active=True)
+    for p in (p1, p2):
+        m = _make_forecast_model(tenant, warehouse, p)
+        _make_forecast(tenant, warehouse, p, m, date.today() + timedelta(days=1), 5)
+    data = get_product_forecasts(tenant.id, [warehouse.id])
+    assert "categories" in data
+    assert set(data["categories"]) == {"Bebidas", "Snacks"}
+
+
 @pytest.mark.django_db
 def test_kpis_exclude_recipe_products_from_at_risk(tenant, warehouse):
     p_ing = _make_product(tenant, "Azúcar")
