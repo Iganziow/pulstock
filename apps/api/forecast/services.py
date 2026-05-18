@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import Warehouse
-from catalog.models import Product, RecipeLine
+from catalog.models import Product, Recipe, RecipeLine
 from inventory.models import StockItem
 from forecast.models import (
     DailySales, ForecastModel, Forecast,
@@ -88,6 +88,24 @@ def compute_confidence_label(data_points: int, mape: float, demand_pattern: str)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
+def get_products_with_active_recipe(tenant_id) -> set[int]:
+    """IDs de productos que tienen una receta ACTIVA — su stock viene del
+    descuento de ingredientes, no se trackea directamente.
+
+    Mario (18/05/26): en forecast/dashboard/sugerencias, productos como
+    "Flat white", "Macchiato", "Extra doble" aparecian con "Sin stock 0"
+    porque su StockItem siempre es 0 — el stock real son sus ingredientes
+    (café, leche, etc.). Engañoso y ruidoso.
+
+    Devuelve solo IDs (set) para chequeo rápido `pid in result` sin armar
+    un dict pesado. Llamado una vez por request y reutilizado.
+    """
+    return set(
+        Recipe.objects.filter(tenant_id=tenant_id, is_active=True)
+        .values_list("product_id", flat=True)
+    )
+
 def get_warehouse_ids(tenant_id, store_id, warehouse_id=None):
     """Return list of warehouse IDs for the given store (optionally filtered)."""
     filt = Q(store_id=store_id, tenant_id=tenant_id)
@@ -104,12 +122,20 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
     """Return dict with forecast KPIs for the dashboard."""
     today = date.today()
 
+    # Mario 18/05/26: KPIs (riesgo, valor en riesgo, alertas) deben
+    # IGNORAR productos con receta activa — su stock no se trackea
+    # directamente. Si los contamos, inflamos las cifras con falsos
+    # positivos (todos los "platos del menú" aparecen "en riesgo").
+    products_with_recipe = get_products_with_active_recipe(tenant_id)
+
     forecasts_7d = Forecast.objects.filter(
         tenant_id=tenant_id,
         warehouse_id__in=warehouse_ids,
         forecast_date__gt=today,
         forecast_date__lte=today + timedelta(days=7),
     )
+    if products_with_recipe:
+        forecasts_7d = forecasts_7d.exclude(product_id__in=products_with_recipe)
 
     # Products at risk (stockout <= 7d)
     at_risk_7d = (
@@ -139,6 +165,8 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
     active_models = ForecastModel.objects.filter(
         tenant_id=tenant_id, warehouse_id__in=warehouse_ids, is_active=True
     )
+    if products_with_recipe:
+        active_models = active_models.exclude(product_id__in=products_with_recipe)
     model_count = active_models.count()
 
     # Try real accuracy from last 7 days
@@ -180,9 +208,17 @@ def get_dashboard_kpis(tenant_id, warehouse_ids):
         tenant_id=tenant_id, warehouse_id__in=warehouse_ids, status="PENDING"
     ).count()
 
-    # Coverage
-    products_with_forecast = active_models.values("product_id").distinct().count()
-    total_active = Product.objects.filter(tenant_id=tenant_id, is_active=True).count()
+    # Coverage — % de productos físicos (sin receta) con modelo activo.
+    # No contamos productos con receta porque no deberían tener forecast.
+    products_with_forecast = (
+        active_models
+        .exclude(product_id__in=products_with_recipe) if products_with_recipe
+        else active_models
+    ).values("product_id").distinct().count()
+    total_active = Product.objects.filter(
+        tenant_id=tenant_id, is_active=True,
+    ).exclude(id__in=products_with_recipe).count() if products_with_recipe else \
+        Product.objects.filter(tenant_id=tenant_id, is_active=True).count()
     products_without = total_active - products_with_forecast
     coverage_pct = round(products_with_forecast / total_active * 100, 1) if total_active > 0 else 0
 
@@ -307,9 +343,15 @@ def get_product_forecasts(tenant_id, warehouse_ids, sort="stockout", page=1, pag
     """Return paginated list of products with forecast data."""
     today = date.today()
 
+    # Mario 18/05/26: excluir productos con receta activa. Su stock viene
+    # de los ingredientes; aparecer en forecast con "Sin stock" engaña.
+    products_with_recipe = get_products_with_active_recipe(tenant_id)
+
     models_qs = ForecastModel.objects.filter(
         tenant_id=tenant_id, warehouse_id__in=warehouse_ids, is_active=True
     ).select_related("product", "product__category")
+    if products_with_recipe:
+        models_qs = models_qs.exclude(product_id__in=products_with_recipe)
 
     # Demand next 7 days
     demand_7d = dict(
@@ -572,6 +614,11 @@ def get_stockout_alerts(tenant_id, warehouse_ids):
     """Return products with imminent stockout, sorted by urgency."""
     today = date.today()
 
+    # Mario 18/05/26: productos con receta activa no llevan stock propio;
+    # alertar de su "stockout" es engañoso porque ya alertamos cuando sus
+    # ingredientes se agotan.
+    products_with_recipe = get_products_with_active_recipe(tenant_id)
+
     forecasts = (
         Forecast.objects.filter(
             tenant_id=tenant_id,
@@ -583,6 +630,8 @@ def get_stockout_alerts(tenant_id, warehouse_ids):
         .select_related("product", "product__category")
         .order_by("days_to_stockout")
     )
+    if products_with_recipe:
+        forecasts = forecasts.exclude(product_id__in=products_with_recipe)
 
     stock_map = {
         (si.warehouse_id, si.product_id): si
@@ -1324,7 +1373,15 @@ def generate_suggestions(tenant, today, threshold, target_days):
         s.name: s for s in Supplier.objects.filter(tenant=tenant, is_active=True)
     }
 
+    # Mario 18/05/26: productos con receta activa (Flat white, Macchiato,
+    # etc.) nunca deben generar PurchaseSuggestion — no se compran, se
+    # arman. El sistema sugiere los ingredientes (café, leche) que sí
+    # tienen forecast propio.
+    products_with_recipe = get_products_with_active_recipe(tenant.id)
+
     active_models = ForecastModel.objects.filter(tenant=tenant, is_active=True)
+    if products_with_recipe:
+        active_models = active_models.exclude(product_id__in=products_with_recipe)
     if not active_models.exists():
         return 0, 0
 

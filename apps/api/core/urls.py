@@ -874,17 +874,24 @@ class NotificationsView(APIView):
         if prefs.forecast_urgente:
             try:
                 from forecast.models import Forecast
+                from forecast.services import get_products_with_active_recipe
                 from django.utils import timezone
                 # FIX: el campo es `forecast_date`, no `date`. Antes tiraba
                 # FieldError silencioso (capturado por el except below) →
                 # las notificaciones de "se agota pronto" NUNCA llegaban
                 # al frontend. Detectado por smoke tests post-deploy.
+                # Mario 18/05/26: excluir productos con receta activa (su
+                # stock viene de los ingredientes, no se agota directamente).
+                recipe_pids = get_products_with_active_recipe(tid)
                 urgent = (
                     Forecast.objects
                     .filter(tenant_id=tid, forecast_date=timezone.now().date())
                     .filter(days_to_stockout__isnull=False, days_to_stockout__lte=3)
-                    .select_related("product")[:5]
+                    .select_related("product")
                 )
+                if recipe_pids:
+                    urgent = urgent.exclude(product_id__in=recipe_pids)
+                urgent = urgent[:5]
                 for f in urgent:
                     notifications.append({
                         "type": "forecast_urgente",
