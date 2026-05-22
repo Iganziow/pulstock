@@ -857,11 +857,36 @@ def train_product_model(tenant, product, warehouse_id, today,
                         min_days, horizon, window, stock_items, stats):
     """Train a forecast model for one product in one warehouse."""
     from forecast.models import ForecastAccuracy
+    from catalog.models import RecipeLine
 
     # Load raw series + stockout dates
     ds_qs = DailySales.objects.filter(
         tenant=tenant, product=product, warehouse_id=warehouse_id,
     ).order_by("date")
+
+    # ── Periodo de transicion para INGREDIENTES (22/05/26) ───────────────
+    # Durante una migracion (ej. desde Fudo) los primeros dias se vende sin
+    # recetas configuradas -> los ingredientes NO se descuentan y su
+    # consumo en Pulstock queda subregistrado. Esos dias enseñan demanda
+    # falsa al modelo (la leche caia de 2400 a 1350 ml/dia). Si el tenant
+    # tiene `ingredient_forecast_trusted_from` seteada y este producto es
+    # ingrediente de alguna receta activa, marcamos los dias de Pulstock
+    # (forecast_only=False) anteriores a esa fecha como pseudo-stockout:
+    # clean_series los interpola con el promedio del dia de semana en vez
+    # de usar el valor subregistrado. Los datos de Fudo (forecast_only=True)
+    # NO se tocan — son el historico confiable.
+    transition_dates = set()
+    trusted_from = getattr(tenant, "ingredient_forecast_trusted_from", None)
+    if trusted_from:
+        is_ingredient = RecipeLine.objects.filter(
+            tenant=tenant, recipe__is_active=True, ingredient=product,
+        ).exists()
+        if is_ingredient:
+            transition_dates = set(
+                ds_qs.filter(
+                    forecast_only=False, date__lt=trusted_from,
+                ).values_list("date", flat=True)
+            )
 
     # For restaurants: include waste (qty_lost) in effective demand
     btype = getattr(tenant, "business_type", "other") or "other"
@@ -888,6 +913,10 @@ def train_product_model(tenant, product, warehouse_id, today,
         organic = qty_sold - promo_qty + qty_lost  # waste counts as effective demand
         if promo_qty > 0:
             promo_dates.add(dt)
+        # Dia de transicion de ingrediente (ver arriba): forzamos qty 0 para
+        # que, sumado a stockout_dates, clean_series lo interpole.
+        if dt in transition_dates:
+            organic = Decimal("0")
         raw_series.append((dt, max(organic, Decimal("0"))))
 
     # ── FILL ZEROS para detectar intermitencia (13/05/26) ────────────
@@ -921,6 +950,8 @@ def train_product_model(tenant, product, warehouse_id, today,
     stockout_dates = set(
         ds_qs.filter(is_stockout=True).values_list("date", flat=True)
     )
+    # Dias de transicion (ingrediente migrado) — clean_series los interpola.
+    stockout_dates |= transition_dates
     # Days where ALL sales were promotional → treat as stockout for interpolation
     for row in raw_data:
         dt, qty_sold, promo_qty = row[0], row[1], row[2]

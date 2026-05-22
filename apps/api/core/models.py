@@ -63,6 +63,20 @@ class Tenant(models.Model):
     tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=19,
         help_text="IVA por defecto (%)")
 
+    # Forecast — fecha desde la que los datos de ventas de Pulstock son
+    # confiables para predecir INGREDIENTES. Durante una migracion (ej.
+    # desde Fudo) los primeros dias se vende sin recetas configuradas, asi
+    # que los ingredientes NO se descuentan y su consumo queda
+    # subregistrado. El motor de forecast interpola (ignora) los dias de
+    # Pulstock de ingredientes anteriores a esta fecha para no aprender de
+    # datos falsos. Si es null, se usan todos los datos (comportamiento
+    # normal — sin periodo de transicion).
+    ingredient_forecast_trusted_from = models.DateField(
+        null=True, blank=True,
+        help_text="Fecha desde la que confiar en datos de Pulstock para "
+                  "forecast de ingredientes (datos previos = transicion).",
+    )
+
     # Compatibilidad
     default_warehouse = models.ForeignKey(
         "core.Warehouse",
