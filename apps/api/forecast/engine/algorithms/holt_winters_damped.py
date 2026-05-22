@@ -10,6 +10,7 @@ from ..utils import (
     _try_import_statsmodels, _fill_gaps,
     HW_MIN_DAYS, HW_SEASONAL_PERIOD,
 )
+from .holt_winters import _has_closed_weekday
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,12 @@ def _holt_winters_damped_forecast(daily_series, horizon_days=14, stockout_dates=
     """
     ExponentialSmoothing = _try_import_statsmodels()
     if ExponentialSmoothing is None:
+        return None
+
+    # Bug 2 (22/05/26): mismo problema que Holt-Winters normal — los dias
+    # cerrados rompen la estacionalidad. Si hay un DOW cerrado, HW-damped
+    # se descarta y deja competir al moving-average (que maneja dow_factors).
+    if _has_closed_weekday(daily_series):
         return None
 
     filled = _fill_gaps(daily_series, stockout_dates=stockout_dates)

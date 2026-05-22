@@ -64,9 +64,19 @@ class EnsembleForecast(ForecastAlgorithm):
                 "upper_bound": _q3(upper),
             })
 
-        # Ensemble metrics: weighted average of component metrics
+        # Ensemble metrics: weighted average of component metrics.
+        # Bug (22/05/26): antes el ensemble NO calculaba WAPE. En
+        # select_best_model, _err(c) cae al MAPE cuando falta WAPE → el
+        # ensemble competia con su MAPE (~70) contra el WAPE (~120) de los
+        # demas candidatos → ganaba injustamente comparando peras con
+        # manzanas. Ahora el ensemble promedia tambien el WAPE de sus
+        # componentes para que la seleccion sea homogenea.
         ens_mape = sum(c["metrics"]["mape"] * w for c, w in zip(viable, weights))
         ens_mae = sum(c["metrics"]["mae"] * w for c, w in zip(viable, weights))
+        ens_wape = sum(
+            c["metrics"].get("wape", c["metrics"].get("mape", 999)) * w
+            for c, w in zip(viable, weights)
+        )
 
         return {
             "algorithm": "ensemble",
@@ -79,6 +89,7 @@ class EnsembleForecast(ForecastAlgorithm):
             },
             "metrics": {
                 "mape": round(ens_mape, 1),
+                "wape": round(ens_wape, 1),
                 "mae": round(ens_mae, 3),
                 "rmse": 0,
                 "bias": 0,

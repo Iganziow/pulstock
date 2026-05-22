@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
-from django.db.models import Sum
+from django.db.models import Sum, Q
 
 from core.models import Tenant
 from catalog.models import Product
@@ -139,18 +139,37 @@ class Command(BaseCommand):
 
     def _process_tenant(self, tenant, today, min_days, horizon, window,
                         product_id, stats, shrinkage_k=14, seasonal_prior=None):
-        # Clean up: deactivate forecast models for discontinued products
         from forecast.models import ForecastModel as FM
+
+        # Ingredientes de recetas activas. Un ingrediente puede estar
+        # is_active=False en el catalogo (no se vende directo al cliente,
+        # el dueño lo oculta del POS) PERO se consume via recetas — y por
+        # lo tanto SI necesita forecast para las sugerencias de compra.
+        # Bug 4 (22/05/26): Cacao tenia 292 dias de historia y quedaba
+        # sin modelo solo por estar is_active=False. Los ingredientes de
+        # recetas activas se entrenan aunque esten inactivos.
+        ingredient_ids = set(
+            RecipeLine.objects.filter(
+                tenant=tenant, recipe__is_active=True,
+            ).values_list("ingredient_id", flat=True)
+        )
+
+        # Clean up: deactivate forecast models for discontinued products.
+        # EXCEPCION: no desactivar el modelo de un ingrediente de receta
+        # activa aunque su producto este is_active=False (lo necesitamos).
         deactivated = FM.objects.filter(
             tenant=tenant, product__is_active=False, is_active=True
-        ).update(is_active=False)
+        ).exclude(product_id__in=ingredient_ids).update(is_active=False)
         if deactivated:
             from forecast.models import Forecast
             Forecast.objects.filter(
-                tenant=tenant, model__product__is_active=False, forecast_date__gt=today
-            ).delete()
+                tenant=tenant, model__product__is_active=False, forecast_date__gt=today,
+            ).exclude(product_id__in=ingredient_ids).delete()
 
-        products = Product.objects.filter(tenant=tenant, is_active=True)
+        # Productos a entrenar: activos + ingredientes de recetas activas.
+        products = Product.objects.filter(tenant=tenant).filter(
+            Q(is_active=True) | Q(id__in=ingredient_ids)
+        )
         if product_id:
             products = products.filter(id=product_id)
 

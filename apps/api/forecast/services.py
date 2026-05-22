@@ -39,17 +39,21 @@ D0 = Decimal("0.000")
 D2 = Decimal("0.01")
 
 
-def compute_confidence_label(data_points: int, mape: float, demand_pattern: str) -> tuple[str, str]:
+def compute_confidence_label(data_points: int, error_pct: float, demand_pattern: str) -> tuple[str, str]:
     """
     Return (label, reason) for human-readable confidence.
 
-    Rules (cumulative):
-    - data_points >= 180 AND mape < 15 → very_high
-    - data_points >= 90  AND mape < 25 → high
-    - data_points >= 30  AND mape < 40 → medium
-    - data_points >= 14  OR  mape < 60 → low
+    `error_pct` debe ser WAPE (Weighted Absolute Percentage Error), NO el
+    MAPE clasico. Bug 1 (22/05/26): el MAPE explota con demanda intermitente
+    (llegaba a 15.000%) y tiraba toda la confianza a "low". WAPE es robusto.
+
+    Rules (cumulative, sobre WAPE):
+    - data_points >= 180 AND wape < 20 → very_high
+    - data_points >= 60  AND wape < 35 → high
+    - data_points >= 21  AND wape < 55 → medium
+    - data_points >= 7   OR  wape < 80 → low
     - else → very_low
-    Intermittent/lumpy patterns cap at "high" (MAPE is unreliable for them).
+    Intermittent/lumpy patterns cap at "high".
     """
     parts = []
     if data_points >= 180:
@@ -59,21 +63,21 @@ def compute_confidence_label(data_points: int, mape: float, demand_pattern: str)
     else:
         parts.append(f"{data_points} días de datos")
 
-    if mape < 999:
-        parts.append(f"MAPE {mape:.0f}%")
+    if error_pct < 999:
+        parts.append(f"WAPE {error_pct:.0f}%")
 
     cap = "very_high"
     if demand_pattern in ("intermittent", "lumpy"):
         cap = "high"
         parts.append(f"demanda {demand_pattern}")
 
-    if data_points >= 180 and mape < 20:
+    if data_points >= 180 and error_pct < 20:
         label = "very_high"
-    elif data_points >= 60 and mape < 35:
+    elif data_points >= 60 and error_pct < 35:
         label = "high"
-    elif data_points >= 21 and mape < 55:
+    elif data_points >= 21 and error_pct < 55:
         label = "medium"
-    elif data_points >= 7 or mape < 80:
+    elif data_points >= 7 or error_pct < 80:
         label = "low"
     else:
         label = "very_low"
@@ -1049,10 +1053,16 @@ def train_product_model(tenant, product, warehouse_id, today,
         is_active=True,
     ).first()
 
-    if existing and existing.metrics:
-        old_mape = existing.metrics.get("mape", 999)
-        new_mape = best["metrics"]["mape"]
-        if new_mape > old_mape * 1.1 and old_mape < 900:
+    # Bug 1 (22/05/26): comparar por WAPE, no por MAPE. El MAPE de los
+    # modelos category_prior/simple_avg es 0 (no hacen backtest); con la
+    # logica vieja `new_mape > old_mape*1.1` cualquier modelo nuevo (WAPE
+    # real 30%) "perdia" contra el viejo (MAPE falso 0%) y nunca se
+    # aceptaba la mejora. Si el modelo viejo no tiene WAPE (pre-fix), se
+    # entrena fresco (no se aplica el "kept").
+    if existing and existing.metrics and existing.metrics.get("wape") is not None:
+        old_err = existing.metrics.get("wape", 999)
+        new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
+        if new_err > old_err * 1.1 and old_err < 900:
             stats["kept"] += 1
             _regen_from_existing(
                 tenant, product, warehouse_id, existing,
@@ -1061,13 +1071,18 @@ def train_product_model(tenant, product, warehouse_id, today,
             )
             return
 
-    # Compute confidence label — CV² penalizes high-variability products
-    mape_for_conf = best["metrics"].get("mape", 999)
-    if cv2 > 1.0 and mape_for_conf < 998:
-        # Very high variability: inflate MAPE for confidence calculation
-        mape_for_conf = mape_for_conf * (1 + min(cv2 - 1.0, 1.0) * 0.3)
+    # Compute confidence label — CV² penalizes high-variability products.
+    # Bug 1 (22/05/26): usar WAPE, no MAPE. El MAPE explota con demanda
+    # intermitente. Fallback a MAPE solo si el modelo no trae WAPE (compat
+    # con modelos viejos pre-fix).
+    err_for_conf = best["metrics"].get("wape")
+    if err_for_conf is None:
+        err_for_conf = best["metrics"].get("mape", 999)
+    if cv2 > 1.0 and err_for_conf < 998:
+        # Very high variability: inflate error for confidence calculation
+        err_for_conf = err_for_conf * (1 + min(cv2 - 1.0, 1.0) * 0.3)
     conf_label, conf_reason = compute_confidence_label(
-        best["data_points"], mape_for_conf, demand_pattern,
+        best["data_points"], err_for_conf, demand_pattern,
     )
 
     # Compute mape_delta tracking
@@ -1117,7 +1132,11 @@ def train_product_model(tenant, product, warehouse_id, today,
     save_forecasts(tenant, product, warehouse_id, fm,
                    best["forecasts"], best["confidence_base"], stock_items)
 
-    # Regenerate future forecasts starting from today (the above saves historical test period dates)
+    # Regenera el forecast futuro arrancando en `today`. _regen_from_existing
+    # re-EJECUTA el algoritmo del modelo sobre la serie (ver su docstring —
+    # antes re-derivaba desde params parciales y rompia theta/croston). Es
+    # necesario porque moving_avg/adaptive_ma producen su forecast definitivo
+    # via avg_daily×dow_factors, no en best["forecasts"].
     _regen_from_existing(
         tenant, product, warehouse_id, fm,
         today, horizon, window, cleaned, stock_items,
@@ -1192,9 +1211,12 @@ def train_sparse_product(tenant, product, warehouse_id, today,
     ).order_by("-version").first()
     new_version = (existing.version + 1) if existing else 1
 
-    # Confidence label for sparse products
+    # Confidence label for sparse products — Bug 1: usar WAPE si esta.
+    sp_err = result["metrics"].get("wape")
+    if sp_err is None:
+        sp_err = result["metrics"].get("mape", 999)
     sp_conf_label, sp_conf_reason = compute_confidence_label(
-        result["data_points"], result["metrics"].get("mape", 999), "insufficient",
+        result["data_points"], sp_err, "insufficient",
     )
 
     # MAPE delta tracking
@@ -1241,31 +1263,45 @@ def train_sparse_product(tenant, product, warehouse_id, today,
 def _regen_from_existing(tenant, product, warehouse_id, fm,
                          today, horizon, window, series, stock_items,
                          stockout_dates=None):
-    """Re-generate forecasts using an existing active model."""
-    from forecast.engine import (
-        weighted_moving_average, generate_daily_forecasts,
-        holt_winters_forecast,
-    )
+    """Re-generate forecasts using an existing active model.
+
+    Bug raiz (22/05/26): antes esta funcion re-derivaba el forecast desde
+    params parciales (avg_daily, dow_factors). Pero solo los algoritmos de
+    la familia moving-average (moving_avg, adaptive_ma) guardan esos params.
+    theta/croston/croston_sba/ets/ensemble NO -> avg_daily caia a 0 -> el
+    forecast regenerado era 0. Ahora se RE-EJECUTA el algoritmo real del
+    modelo sobre la serie; si no se puede (ensemble/category_prior, o
+    error), cae a moving-average como fallback robusto.
+    """
+    from forecast.engine import weighted_moving_average, generate_daily_forecasts
+    from forecast.engine.registry import ALGORITHM_REGISTRY
 
     algo = fm.algorithm
-    params = fm.model_params or {}
+    forecasts = None
+    conf = Decimal("75.00")
 
-    if algo == "holt_winters":
-        hw = holt_winters_forecast(series, horizon_days=horizon, stockout_dates=stockout_dates)
-        if hw and hw["forecasts"]:
-            forecasts = hw["forecasts"]
-            conf = Decimal("80.00")
-        else:
-            ma = weighted_moving_average(series, window=window)
-            forecasts = generate_daily_forecasts(
-                ma["avg_daily"], ma["day_of_week_factors"], today, horizon
+    algo_cls = ALGORITHM_REGISTRY.get(algo)
+    if algo_cls is not None and algo not in ("ensemble", "category_prior"):
+        try:
+            res = algo_cls().forecast(
+                series, horizon_days=horizon,
+                window=window, stockout_dates=stockout_dates,
             )
-            conf = Decimal("70.00")
-    else:
-        avg_daily = Decimal(params.get("avg_daily", "0"))
-        dow_raw = params.get("dow_factors", {})
-        dow_factors = {int(k): float(v) for k, v in dow_raw.items()}
-        forecasts = generate_daily_forecasts(avg_daily, dow_factors, today, horizon)
+            if res and res.get("forecasts"):
+                forecasts = res["forecasts"]
+                conf = res.get("confidence_base", conf)
+        except Exception as e:
+            logger.warning(
+                "_regen_from_existing: algoritmo %s fallo para product %s: %s",
+                algo, product.id, e,
+            )
+
+    # Fallback: moving-average ponderado (maneja dias cerrados via dow_factors).
+    if not forecasts:
+        ma = weighted_moving_average(series, window=window)
+        forecasts = generate_daily_forecasts(
+            ma["avg_daily"], ma["day_of_week_factors"], today, horizon,
+        )
         conf = Decimal("70.00")
 
     save_forecasts(tenant, product, warehouse_id, fm, forecasts, conf, stock_items)

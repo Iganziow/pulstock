@@ -14,6 +14,29 @@ from ..utils import (
 logger = logging.getLogger(__name__)
 
 
+def _has_closed_weekday(daily_series, min_occurrences=4, sale_threshold=0.10):
+    """True si algun dia de la semana esta sistematicamente cerrado.
+
+    Un DOW se considera "cerrado" si aparece >= min_occurrences veces en la
+    serie y en menos del sale_threshold (10%) de esas veces hubo venta. Ese
+    patron rompe la estacionalidad de Holt-Winters (ver _holt_winters_forecast).
+    """
+    by_dow = {}  # dow -> [n_ocurrencias, n_con_venta]
+    for item in daily_series:
+        d, qty = item[0], item[1]
+        if not hasattr(d, "weekday"):
+            continue
+        dow = d.weekday()
+        cell = by_dow.setdefault(dow, [0, 0])
+        cell[0] += 1
+        if float(qty) > 0:
+            cell[1] += 1
+    for dow, (n, sold) in by_dow.items():
+        if n >= min_occurrences and (sold / n) < sale_threshold:
+            return True
+    return False
+
+
 def _holt_winters_forecast(daily_series, horizon_days=14, stockout_dates=None):
     """
     Holt-Winters triple exponential smoothing with weekly seasonality.
@@ -22,6 +45,22 @@ def _holt_winters_forecast(daily_series, horizon_days=14, stockout_dates=None):
     ExponentialSmoothing = _try_import_statsmodels()
     if ExponentialSmoothing is None:
         logger.info("statsmodels not installed, skipping Holt-Winters")
+        return None
+
+    # ── Bug 2 (22/05/26): HW se auto-descarta si hay dias cerrados ───────
+    # Holt-Winters con seasonal_periods=7 asume que los 7 dias de la semana
+    # forman un ciclo regular. Cuando el local CIERRA un dia (ej. Marbrava
+    # no abre domingos -> esos dias quedan en 0), HW se desestabiliza:
+    #   - aditivo: componente estacional muy negativa -> empuja dias flojos
+    #     (sabado) a valores negativos -> clampeados a 0.
+    #   - multiplicativo: factores extremos -> predicciones que oscilan
+    #     disparatadamente (sabado 1175, jueves 0).
+    # En cambio el moving-average ponderado maneja los dias cerrados
+    # correctamente via dow_factors (factor 0 para el dia cerrado, factor
+    # real para los demas). Solucion: si la serie tiene un dia de semana
+    # sistematicamente cerrado, HW retorna None y deja competir a los
+    # algoritmos que SI lo manejan bien.
+    if _has_closed_weekday(daily_series):
         return None
 
     filled = _fill_gaps(daily_series, stockout_dates=stockout_dates)

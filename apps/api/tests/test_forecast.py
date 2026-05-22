@@ -1470,7 +1470,8 @@ class TestConfidenceLabel:
     def test_reason_includes_info(self):
         from forecast.services import compute_confidence_label
         _, reason = compute_confidence_label(60, 25, "smooth")
-        assert "MAPE" in reason
+        # Bug 1 (22/05/26): la confianza ahora usa WAPE, no MAPE.
+        assert "WAPE" in reason
 
 
 # ═══════════════════════════════════════════════════════════════════════════

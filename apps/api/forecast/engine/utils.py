@@ -162,9 +162,26 @@ def _compute_metrics(actuals, predictions):
     else:
         mape = 0
 
+    # WAPE (Weighted Absolute Percentage Error) = Σ|error| / Σ|actual|.
+    # Bug 1 (22/05/26): el MAPE clasico `|err|/actual` explota con demanda
+    # intermitente — si un dia se vende 1 y se predice 8, da 700%. Para una
+    # cafeteria (demanda diaria 1-10 uds/producto) el MAPE llegaba a 15.000%
+    # y arrastraba TODA la confianza a "low". WAPE suma numerador y
+    # denominador globalmente: no explota con valores chicos ni con ceros
+    # individuales. Es la metrica estandar de la industria para retail.
+    sum_abs = sum(abs_errors)
+    sum_act = sum(abs(a) for a in actuals)
+    if sum_act > 0:
+        wape = sum_abs / sum_act * 100
+    elif sum_abs == 0:
+        wape = 0
+    else:
+        wape = 999
+
     return {
         "mae": round(mae, 3),
         "mape": round(mape, 1),
+        "wape": round(wape, 1),
         "rmse": round(rmse, 3),
         "bias": round(bias, 3),
     }
@@ -174,10 +191,11 @@ def _average_metrics(fold_metrics):
     """Average metrics across walk-forward folds."""
     n = len(fold_metrics)
     if n == 0:
-        return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0}
+        return {"mae": 999, "mape": 999, "wape": 999, "rmse": 999, "bias": 0}
     return {
         "mae": round(sum(f["mae"] for f in fold_metrics) / n, 3),
         "mape": round(sum(f["mape"] for f in fold_metrics) / n, 1),
+        "wape": round(sum(f.get("wape", 999) for f in fold_metrics) / n, 1),
         "rmse": round(sum(f["rmse"] for f in fold_metrics) / n, 3),
         "bias": round(sum(f["bias"] for f in fold_metrics) / n, 3),
     }

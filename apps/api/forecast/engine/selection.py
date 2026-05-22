@@ -99,7 +99,20 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if ens:
             candidates.append(ens)
 
-    # Pick best: for intermittent use MAE (MAPE unreliable with zeros).
+    # Bug 1/2 (22/05/26): seleccionar por WAPE, no por MAPE.
+    # El MAPE clasico explota con demanda intermitente (|err|/actual: si un
+    # dia se vende 1 y se predice 8 -> 700%) y llegaba a 15.000%. Con MAPE
+    # roto el selector elegia algoritmos que predicen mal (theta colapsando
+    # a 0, HW con sabados en 0) porque su MAPE "se veia" comparable. WAPE
+    # (Σ|err|/Σactual) es robusto: refleja el error real. Asi el backtest
+    # honesto descarta los algoritmos que no manejan dias cerrados y elige
+    # moving_avg/adaptive_ma que SI los manejan via dow_factors.
+    def _err(c):
+        m = c["metrics"]
+        w = m.get("wape")
+        return w if w is not None else m.get("mape", 999)
+
+    # Pick best: for intermittent use MAE (WAPE/MAPE unreliable with zeros).
     if demand_pattern in ("intermittent", "lumpy"):
         # PREFERENCIA por Croston cuando demanda es intermitente
         # ──────────────────────────────────────────────────────
@@ -121,18 +134,18 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if croston_candidates:
             best = min(
                 croston_candidates,
-                key=lambda c: (c["metrics"]["mae"], c["metrics"]["mape"]),
+                key=lambda c: (c["metrics"]["mae"], _err(c)),
             )
         else:
-            best = min(candidates, key=lambda c: (c["metrics"]["mae"], c["metrics"]["mape"]))
+            best = min(candidates, key=lambda c: (c["metrics"]["mae"], _err(c)))
     else:
-        best = min(candidates, key=lambda c: (c["metrics"]["mape"], c["metrics"]["mae"]))
+        best = min(candidates, key=lambda c: (_err(c), c["metrics"]["mae"]))
     best["demand_pattern"] = demand_pattern
 
     logger.info(
-        "Model selection: %d candidates. Winner: %s (MAPE=%.1f%%, MAE=%.3f, pattern=%s)",
+        "Model selection: %d candidates. Winner: %s (WAPE=%.1f%%, MAE=%.3f, pattern=%s)",
         len(candidates), best["algorithm"],
-        best["metrics"]["mape"], best["metrics"]["mae"], demand_pattern,
+        _err(best), best["metrics"]["mae"], demand_pattern,
     )
 
     return best

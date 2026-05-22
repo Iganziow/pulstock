@@ -34,15 +34,26 @@ def _ets_forecast(daily_series, horizon_days=14, stockout_dates=None):
 
     values = [max(v, 0.01) for v in filled]
 
-    # Try configurations from most complex to simplest
-    configs = [
-        {"error": "add", "trend": "add", "seasonal": "add",
-         "seasonal_periods": HW_SEASONAL_PERIOD, "damped_trend": True},
-        {"error": "add", "trend": "add", "seasonal": "add",
-         "seasonal_periods": HW_SEASONAL_PERIOD, "damped_trend": False},
-        {"error": "add", "trend": "add", "seasonal": None,
-         "damped_trend": True},
-    ]
+    # Bug 2 (22/05/26): si hay un dia de semana cerrado, la estacionalidad
+    # ETS sufre el mismo problema que Holt-Winters. En ese caso usamos solo
+    # configs SIN estacionalidad (el moving-average con dow_factors maneja
+    # la estacionalidad semanal cuando hay dias cerrados).
+    from .holt_winters import _has_closed_weekday
+    if _has_closed_weekday(daily_series):
+        configs = [
+            {"error": "add", "trend": "add", "seasonal": None, "damped_trend": True},
+            {"error": "add", "trend": "add", "seasonal": None, "damped_trend": False},
+        ]
+    else:
+        # Try configurations from most complex to simplest
+        configs = [
+            {"error": "add", "trend": "add", "seasonal": "add",
+             "seasonal_periods": HW_SEASONAL_PERIOD, "damped_trend": True},
+            {"error": "add", "trend": "add", "seasonal": "add",
+             "seasonal_periods": HW_SEASONAL_PERIOD, "damped_trend": False},
+            {"error": "add", "trend": "add", "seasonal": None,
+             "damped_trend": True},
+        ]
 
     for cfg in configs:
         try:
