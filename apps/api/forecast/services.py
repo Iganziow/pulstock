@@ -1118,7 +1118,22 @@ def train_product_model(tenant, product, warehouse_id, today,
     # real 30%) "perdia" contra el viejo (MAPE falso 0%) y nunca se
     # aceptaba la mejora. Si el modelo viejo no tiene WAPE (pre-fix), se
     # entrena fresco (no se aplica el "kept").
-    if existing and existing.metrics and existing.metrics.get("wape") is not None:
+    #
+    # BUGFIX FASE 5b (25/05/26): si el demand_pattern cambia entre old y new
+    # (ej. Latte: intermittent -> smooth despues de Fase 4 que filtra dias
+    # cerrados), NO aplicar "kept" — los WAPEs NO son comparables porque el
+    # algoritmo eligible se determina por pattern. Latte con pattern
+    # intermittent siempre va a Croston; con smooth puede ir a adaptive_ma.
+    # Comparar WAPE de Croston (que "acierta" prediciendo 0 los dias sin
+    # venta) vs adaptive_ma (que predice promedio todos los dias) es injusto.
+    # Cuando cambia el pattern, forzar el cambio — la reclasificacion ES la
+    # mejora aunque el WAPE del backtest no lo refleje directamente.
+    pattern_changed = (
+        existing and existing.demand_pattern
+        and existing.demand_pattern != demand_pattern
+    )
+    if (existing and existing.metrics and existing.metrics.get("wape") is not None
+            and not pattern_changed):
         old_err = existing.metrics.get("wape", 999)
         new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
         if new_err > old_err * 1.1 and old_err < 900:
