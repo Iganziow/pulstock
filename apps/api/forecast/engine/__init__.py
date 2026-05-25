@@ -8,7 +8,7 @@ from . import algorithms  # noqa: F401 — triggers @register decorators
 
 # Core selection
 from .selection import select_best_model
-from .patterns import classify_demand_pattern
+from .patterns import classify_demand_pattern, detect_closed_weekdays
 from .registry import ALGORITHM_REGISTRY
 
 # Utilities

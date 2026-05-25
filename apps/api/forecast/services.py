@@ -26,7 +26,7 @@ from forecast.models import (
 from forecast.engine import (
     select_best_model, calculate_days_to_stockout,
     category_prior_forecast, apply_holiday_adjustments,
-    clean_series, classify_demand_pattern,
+    clean_series, classify_demand_pattern, detect_closed_weekdays,
     compute_month_position_factors, detect_trend,
     apply_trend_adjustment, apply_bias_correction,
     apply_empirical_intervals, detect_price_change_impact,
@@ -964,7 +964,13 @@ def train_product_model(tenant, product, warehouse_id, today,
     cleaned = clean_series(raw_series, stockout_dates=stockout_dates, promo_dates=promo_dates)
 
     # Demand pattern classification
-    demand_pattern, adi, cv2 = classify_demand_pattern(raw_series)
+    # Fase 4 (25/05/26): detectar dias-de-la-semana sistematicamente cerrados
+    # (ej. Marbrava cierra lunes) y filtrarlos del calculo de ADI/density.
+    # Sin este filtro, productos como Capuccino, Latte, Cortado quedaban como
+    # "intermittent" por culpa de los gaps de lunes (ADI 2.0 > 1.32) → Croston_SBA
+    # → WAPE 100-450%. Con filtro, esos productos vuelven a smooth → theta/adaptive_ma.
+    closed_dows = detect_closed_weekdays(raw_series)
+    demand_pattern, adi, cv2 = classify_demand_pattern(raw_series, closed_weekdays=closed_dows)
 
     # Month-position factors (payday effect)
     month_factors = compute_month_position_factors(cleaned)
