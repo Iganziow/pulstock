@@ -154,21 +154,43 @@ class Command(BaseCommand):
             ).values_list("ingredient_id", flat=True)
         )
 
-        # Clean up: deactivate forecast models for discontinued products.
-        # EXCEPCION: no desactivar el modelo de un ingrediente de receta
-        # activa aunque su producto este is_active=False (lo necesitamos).
+        # FASE 3 (25/05/26): Productos a entrenar deben tener venta REAL en
+        # Pulstock (no solo historia importada de Fudo). Razon:
+        # - El catalogo en Pulstock no necesariamente matchea 1:1 con Fudo.
+        # - Productos como variantes "SL", "Iris cream" descontinuadas,
+        #   "Cafe para llevar" sin rotacion tienen historia Fudo pero no se
+        #   venden actualmente en Pulstock. Entrenar sobre esa data produce
+        #   forecasts y purchase suggestions de productos fantasma.
+        # - El motor SIGUE aprendiendo del historico Fudo (estacionalidad,
+        #   patron semanal) — solo restringimos QUE productos entran al pool.
+        # Excepcion: ingredientes de receta activa SIEMPRE se entrenan, aunque
+        # no se vendan directo al cliente (se consumen via recetas).
+        pulstock_sold_ids = set(
+            DailySales.objects.filter(
+                tenant=tenant, forecast_only=False, qty_sold__gt=0,
+            ).values_list("product_id", flat=True).distinct()
+        )
+        # Set unificado: productos elegibles = venta real Pulstock O ingrediente
+        eligible_ids = pulstock_sold_ids | ingredient_ids
+
+        # Clean up: deactivate forecast models for discontinued products
+        # (is_active=False) y para productos sin venta Pulstock que no son
+        # ingredientes (Fase 3).
         deactivated = FM.objects.filter(
-            tenant=tenant, product__is_active=False, is_active=True
-        ).exclude(product_id__in=ingredient_ids).update(is_active=False)
+            tenant=tenant, is_active=True,
+        ).exclude(product_id__in=eligible_ids).update(is_active=False)
         if deactivated:
             from forecast.models import Forecast
             Forecast.objects.filter(
-                tenant=tenant, model__product__is_active=False, forecast_date__gt=today,
-            ).exclude(product_id__in=ingredient_ids).delete()
+                tenant=tenant, forecast_date__gt=today, model__is_active=False,
+            ).exclude(product_id__in=eligible_ids).delete()
 
-        # Productos a entrenar: activos + ingredientes de recetas activas.
+        # Productos a entrenar: elegibles (venta Pulstock O ingrediente),
+        # y ademas activos en catalogo (o ingrediente aunque inactivo).
         products = Product.objects.filter(tenant=tenant).filter(
             Q(is_active=True) | Q(id__in=ingredient_ids)
+        ).filter(
+            Q(id__in=eligible_ids)
         )
         if product_id:
             products = products.filter(id=product_id)
