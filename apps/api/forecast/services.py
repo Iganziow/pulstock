@@ -1890,11 +1890,18 @@ def get_ingredient_forecast_boost(tenant_id, product_id, warehouse_ids):
 
 @transaction.atomic
 def train_ingredient_product(tenant, product, warehouse_id, today,
-                             horizon, stock_items, stats):
+                             horizon, stock_items, stats, make_active=True):
     """
     Train forecast for an ingredient using parent product forecasts (BOM-derived).
     Instead of forecasting from sales history, derives demand from parent recipes:
       ingredient_demand = SUM(parent_forecast * recipe_qty)
+
+    Args:
+        make_active: si True (default), desactiva el modelo activo previo y
+            queda como el activo. Si False, guarda como candidato inactivo
+            sin tocar el modelo activo organic — útil para entrenar derived
+            EN PARALELO al organic cuando hay datos suficientes, y dejar que
+            Fase 2 (backtest + WAPE real) decida cuál activar.
     """
     from forecast.engine import generate_daily_forecasts
 
@@ -1971,6 +1978,54 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
+    # ── Fase 2.2: backtest historico para WAPE genuino ──────────────────
+    # Re-derivamos demanda esperada del ingrediente para los ultimos
+    # BACKTEST_DAYS dias usando ventas REALES de los padres x los mismos
+    # recipe_multipliers, y la comparamos con el consumo real del
+    # ingrediente (DailySales). Esto nos da WAPE honesto del derived
+    # (antes era hardcoded a 0) para que Fase 2.3 pueda decidir
+    # informadamente si activar el derived sobre el organic.
+    BACKTEST_DAYS = 30
+    bt_start = today - timedelta(days=BACKTEST_DAYS)
+
+    # Pull historic daily_sales del ingrediente (consumo real)
+    actual_by_date = dict(
+        DailySales.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            date__gte=bt_start, date__lt=today,
+        ).values_list("date", "qty_sold")
+    )
+
+    # Pull historic daily_sales de cada padre
+    parent_daily = {}  # parent_id -> {date: qty}
+    if parent_ids and actual_by_date:
+        ds_qs = DailySales.objects.filter(
+            tenant=tenant, product_id__in=parent_ids, warehouse_id=warehouse_id,
+            date__gte=bt_start, date__lt=today,
+        ).values_list("product_id", "date", "qty_sold")
+        for pid, d, qty in ds_qs:
+            parent_daily.setdefault(pid, {})[d] = qty
+
+    # Computar derived prediction historico y acumular error vs real
+    bt_metrics = None
+    if actual_by_date and parent_daily:
+        predicted_list, actual_list = [], []
+        for d in sorted(actual_by_date.keys()):
+            pred = Decimal("0")
+            for pid in parent_ids:
+                mult = recipe_multipliers.get(pid, Decimal("0"))
+                if mult <= 0:
+                    continue
+                pday = parent_daily.get(pid, {}).get(d, Decimal("0"))
+                pred += pday * mult
+            actual = actual_by_date[d]
+            predicted_list.append(float(pred))
+            actual_list.append(float(actual))
+
+        if len(actual_list) >= 7:
+            from forecast.engine.utils import _compute_metrics
+            bt_metrics = _compute_metrics(actual_list, predicted_list)
+
     # Build forecasts list
     avg_daily = sum(daily_demand.values()) / len(daily_demand)
     forecasts = []
@@ -1984,16 +2039,34 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "upper_bound": (qty + margin).quantize(Decimal("0.001")),
         })
 
-    # Deactivate old model
-    ForecastModel.objects.filter(
-        tenant=tenant, product=product, warehouse_id=warehouse_id,
-        is_active=True,
-    ).update(is_active=False)
+    if make_active:
+        # Modo histórico: este derived es EL modelo activo del producto.
+        # Desactivamos cualquier otro activo previo.
+        ForecastModel.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            is_active=True,
+        ).update(is_active=False)
+    else:
+        # Modo "candidato paralelo": ya hay un modelo organic activo y NO lo
+        # tocamos. Sólo limpiamos derived previos inactivos del mismo
+        # (product, warehouse) para no acumular un derived por noche.
+        ForecastModel.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            algorithm="ingredient_derived", is_active=False,
+        ).delete()
 
     existing = ForecastModel.objects.filter(
         tenant=tenant, product=product, warehouse_id=warehouse_id,
     ).order_by("-version").first()
     new_version = (existing.version + 1) if existing else 1
+
+    # Metrics: usa backtest si disponible, sino 0 (sin historia comparable)
+    if bt_metrics is not None:
+        metrics_to_save = bt_metrics
+        wape_str = f"WAPE {bt_metrics.get('wape', 0):.0f}%"
+    else:
+        metrics_to_save = {"mae": 0, "mape": 0, "wape": 999, "rmse": 0, "bias": 0}
+        wape_str = "sin backtest (insuficiente historia)"
 
     fm = ForecastModel.objects.create(
         tenant=tenant,
@@ -2005,18 +2078,66 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "avg_daily": str(avg_daily.quantize(Decimal("0.001"))),
             "parent_products": list(parent_ids),
             "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
+            "backtest_days": len(actual_by_date) if actual_by_date else 0,
         },
-        metrics={"mae": 0, "mape": 0, "rmse": 0, "bias": 0},
+        metrics=metrics_to_save,
         trained_at=timezone.now(),
         data_points=len(daily_demand),
         demand_pattern="smooth",
-        is_active=True,
-        confidence_label="medium",
-        confidence_reason="Derivado de receta — depende de forecast del producto padre",
+        is_active=make_active,
+        confidence_label="medium" if make_active else "low",
+        confidence_reason=(
+            f"Derivado de receta — {wape_str}"
+            if make_active
+            else f"Derivado de receta (CANDIDATO paralelo al organic — {wape_str})"
+        ),
     )
 
     stats["by_algo"]["ingredient_derived"] = stats["by_algo"].get("ingredient_derived", 0) + 1
     stats["trained"] += 1
 
-    save_forecasts(tenant, product, warehouse_id, fm,
-                   forecasts, Decimal("65.00"), stock_items)
+    # ── Fase 2.3: seleccion automatica derived vs organic ─────────────────
+    # Si el derived es CANDIDATO (paralelo al organic) y su backtest demuestra
+    # que es MEJOR que el organic activo por un margen del 15% (anti-flicker),
+    # hacemos swap: derived pasa a activo, organic queda inactivo, escribimos
+    # Forecasts del derived y borramos los del organic. Bias de seguridad:
+    # exigimos WAPE < 80% al derived (no activamos un modelo terriblemente
+    # malo aunque el organic sea peor).
+    SWAP_MARGIN = Decimal("0.85")  # derived debe ser <= 85% del organic
+    SWAP_MAX_WAPE = 80.0
+    swapped = False
+    if (not make_active) and bt_metrics is not None:
+        d_wape = bt_metrics.get("wape", 999)
+        if d_wape < SWAP_MAX_WAPE:
+            organic_active = ForecastModel.objects.filter(
+                tenant=tenant, product=product, warehouse_id=warehouse_id,
+                is_active=True,
+            ).exclude(algorithm="ingredient_derived").first()
+            o_wape = (organic_active.metrics.get("wape", 999)
+                      if organic_active and organic_active.metrics else 999)
+            if Decimal(str(d_wape)) < Decimal(str(o_wape)) * SWAP_MARGIN:
+                # SWAP — derived gana (Forecast ya está importado a nivel modulo)
+                if organic_active:
+                    Forecast.objects.filter(
+                        model=organic_active, forecast_date__gt=today,
+                    ).delete()
+                    organic_active.is_active = False
+                    organic_active.save(update_fields=["is_active"])
+                fm.is_active = True
+                fm.confidence_label = "medium"
+                fm.confidence_reason = (
+                    f"Derivado de receta — gana al organic "
+                    f"(WAPE {d_wape:.0f}% vs {o_wape:.0f}%)"
+                )
+                fm.save(update_fields=["is_active", "confidence_label",
+                                       "confidence_reason"])
+                swapped = True
+                stats.setdefault("swapped_to_derived", 0)
+                stats["swapped_to_derived"] += 1
+
+    # Si NO es el activo y no swapeamos, no escribimos rows de Forecast (sería
+    # duplicar predicciones del producto y romper consultas que asumen 1
+    # forecast por (product, date)). Sólo guardamos el ForecastModel candidato.
+    if make_active or swapped:
+        save_forecasts(tenant, product, warehouse_id, fm,
+                       forecasts, Decimal("65.00"), stock_items)

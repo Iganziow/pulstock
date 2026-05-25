@@ -216,14 +216,25 @@ class Command(BaseCommand):
                 (row["warehouse_id"], n_days_for_filter)
             )
 
-        # Identify ingredient-only products (used in recipes, for BOM forecasting)
-        btype = getattr(tenant, "business_type", "other") or "other"
-        ingredient_ids = set()
-        if btype in ("restaurant",):
-            ingredient_ids = set(
-                RecipeLine.objects.filter(tenant=tenant, recipe__is_active=True)
-                .values_list("ingredient_id", flat=True).distinct()
-            )
+        # NOTA: `ingredient_ids` ya está computado arriba (línea ~151) para
+        # TODOS los tenants — no sólo restaurantes. Una ferretería con kit
+        # ensamblado o un retail con bundles también tiene "ingredientes".
+        # Bug previo: aquí lo redefiníamos a set() vacío si btype != restaurant
+        # y se pisaba el set correcto.
+
+        # ORDEN DE ENTRENAMIENTO (Fase 2.1):
+        # `train_ingredient_product` lee Forecasts ya escritos de sus padres.
+        # Si entrenamos un ingrediente ANTES que sus padres, `parent_forecasts`
+        # viene vacío y el derived candidato no se crea. Para evitar esto,
+        # particionamos productos: NO-ingredientes primero (escriben Forecasts
+        # padre), después ingredientes. Aplica también al caso donde un producto
+        # es padre Y ingrediente (ej. Mokaccino: padre de "Mokaccino caramelo"
+        # e ingrediente de otra receta). En ese caso entrenamos primero el
+        # producto como padre normal, después el candidato derived.
+        products = sorted(
+            products,
+            key=lambda p: (1 if p.id in ingredient_ids else 0, p.id),
+        )
 
         for product in products:
             wh_entries = product_wh_days.get(product.id, [])
@@ -235,6 +246,24 @@ class Command(BaseCommand):
                         tenant, product, wh_id, today,
                         min_days, horizon, window, stock_items, stats,
                     )
+                    # Si el producto ES ingrediente de receta activa, además
+                    # del modelo organic (que queda activo) entrenamos un
+                    # candidato `ingredient_derived` en paralelo. Fase 2
+                    # implementará backtest+WAPE y decidirá cuál activar.
+                    if product.id in ingredient_ids:
+                        from forecast.services import train_ingredient_product
+                        try:
+                            train_ingredient_product(
+                                tenant, product, wh_id, today,
+                                horizon, stock_items, stats, make_active=False,
+                            )
+                        except Exception as exc:
+                            # Si el candidato falla, no rompemos el train.
+                            # El organic activo sigue funcionando.
+                            stats.setdefault("errors", []).append(
+                                f"ingredient_derived candidate failed "
+                                f"product={product.id} wh={wh_id}: {exc}"
+                            )
                 elif product.id in ingredient_ids:
                     # Ingredient: derive forecast from parent recipes (BOM)
                     from forecast.services import train_ingredient_product
