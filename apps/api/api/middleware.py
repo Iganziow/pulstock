@@ -3,6 +3,8 @@ import uuid
 import logging
 import threading
 
+from django.http import JsonResponse
+
 _request_id_local = threading.local()
 
 
@@ -39,6 +41,39 @@ class RequestIDMiddleware:
         response["X-Request-ID"] = request_id
         _request_id_local.request_id = "-"
         return response
+
+
+class HealthCheckFastPathMiddleware:
+    """
+    Fast-path para /api/core/health/.
+
+    El endpoint de liveness lo pegan monitores externos (UptimeRobot,
+    Brevo, etc.) cada 1-5 min. Si pasa por todo el stack de middleware
+    (sesiones, CSRF, auth, JWT cookie injection, billing subscription
+    middleware), gasta ~280ms de CPU por ping aunque no haga nada útil.
+
+    Esta clase intercepta GET/HEAD a /api/core/health/ ANTES de session/
+    CSRF/auth/billing y devuelve {"status":"ok"} en <5ms. Sigue siendo
+    una respuesta REAL de Django (no nginx), así que confirma que el
+    proceso wsgi está vivo — que es exactamente lo que un liveness debe
+    probar.
+
+    NOTA: /api/core/health/deep/ NO entra acá — ese sí debe pasar por
+    todo el stack porque chequea DB, redis y cron heartbeats.
+    """
+
+    PATHS = ("/api/core/health/", "/api/core/health")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if (
+            request.method in ("GET", "HEAD")
+            and request.path in self.PATHS
+        ):
+            return JsonResponse({"status": "ok"})
+        return self.get_response(request)
 
 
 class JWTCookieMiddleware:

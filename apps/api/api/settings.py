@@ -146,6 +146,10 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # ======================================================
 MIDDLEWARE = [
     "api.middleware.RequestIDMiddleware",
+    # Fast-path: corta /api/core/health/ ANTES de session/csrf/auth/jwt/
+    # billing. Health pings (1-5/min de monitores externos) bajan de
+    # ~280ms a <5ms y dejan de consumir CPU.
+    "api.middleware.HealthCheckFastPathMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
