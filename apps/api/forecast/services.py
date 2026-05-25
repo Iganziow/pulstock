@@ -445,8 +445,23 @@ def get_product_forecasts(
             "days_to_stockout": days_out,
             "algorithm": fm.algorithm,
             "model_version": fm.version,
+            # mape/wape del BACKTEST (calculado al entrenar — no refleja
+            # como le va al modelo en produccion despues del training).
             "mape": metrics.get("mape"),
+            "wape": metrics.get("wape"),
             "mae": metrics.get("mae"),
+            # wape_real: ESCANDALOSAMENTE MAS RELEVANTE — comparacion
+            # post-hoc entre prediccion del modelo y venta real, registrada
+            # diariamente por track_forecast_accuracy cron y agregada por
+            # recalibrate_confidence cron. Cuando exista, el frontend debe
+            # priorizar este sobre el `wape` del backtest.
+            "wape_real": metrics.get("wape_real"),
+            "wape_real_days": metrics.get("wape_real_days"),
+            "wape_real_samples": metrics.get("wape_real_samples"),
+            # display_wape: helper para el frontend — prefiere wape_real
+            # si existe, sino cae al wape del backtest. Resuelve la
+            # contradiccion visual "confianza high con WAPE 147%".
+            "display_wape": metrics.get("wape_real", metrics.get("wape")),
             "data_points": fm.data_points,
             "trained_at": fm.trained_at.isoformat(),
             "demand_pattern": fm.demand_pattern,
@@ -629,6 +644,13 @@ def get_product_detail(tenant_id, product_id, warehouse_ids, history_days=30):
             "algorithm": fm.algorithm if fm else None,
             "version": fm.version if fm else None,
             "metrics": fm.metrics if fm else None,
+            # Fase 5: exponer confidence_label/reason y display_wape para
+            # que el frontend muestre la metrica honesta. display_wape
+            # prefiere wape_real (post-hoc) sobre wape del backtest.
+            "confidence_label": fm.confidence_label if fm else None,
+            "confidence_reason": fm.confidence_reason if fm else None,
+            "display_wape": (fm.metrics.get("wape_real", fm.metrics.get("wape"))
+                             if fm and fm.metrics else None),
             "data_points": fm.data_points if fm else 0,
             "trained_at": fm.trained_at.isoformat() if fm else None,
             "params": fm.model_params if fm else None,

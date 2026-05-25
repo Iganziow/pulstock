@@ -109,19 +109,43 @@ class Command(BaseCommand):
                 new_label = label_from_wape(wape)
                 old_label = fm.confidence_label
 
+                # Fase 5 (25/05/26): guardar el WAPE REAL en metrics para que
+                # el dashboard pueda mostrar la metrica honesta. Antes solo se
+                # actualizaba confidence_label/reason, pero `metrics.wape`
+                # quedaba con el del backtest del entrenamiento — generando
+                # incongruencias visuales (ej. Chocolate Premium: backtest
+                # WAPE 147% pero real 29% -> "high" pero el WAPE mostrado
+                # contradice). Ahora guardamos `wape_real` aparte para que el
+                # frontend pueda priorizar la metrica post-hoc.
+                metrics_changed = False
+                if wape is not None:
+                    new_metrics = dict(fm.metrics or {})
+                    new_metrics["wape_real"] = round(wape, 1)
+                    new_metrics["wape_real_days"] = days
+                    new_metrics["wape_real_samples"] = wape_data["n"]
+                    if new_metrics != (fm.metrics or {}):
+                        fm.metrics = new_metrics
+                        metrics_changed = True
+
                 if new_label != old_label:
                     transition = f"{old_label}→{new_label}"
                     changes_by_label[transition] = changes_by_label.get(transition, 0) + 1
                     if not dry_run:
                         fm.confidence_label = new_label
                         fm.confidence_reason = new_reason
-                        fm.save(update_fields=["confidence_label", "confidence_reason"])
+                        update_fields = ["confidence_label", "confidence_reason"]
+                        if metrics_changed:
+                            update_fields.append("metrics")
+                        fm.save(update_fields=update_fields)
                     total_updated += 1
                 else:
                     # Aún sin cambio de label, refrescar la reason si tenemos data
                     if wape is not None and not dry_run:
                         fm.confidence_reason = new_reason
-                        fm.save(update_fields=["confidence_reason"])
+                        update_fields = ["confidence_reason"]
+                        if metrics_changed:
+                            update_fields.append("metrics")
+                        fm.save(update_fields=update_fields)
                     total_unchanged += 1
 
         # Resumen
