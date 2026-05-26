@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { useGlobalStyles } from "@/lib/useGlobalStyles";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsMobile, useBreakpoint } from "@/hooks/useIsMobile";
 import { formatCLP, extractErr } from "@/lib/format";
 import { validateImportFile } from "@/lib/file-validation";
 import { Btn, Spinner, SkeletonPage, Modal, Badge, Toggle, StatCard, ErrBox, FLabel, Hint, iS, tS, FL, G2 } from "@/components/ui";
@@ -215,6 +215,11 @@ function CostInlineCell({
 export default function CatalogPage() {
   useGlobalStyles();
   const mob = useIsMobile();
+  // Pantalla compacta de Mario (laptop 1280x720): mostrar tabla simplificada
+  // — sin SKU/Barcodes/Costo en columna — para que el nombre del producto
+  // no se trunque ("Alfajor pha..." → "Alfajor phaway intenso 70%").
+  const { isCompactDesktop } = useBreakpoint();
+  const compact = !mob && isCompactDesktop;
 
   // Búsqueda y paginación
   const [q, setQ]                     = useState("");
@@ -800,18 +805,31 @@ export default function CatalogPage() {
       {!loading && !err && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
         <div style={{ overflowX:"auto" }}>
-          {/* Header row */}
+          {/* Header row
+              Grid responsive — 3 niveles:
+                mob:     Producto | Precio | Activo (•) | Acciones
+                compact: Producto (ancho) | Categoría | Precio | Costo | Activo | Acciones
+                         (sin SKU ni Barcodes — Mario los tiene casi todos vacios
+                          en Marbrava; recuperamos ~210px para el nombre)
+                desktop: SKU | Producto | Categoria | Precio | Costo | Barcodes | Activo | Acciones */}
           <div style={{
             display:"grid",
-            gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 110px 110px minmax(0,1fr) 100px 170px",
-            columnGap:mob?6:16,
+            gridTemplateColumns: mob
+              ? "1fr 80px 60px 70px"
+              : compact
+                ? "minmax(160px,2.5fr) 140px 100px 90px 80px 130px"
+                : "100px minmax(160px,2.5fr) 150px 110px 100px minmax(120px,1fr) 90px 140px",
+            columnGap:mob?6:14,
             padding:mob?"11px 10px":"11px 20px", background:C.bg, borderBottom:`1px solid ${C.border}`,
             fontSize:10.5, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.08em",
           }}>
-            {!mob && <div>SKU</div>}<div>Producto</div>{!mob && <div>Categoría</div>}
+            {!mob && !compact && <div>SKU</div>}
+            <div>Producto</div>
+            {!mob && <div>Categoría</div>}
             <div style={{ textAlign:"right" }}>Precio</div>
             {!mob && <div style={{ textAlign:"right" }}>Costo</div>}
-            {!mob && <div>Barcodes</div>}<div style={{ textAlign:"center" }}>{mob ? "•" : "Activo"}</div>
+            {!mob && !compact && <div>Barcodes</div>}
+            <div style={{ textAlign:"center" }}>{mob ? "•" : "Activo"}</div>
             <div style={{ textAlign:"right" }}>Acciones</div>
           </div>
 
@@ -829,23 +847,32 @@ export default function CatalogPage() {
             items.map((p, i) => (
               <div key={p.id} className="prow" style={{
                 display:"grid",
-                gridTemplateColumns:mob?"1fr 80px 60px 70px":"110px minmax(0,1.8fr) 160px 110px 110px minmax(0,1fr) 100px 170px",
-                columnGap:mob?6:16,
+                gridTemplateColumns: mob
+                  ? "1fr 80px 60px 70px"
+                  : compact
+                    ? "minmax(160px,2.5fr) 140px 100px 90px 80px 130px"
+                    : "100px minmax(160px,2.5fr) 150px 110px 100px minmax(120px,1fr) 90px 140px",
+                columnGap:mob?6:14,
                 padding:mob?"12px 10px":"14px 20px",
                 borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",
                 alignItems:"center",
               }}>
-                {/* SKU */}
-                {!mob && <div style={{ fontFamily:C.mono, fontSize:12, color:C.mid, fontWeight:500 }}>
+                {/* SKU — solo en desktop full (en compact el SKU se ve en
+                    la sub-linea del nombre para no perder la info) */}
+                {!mob && !compact && <div style={{ fontFamily:C.mono, fontSize:12, color:C.mid, fontWeight:500 }}>
                   {p.sku || <span style={{ color:C.mute }}>{"—"}</span>}
                 </div>}
 
                 {/* Name */}
                 <div style={{ minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:mob?13:14, marginBottom:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
-                  {!mob && p.description && <div style={{ fontSize:12, color:C.mute, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.description}</div>}
+                  {!mob && !compact && p.description && <div style={{ fontSize:12, color:C.mute, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.description}</div>}
                   <div style={{ fontSize:11, color:C.mute, marginTop:2, fontFamily:C.mono }}>
-                    {mob ? (p.sku || `ID:${p.id}`) : `ID: ${p.id} · ${normalizeUnit(p.unit??"UN")}`}
+                    {mob
+                      ? (p.sku || `ID:${p.id}`)
+                      : compact
+                        ? `${p.sku ? `${p.sku} · ` : ""}ID: ${p.id} · ${normalizeUnit(p.unit??"UN")}`
+                        : `ID: ${p.id} · ${normalizeUnit(p.unit??"UN")}`}
                   </div>
                 </div>
 
@@ -907,8 +934,10 @@ export default function CatalogPage() {
                     EAN cada uno), el texto se desbordaba del grid y se
                     solapaba con la fila de abajo.
                     Ahora: solo el primer código + badge "+N" si hay más.
-                    Hover muestra todos en tooltip nativo del navegador. */}
-                {!mob && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
+                    Hover muestra todos en tooltip nativo del navegador.
+                    En `compact` (laptop chico) se oculta — el usuario lo ve
+                    en el modal de edición. */}
+                {!mob && !compact && <div style={{ fontSize:12, color:C.mid, fontFamily:C.mono, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>
                   {p.barcodes?.length ? (
                     <span title={p.barcodes.map(b => b.code).join(", ")}
                           style={{ display:"inline-flex", alignItems:"center", gap:4, maxWidth:"100%" }}>
@@ -951,16 +980,16 @@ export default function CatalogPage() {
                   )}
                 </div>
 
-                {/* Actions */}
+                {/* Actions
+                    En compact (laptop chico) ocultamos el texto del boton
+                    Desactivar y dejamos solo el indicador via el dot/badge
+                    de Activo — el toggle se hace desde el modal de edicion.
+                    Esto deja 130px para Editar + 🗑️ que es lo critico. */}
                 <div style={{ display:"flex", gap:6, justifyContent:"flex-end", flexShrink:0, ...(mob?{}:{opacity:0, transition:"opacity 0.13s ease"}) }} className={mob?undefined:"ra"}>
                   <Btn variant="secondary" size="sm" onClick={()=>openEditProduct(p)} disabled={saving}>Editar</Btn>
-                  {!mob && <Btn variant={p.is_active?"danger":"success"} size="sm" onClick={()=>toggleActive(p)} disabled={saving}>
+                  {!mob && !compact && <Btn variant={p.is_active?"danger":"success"} size="sm" onClick={()=>toggleActive(p)} disabled={saving}>
                     {p.is_active?"Desactivar":"Activar"}
                   </Btn>}
-                  {/* Botón Borrar — abre modal de confirmación. Si el producto
-                      es ingrediente de una receta activa, el modal muestra
-                      las recetas afectadas y bloquea el borrado hasta que
-                      el dueño las edite. */}
                   <span title="Borrar producto" style={{ display: "inline-flex" }}>
                     <Btn
                       variant="danger" size="sm"

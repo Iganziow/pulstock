@@ -33,26 +33,38 @@ export function useIsTablet() {
 }
 
 /**
- * Hook unificado con los 3 breakpoints de la app — preferido sobre
+ * Hook unificado con los breakpoints de la app — preferido sobre
  * llamar useIsMobile + useIsTablet por separado (un solo listener,
  * un solo render por resize).
  *
- *   isMobile   < 768px   → teléfono (Mario, dueño de cafetería)
- *   isTablet   768-1099  → tablet o ventana chica de desktop
- *   isDesktop  ≥ 1100px  → laptop/monitor con sidebar cómodo
+ *   isMobile         < 768px       → teléfono
+ *   isTablet         768-1099px    → tablet o ventana chica de desktop
+ *   isCompactDesktop 1100-1365px   → laptop antiguo de Mario (PC compacto)
+ *                                    sidebar cómodo pero tablas con muchas
+ *                                    columnas pierden ancho para Producto
+ *   isDesktop        ≥ 1100px      → laptop/monitor con sidebar cómodo
+ *                                    (incluye compactDesktop — flag aparte
+ *                                    para detalle de layout fino)
  *
  * Uso típico:
  *   const { isMobile, isTablet } = useBreakpoint();
  *   const cols = isMobile ? "1fr" : isTablet ? "1fr 1fr" : "repeat(4, 1fr)";
  */
 export function useBreakpoint() {
-  const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
+  const [bp, setBp] = useState({
+    isMobile: false, isTablet: false,
+    isCompactDesktop: false, isDesktop: true,
+  });
   useEffect(() => {
     const fn = () => {
       const w = window.innerWidth;
       setBp({
         isMobile: w < 768,
         isTablet: w >= 768 && w < 1100,
+        // isCompactDesktop: laptop antiguo (Mario lo usa, 1280x720 tipico).
+        // Sidebar visible pero ancho util ~1100px → columnas extras (SKU,
+        // Barcodes, Costo) le roban espacio al nombre del producto.
+        isCompactDesktop: w >= 1100 && w < 1366,
         isDesktop: w >= 1100,
       });
     };
