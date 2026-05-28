@@ -149,6 +149,59 @@ def _sales_in_session_range(session):
         qs = qs.filter(created_at__gt=start_dt)
     else:
         qs = qs.filter(created_at__gte=start_dt)
+
+    # FIX 27/05/26 — bug 2-cajas-paralelas.
+    #
+    # Antes: con 2 CashRegister abiertos a la vez en el mismo store (ej.
+    # Caja Barra + Caja Salón), cada cierre veía TODAS las ventas del
+    # store en el rango → doble conteo, propinas duplicadas, cuadre
+    # imposible.
+    #
+    # Ahora: si hay OTRA sesión activa de una caja DISTINTA solapando
+    # nuestro rango, esta sesión solo cuenta:
+    #   1. Ventas explícitamente asignadas (cash_session_id == self.id), y
+    #   2. Huérfanas (cash_session_id IS NULL) donde esta sesión fue la
+    #      PRIMERA en abrirse al momento de la venta (resuelve quién
+    #      "adopta" las huérfanas de manera determinística).
+    #
+    # En el caso single-caja (Marbrava hoy), no hay concurrent_other_reg
+    # y el comportamiento queda IDÉNTICO al de antes (el fix original de
+    # Daniel sigue funcionando para absorber huérfanas).
+    from django.db.models import OuterRef, Subquery
+
+    concurrent_other_reg = (
+        CashSession.objects
+        .filter(
+            tenant_id=session.tenant_id,
+            store_id=session.store_id,
+            opened_at__lt=end_dt,
+        )
+        .filter(
+            Q(closed_at__isnull=True) | Q(closed_at__gt=start_dt),
+        )
+        .exclude(id=session.id)
+        .exclude(register_id=session.register_id)
+    )
+    if concurrent_other_reg.exists():
+        earliest_open_at_sale = (
+            CashSession.objects
+            .filter(
+                tenant_id=session.tenant_id,
+                store_id=session.store_id,
+                opened_at__lte=OuterRef("created_at"),
+            )
+            .filter(
+                Q(closed_at__isnull=True) | Q(closed_at__gte=OuterRef("created_at")),
+            )
+            .order_by("opened_at", "id")
+            .values("id")[:1]
+        )
+        qs = qs.annotate(
+            _primary_sess_at_sale=Subquery(earliest_open_at_sale),
+        ).filter(
+            Q(cash_session_id=session.id)
+            | (Q(cash_session_id__isnull=True) & Q(_primary_sess_at_sale=session.id))
+        )
     return qs
 
 
