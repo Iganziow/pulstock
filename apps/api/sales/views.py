@@ -106,6 +106,11 @@ class SaleCreate(APIView):
         payments_in = request.data.get("payments") or []
         from api.utils import safe_decimal
         tip = safe_decimal(request.data.get("tip"), Decimal("0"))
+        # Fase A (Fudo-style): si el frontend manda `tips` (lista explicita
+        # de {method, amount}), separar la propina del pago de la cuenta.
+        # Si no manda, comportamiento legacy (SalePayment.amount incluye tip,
+        # SaleTip por reparto proporcional).
+        tips_in = request.data.get("tips")  # None si no viene
 
         g_discount_type = ser.validated_data.get("global_discount_type", "none") or "none"
         g_discount_value = ser.validated_data.get("global_discount_value", Decimal("0")) or Decimal("0")
@@ -120,6 +125,7 @@ class SaleCreate(APIView):
                 payments_in=payments_in,
                 idempotency_key=idempotency_key,
                 tip=tip,
+                tips_in=tips_in,
                 global_discount_type=g_discount_type,
                 global_discount_value=Decimal(str(g_discount_value)),
             )

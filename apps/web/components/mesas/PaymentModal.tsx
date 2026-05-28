@@ -26,7 +26,17 @@ export interface StockShortage {
 interface PaymentModalProps {
   total: number;
   tableName: string;
-  onConfirm: (payments: PaymentRow[], tip: number, mode: "all" | "partial", lineIds: number[], saleType?: string) => void;
+  onConfirm: (
+    payments: PaymentRow[],
+    tip: number,
+    mode: "all" | "partial",
+    lineIds: number[],
+    saleType?: string,
+    tipMethod?: string,
+    /** Cobro parcial intra-line: {line_id: qty_a_cobrar}. Si la qty es
+        menor a line.qty, deja remanente en la mesa. Mario 25/05/26. */
+    lineQtys?: Record<number, number>,
+  ) => void;
   onClose: () => void;
   loading: boolean;
   unpaidLines: OrderLine[];
@@ -40,9 +50,19 @@ export function PaymentModal({
 }: PaymentModalProps) {
   const [rows, setRows] = useState<PaymentRow[]>([{ method: "cash", amount: "" }]);
   const [tipStr, setTipStr] = useState("");
+  // Fase A (Fudo-style): metodo de la propina. La propina se cobra y
+  // contabiliza aparte del pago de la cuenta. Default "cash" (cafeteria).
+  const [tipMethod, setTipMethod] = useState<string>("cash");
   const [splitN, setSplitN] = useState("");
   const [checkoutMode, setCheckoutMode] = useState<"all" | "partial">("all");
   const [selLines, setSelLines] = useState<Set<number>>(new Set(unpaidLines.map(l => l.id)));
+  // Mario reporto (25/05/26): en "Por items", line con qty=2 solo permitia
+  // pagar las 2 o ninguna. Ahora cada line tiene un stepper +/- para elegir
+  // cuantas unidades cobrar. Por default: line.qty completa (compatibilidad
+  // con flujo previo). lineQtys[line.id] = qty a cobrar de esa line.
+  const [lineQtys, setLineQtys] = useState<Record<number, number>>(
+    () => Object.fromEntries(unpaidLines.map(l => [l.id, Number(l.qty)]))
+  );
   const [isConsumoInterno, setIsConsumoInterno] = useState(false);
 
   // Mario reportó: "tuve que sacar la calculadora para sumar el total con
@@ -68,8 +88,16 @@ export function PaymentModal({
     setSelLines(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   };
 
+  // En modo "partial", el subtotal usa lineQtys[id] (cobro parcial intra-line)
+  // multiplicado por el unit_price, no el line_total completo. Asi se respeta
+  // el caso de pagar 1 de 2 chaparritas (Mario 25/05/26).
   const lineSubtotal = checkoutMode === "partial"
-    ? unpaidLines.filter(l => selLines.has(l.id)).reduce((s, l) => s + Number(l.line_total), 0)
+    ? unpaidLines
+        .filter(l => selLines.has(l.id))
+        .reduce((s, l) => {
+          const qty = lineQtys[l.id] ?? Number(l.qty);
+          return s + qty * Number(l.unit_price);
+        }, 0)
     : total;
   const tip = Math.max(0, Number(tipStr) || 0);
   const grandTotal = lineSubtotal + tip;
@@ -78,18 +106,21 @@ export function PaymentModal({
   const pending = Math.max(0, grandTotal - totalPaid);
   const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
-  // autoSync: mantener el monto del único pago = grandTotal cuando el
-  // usuario no está manejando split manualmente. Ver comentario en
+  // autoSync: mantener el monto del único pago = lineSubtotal (Fase A:
+  // SIN incluir propina — la propina se cobra y registra aparte como
+  // SaleTip via el campo `tips` del payload). El cajero ve el campo
+  // prellenado con el monto de la cuenta. La propina se muestra abajo
+  // como un boton aparte con su propio metodo. Ver comentario en
   // declaración de autoSync arriba.
   useEffect(() => {
     if (!autoSync) return;
     if (isConsumoInterno) return;
     if (rows.length !== 1) return;
-    const expected = grandTotal > 0 ? String(grandTotal) : "";
+    const expected = lineSubtotal > 0 ? String(lineSubtotal) : "";
     if (rows[0].amount !== expected) {
       setRows([{ method: rows[0].method, amount: expected }]);
     }
-  }, [grandTotal, autoSync, rows, isConsumoInterno]);
+  }, [lineSubtotal, autoSync, rows, isConsumoInterno]);
 
   // Restaurantes grandes: una mesa de 40 personas puede dividirse en muchos
   // pagos individuales (cada persona paga su parte en el método que quiera —
@@ -156,21 +187,94 @@ export function PaymentModal({
         ))}
       </div>
 
-      {/* Partial: line selector */}
+      {/* Partial: line selector con stepper +/- (Mario 25/05/26):
+          si line.qty > 1, permitir elegir cuantas unidades cobrar
+          (ej: 1 de 2 chaparritas). */}
       {checkoutMode === "partial" && (
-        <div style={{ marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: C.r, overflow: "hidden", maxHeight: 180, overflowY: "auto" }}>
-          {unpaidLines.map(l => (
-            <label key={l.id} style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-              borderBottom: `1px solid ${C.border}`, cursor: "pointer",
-              background: selLines.has(l.id) ? C.accentBg : C.surface,
-            }}>
-              <input type="checkbox" checked={selLines.has(l.id)} onChange={() => toggleLine(l.id)}
-                style={{ accentColor: C.accent, width: 20, height: 20, flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.text }}>{l.product_name}</span>
-              <span style={{ fontWeight: 700, fontSize: 12, color: C.text }}>${fmt(l.line_total)}</span>
-            </label>
-          ))}
+        <div style={{ marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: C.r, overflow: "hidden", maxHeight: 220, overflowY: "auto" }}>
+          {unpaidLines.map(l => {
+            const maxQty = Number(l.qty);
+            const currentQty = lineQtys[l.id] ?? maxQty;
+            const isSelected = selLines.has(l.id);
+            const lineSubtotalRow = currentQty * Number(l.unit_price);
+            const canDecrement = isSelected && currentQty > 1;
+            const canIncrement = isSelected && currentQty < maxQty;
+            return (
+              <div key={l.id} style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                borderBottom: `1px solid ${C.border}`,
+                background: isSelected ? C.accentBg : C.surface,
+              }}>
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleLine(l.id)}
+                  style={{ accentColor: C.accent, width: 20, height: 20, flexShrink: 0, cursor: "pointer" }}
+                />
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.text, minWidth: 0 }}>
+                  {l.product_name}
+                  <span style={{ fontSize: 11, color: C.mute, fontWeight: 500, marginLeft: 6 }}>
+                    ${fmt(l.unit_price)} c/u
+                  </span>
+                </span>
+                {/* Stepper qty: solo aparece si line.qty > 1 */}
+                {maxQty > 1 && (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 0,
+                    border: `1px solid ${isSelected ? C.accentBd : C.border}`,
+                    borderRadius: C.r, overflow: "hidden",
+                    background: isSelected ? "#fff" : C.bg,
+                    opacity: isSelected ? 1 : 0.5,
+                  }}>
+                    <button
+                      type="button"
+                      disabled={!canDecrement}
+                      onClick={() => {
+                        if (!canDecrement) return;
+                        setLineQtys(prev => ({ ...prev, [l.id]: currentQty - 1 }));
+                      }}
+                      style={{
+                        width: 26, height: 26, border: "none", background: "transparent",
+                        cursor: canDecrement ? "pointer" : "not-allowed",
+                        color: canDecrement ? C.accent : C.mute,
+                        fontSize: 14, fontWeight: 700, fontFamily: "inherit",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >−</button>
+                    <span style={{
+                      minWidth: 32, textAlign: "center",
+                      fontSize: 12, fontWeight: 700, color: C.text,
+                      fontVariantNumeric: "tabular-nums",
+                    }}>
+                      {currentQty} / {maxQty}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={!canIncrement}
+                      onClick={() => {
+                        if (!canIncrement) return;
+                        setLineQtys(prev => ({ ...prev, [l.id]: currentQty + 1 }));
+                      }}
+                      style={{
+                        width: 26, height: 26, border: "none", background: "transparent",
+                        cursor: canIncrement ? "pointer" : "not-allowed",
+                        color: canIncrement ? C.accent : C.mute,
+                        fontSize: 14, fontWeight: 700, fontFamily: "inherit",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >+</button>
+                  </div>
+                )}
+                <span style={{
+                  fontWeight: 700, fontSize: 12, color: C.text,
+                  minWidth: 70, textAlign: "right",
+                  fontVariantNumeric: "tabular-nums",
+                }}>
+                  ${fmt(lineSubtotalRow)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -376,6 +480,36 @@ export function PaymentModal({
         </div>
         <input type="number" min="0" value={tipStr} onChange={e => setTipStr(e.target.value)}
           placeholder="$0" style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.amberBd}`, borderRadius: C.r, fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff" }} />
+        {/* Metodo de la propina — Fase A Fudo-style: la propina se cobra
+            y registra aparte del pago de la cuenta. Solo aparece si hay
+            propina > 0. */}
+        {tip > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, alignSelf: "center", marginRight: 4 }}>
+              Cobrada en:
+            </span>
+            {PAY_METHODS.map(m => {
+              const active = tipMethod === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setTipMethod(m.value)}
+                  style={{
+                    padding: "4px 10px", borderRadius: 99,
+                    border: `1px solid ${active ? C.amber : C.amberBd}`,
+                    background: active ? C.amber : "#fff",
+                    color: active ? "#fff" : C.amber,
+                    fontSize: 10, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       )}
 
@@ -441,16 +575,19 @@ export function PaymentModal({
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
         <Btn variant={isConsumoInterno ? "danger" : "primary"} full size="lg"
-          disabled={loading || grandTotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < grandTotal)}
+          disabled={loading || lineSubtotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < lineSubtotal)}
           onClick={() => {
             // CRÍTICO (auditoría E2E): si el cliente paga más que el total
             // (ej. da $11.000 por una cuenta de $10.000), el cajero
             // devuelve $1.000 de vuelto. Pero si mandamos al backend
             // payment.amount=$11.000, la caja va a "esperar" ese dinero
             // en el cajón al cerrar. Recortamos el ÚLTIMO pago al monto
-            // que falta para llegar exacto al grandTotal — el vuelto
-            // queda solo en UI, NO entra al SalePayment. Así
-            // expected_cash refleja el dinero que de verdad quedó.
+            // que falta para llegar exacto al SUBTOTAL DE LA CUENTA — el
+            // vuelto queda solo en UI, NO entra al SalePayment.
+            //
+            // Fase A (Fudo-style): payments = solo subtotal de la cuenta
+            // (sin propina). La propina viaja aparte en el campo `tips`
+            // del payload y se registra como SaleTip(method=tipMethod).
             const validRows = rows.filter(r => Number(r.amount) > 0);
             let clampedRows = validRows;
             if (!isConsumoInterno && validRows.length > 0) {
@@ -462,16 +599,37 @@ export function PaymentModal({
                   return r;
                 }
                 // Última fila: clampear al exacto remanente para que
-                // sum(rows) === grandTotal (sin vuelto en backend).
-                const remaining = Math.max(0, grandTotal - running);
+                // sum(rows) === lineSubtotal (sin propina, sin vuelto).
+                const remaining = Math.max(0, lineSubtotal - running);
                 return { ...r, amount: String(remaining) };
               });
+            }
+            // En partial mode: mandar lineQtys SOLO para lines seleccionadas
+            // donde el qty elegido es < line.qty (cobro parcial real). Si
+            // qty === line.qty (line completa), no incluir → backend usa
+            // el comportamiento legacy de marcar line entera como paid.
+            let partialLineQtys: Record<number, number> | undefined;
+            if (checkoutMode === "partial" && !isConsumoInterno) {
+              partialLineQtys = {};
+              for (const lineId of selLines) {
+                const line = unpaidLines.find(l => l.id === lineId);
+                if (!line) continue;
+                const qty = lineQtys[lineId] ?? Number(line.qty);
+                if (qty < Number(line.qty)) {
+                  partialLineQtys[lineId] = qty;
+                }
+              }
+              if (Object.keys(partialLineQtys).length === 0) {
+                partialLineQtys = undefined;
+              }
             }
             onConfirm(
               isConsumoInterno ? [] : clampedRows,
               isConsumoInterno ? 0 : tip,
               checkoutMode, [...selLines],
               isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
+              isConsumoInterno ? undefined : tipMethod,
+              partialLineQtys,
             );
           }}>
           {loading ? <Spinner size={14} /> : null}

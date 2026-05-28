@@ -54,6 +54,70 @@ def _model_has_field(model_cls, field_name: str) -> bool:
         return False
 
 
+def _normalize_tips_in(tips_in, tip_total):
+    """
+    Valida y normaliza tips_in (formato Fase A: propinas explicitas por metodo).
+
+    Args:
+        tips_in: list of {"method": str, "amount": Decimal|str|number}.
+        tip_total: Decimal — total de propina esperado (debe coincidir con la
+                   suma de tips_in para consistencia con el campo Sale.tip
+                   denormalizado).
+
+    Returns:
+        list[dict] normalizado: [{"method": <valid>, "amount": Decimal}, ...]
+        descartando items con amount <= 0.
+
+    Raises:
+        SaleValidationError si:
+        - tips_in no es lista
+        - algun item tiene method invalido (no en {cash, debit, card, transfer})
+        - algun item tiene amount negativo o no parseable
+        - sum(items.amount) != tip_total (tolerancia 1 centavo por rounding)
+
+    Items con amount == 0 se filtran silenciosamente (caso comun: UI manda
+    metodo seleccionado pero amount=0; equivale a "sin propina por ese metodo").
+    """
+    if not isinstance(tips_in, list):
+        raise SaleValidationError("tips_in debe ser una lista de {method, amount}")
+
+    valid_methods = {
+        SalePayment.METHOD_CASH,
+        SalePayment.METHOD_CARD,
+        SalePayment.METHOD_DEBIT,
+        SalePayment.METHOD_TRANSFER,
+    }
+    normalized = []
+    for idx, item in enumerate(tips_in):
+        if not isinstance(item, dict):
+            raise SaleValidationError(f"tips_in[{idx}] debe ser dict {{method, amount}}")
+        method = (item.get("method") or "").strip().lower()
+        if method not in valid_methods:
+            raise SaleValidationError(
+                f"tips_in[{idx}].method '{method}' invalido. "
+                f"Permitidos: {sorted(valid_methods)}"
+            )
+        try:
+            amount = Decimal(str(item.get("amount") or 0))
+        except (ValueError, ArithmeticError, TypeError):
+            raise SaleValidationError(f"tips_in[{idx}].amount no es un numero valido")
+        if amount < 0:
+            raise SaleValidationError(f"tips_in[{idx}].amount no puede ser negativo")
+        if amount == 0:
+            continue  # silencioso — UI puede mandar metodos con 0
+        normalized.append({"method": method, "amount": amount.quantize(Decimal("0.01"))})
+
+    tip_total_q = Decimal(str(tip_total or 0)).quantize(Decimal("0.01"))
+    sum_tips = sum((t["amount"] for t in normalized), Decimal("0")).quantize(Decimal("0.01"))
+    # Tolerancia 1 centavo para evitar errores de rounding cliente-servidor.
+    if abs(sum_tips - tip_total_q) > Decimal("0.01"):
+        raise SaleValidationError(
+            f"sum(tips_in)={sum_tips} no coincide con tip={tip_total_q} "
+            f"(diferencia {abs(sum_tips - tip_total_q)})"
+        )
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
@@ -69,6 +133,7 @@ def create_sale(
     payments_in=None,
     idempotency_key="",
     tip=Decimal("0.00"),
+    tips_in=None,
     sale_type="VENTA",
     global_discount_type="none",
     global_discount_value=Decimal("0"),
@@ -89,6 +154,17 @@ def create_sale(
         10. Save final totals
     """
     payments_in = payments_in or []
+
+    # ── 0. Normalizar tips_in (Fase A: propinas explicitas, opt-in) ──
+    # Si tips_in NO se pasa (frontend legacy) → tips_in_explicit = None →
+    # camino legacy: SalePayment.amount incluye propina, SaleTip se crea por
+    # reparto proporcional o 1 metodo segun len(payments).
+    # Si tips_in SE pasa (frontend nuevo / API directa) → tips_in_explicit es
+    # la lista normalizada → camino nuevo: SalePayment.amount = SOLO venta,
+    # SaleTip rows = lo declarado explicitamente.
+    tips_in_explicit = None
+    if tips_in is not None:
+        tips_in_explicit = _normalize_tips_in(tips_in, tip)
 
     # ── 1. Validate warehouse ────────────────────────────────────────
     warehouse = (
@@ -435,9 +511,19 @@ def create_sale(
     # Lógica: el grandTotal a cobrar es subtotal_neto + tip. Si la suma
     # de payments excede ese grandTotal, recortamos el ÚLTIMO payment al
     # remanente para que sum(payments) == grandTotal exacto.
-    grand_total_to_charge = max(
+    #
+    # Fase A (Fudo-style): cuando tips_in_explicit existe, los payments_in
+    # representan SOLO el monto de la cuenta — la propina viene aparte en
+    # tips_in. Entonces el grand_total_to_charge para clampear payments es
+    # SOLO subtotal_neto (sin sumar tip), porque tip se cobra/registra como
+    # SaleTip separado, no como SalePayment.
+    sale_subtotal_net = max(
         (subtotal - total_discount).quantize(Decimal("1")), Decimal("0")
-    ) + tip
+    )
+    if tips_in_explicit is not None:
+        grand_total_to_charge = sale_subtotal_net  # payments = solo venta
+    else:
+        grand_total_to_charge = sale_subtotal_net + tip  # legacy: incluye tip
     valid_methods = {SalePayment.METHOD_CASH, SalePayment.METHOD_CARD, SalePayment.METHOD_DEBIT, SalePayment.METHOD_TRANSFER}
     payment_rows = []
     total_paid = Decimal("0.00")
@@ -485,7 +571,20 @@ def create_sale(
     #     el redondeo). Cubre el caso típico cafetería (1 método).
     # Si después el dueño edita la propina vía PATCH /sales/{id}/tip/,
     # puede dejar el reparto que quiera (split arbitrario).
-    if tip > 0 and payment_rows:
+    #
+    # FASE A (25/05/26): si tips_in_explicit existe (frontend Fudo-style),
+    # NO hacemos reparto automatico — cada fila de tips_in_explicit es 1
+    # SaleTip exacto. Sin smart-cash heuristic, sin proporcional.
+    if tips_in_explicit is not None:
+        if tips_in_explicit:
+            SaleTip.objects.bulk_create([
+                SaleTip(
+                    sale=sale, tenant_id=tenant_id,
+                    method=t["method"], amount=t["amount"],
+                )
+                for t in tips_in_explicit
+            ])
+    elif tip > 0 and payment_rows:
         tip_amount_total = Decimal(str(tip)).quantize(Decimal("0.01"))
         if len(payment_rows) == 1:
             SaleTip.objects.create(

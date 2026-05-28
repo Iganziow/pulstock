@@ -27,6 +27,8 @@ interface PaymentSectionProps {
   onPayRowsChange: (rows: PosPayRow[]) => void;
   tipAmount: string;
   onTipChange: (v: string) => void;
+  tipMethod: string;
+  onTipMethodChange: (m: string) => void;
   tip: number;
   grandTotal: number;
   totalPaid: number;
@@ -44,6 +46,7 @@ export function PaymentSection({
   selectedWarehouseName, itemsCount, totalLineDiscounts, globalDiscountAmt,
   total, saleNote,
   payRows, onPayRowsChange, tipAmount, onTipChange,
+  tipMethod, onTipMethodChange,
   tip, grandTotal, totalPaid, pendingAmount, change,
   onSubmit,
   lastSaleId, lastSaleNumber,
@@ -271,6 +274,34 @@ export function PaymentSection({
               }}
             />
           </div>
+          {/* Metodo de la propina — Fase A Fudo-style: la propina es
+              independiente del pago de la cuenta. El cliente puede pagar
+              con debito y dejar propina en efectivo. */}
+          {tip > 0 && (
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, paddingLeft:24 }}>
+              {PAY_METHODS.map(m => {
+                const active = tipMethod === m.value;
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => onTipMethodChange(m.value)}
+                    style={{
+                      flex:"1 1 calc(50% - 3px)", minWidth:90,
+                      padding:"6px 10px", border:`1.5px solid ${active ? C.amber : C.border}`,
+                      borderRadius:C.r, background: active ? C.amberBg : C.bg,
+                      color: active ? C.amber : C.mid,
+                      fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit",
+                      display:"flex", alignItems:"center", justifyContent:"center", gap:4,
+                    }}
+                  >
+                    <span style={{ fontSize:14 }}>{m.icon}</span>
+                    <span>Propina {m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {tip > 0 && (
             <div style={{ padding:"8px 12px", borderRadius:C.r, background:C.amberBg, border:`1px solid ${C.amberBd}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontSize:12, color:C.amber, fontWeight:600 }}>Total con propina</span>
@@ -296,9 +327,10 @@ export function PaymentSection({
         </div>
       </div>
 
-      {/* Confirm */}
+      {/* Confirm — Fase A: payments cubre solo la venta (no propina).
+          La propina se cobra aparte como SaleTip. Validamos totalPaid >= total. */}
       <Btn variant="primary" size="lg" full onClick={onSubmit}
-        disabled={busy || !!meErr || cart.length === 0 || !warehouseId || totalPaid < grandTotal}>
+        disabled={busy || !!meErr || cart.length === 0 || !warehouseId || totalPaid < total}>
         {busy ? <><Spinner size={16}/>Procesando...</> : (
           <>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">

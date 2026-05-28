@@ -591,6 +591,10 @@ class CheckoutView(APIView):
             return Response({"detail": "mode must be 'all' or 'partial'"}, status=400)
 
         line_ids = request.data.get("line_ids") or []
+        # line_qtys: dict {line_id: qty_a_cobrar} para cobro parcial de
+        # cada line. Si line_id no esta en el dict, cobra qty completa.
+        # Ej: {"5": "1"} cobra 1 unidad de la line 5 (que puede tener qty=2).
+        line_qtys = request.data.get("line_qtys") or None
         payments_in = request.data.get("payments") or []
 
         sale_type = (request.data.get("sale_type") or "VENTA").upper()
@@ -637,8 +641,20 @@ class CheckoutView(APIView):
                 )
                 if mode == "partial" and line_ids:
                     partial_lines = unpaid_lines.filter(pk__in=line_ids)
+                    # Si hay line_qtys (cobro parcial intra-line), usar
+                    # esa qty para calcular order_total. Sino qty completa.
+                    def _qty_for(line):
+                        if not line_qtys:
+                            return line.qty
+                        override = line_qtys.get(line.id) or line_qtys.get(str(line.id))
+                        if override is None:
+                            return line.qty
+                        try:
+                            return Decimal(str(override))
+                        except (ValueError, ArithmeticError, TypeError):
+                            return line.qty
                     order_total = sum(
-                        (l.qty * l.unit_price).quantize(Decimal("0.01")) for l in partial_lines
+                        (_qty_for(l) * l.unit_price).quantize(Decimal("0.01")) for l in partial_lines
                     )
                 required = order_total + tip
                 if pay_total < required:
@@ -649,6 +665,13 @@ class CheckoutView(APIView):
             except OpenOrder.DoesNotExist:
                 pass  # Will be caught by checkout_order
 
+        # Fase A (Fudo-style): tips opcional separado de payments.
+        # Si viene → SalePayment.amount = solo venta, SaleTip explicito.
+        tips_in = request.data.get("tips")  # None si no se manda
+        # CONSUMO_INTERNO no debe tener propinas tampoco (ya forzamos tip=0 arriba).
+        if sale_type == "CONSUMO_INTERNO":
+            tips_in = None
+
         try:
             result = checkout_order(
                 order_id=pk,
@@ -658,6 +681,8 @@ class CheckoutView(APIView):
                 line_ids=line_ids,
                 payments_in=payments_in,
                 tip=tip,
+                tips_in=tips_in,
+                line_qtys=line_qtys,
                 user=request.user,
                 sale_type=sale_type,
             )

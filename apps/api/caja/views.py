@@ -203,101 +203,44 @@ def _session_summary(session):
             tip_count_by_method[method] = 0
         return method
 
-    # Mismo cambio que arriba: usar rango temporal en vez de FK.
-    # Daniel 29/04/26: ahora `SaleTip` es la fuente de verdad. Cada venta
-    # con propina tiene N filas {method, amount}. Sumamos directo por método
-    # — sin reparto proporcional, sin redondeo, sin tip_method.
-    #
-    # Compat legacy: si una venta tiene Sale.tip > 0 pero NO filas SaleTip
-    # (datos previos al refactor que la migración no haya tocado, p.ej.
-    # ventas creadas en una transacción con la migración corriendo en otro
-    # nodo), caemos al cálculo histórico (tip_method explícito o reparto
-    # proporcional). En la práctica la migración ya creó las filas para
-    # todas las ventas existentes; este path es solo defensivo.
+    # Fase D (25/05/26): SaleTip es la unica fuente de verdad para
+    # propinas. Sumamos directo por metodo — sin smart-cash heuristic,
+    # sin reparto proporcional, sin fallback a tip_method. Esto es posible
+    # porque:
+    #   1. Fase A: las ventas nuevas crean SaleTip con metodo explicito
+    #      (`tips_in` del payload, eligido por el cajero en UI).
+    #   2. Fase C (migracion): para ventas legacy con `Sale.tip > 0` pero
+    #      sin SaleTip rows, el script `migrate_tips_explicit` crea las
+    #      filas correspondientes desde tip_method o reparto proporcional.
+    # Si despues de Fase C queda alguna venta antigua sin SaleTip, su
+    # propina NO se contabiliza en este reporte (era el caso defensivo
+    # que ya no aplica). En la practica todas las ventas legacy quedan
+    # cubiertas por la migracion.
     from sales.models import SaleTip
 
-    # (16/05/26) PARCHE — Mario reportó: "tip cash que veo NO coincide con
-    # lo que recibí físicamente". Causa raíz: en ventas split (cash + debit),
-    # create_sale distribuye la propina PROPORCIONALMENTE entre métodos →
-    # tip $1,060 de venta con $1K cash + $9.6K debit queda como cash $96.36
-    # + debit $963.64. Pero la propina cash real fue $1,060 (cliente dejó
-    # billete suelto). Decimales raros = reparto proporcional automático.
-    #
-    # FIX TEMPORAL (sin tocar create_sale ni migrar datos):
-    # Detectar cuándo el SaleTip viene del reparto auto vs edición manual:
-    #
-    #   "Reparto automático" = SaleTip.methods ⊆ SalePayment.methods
-    #     (cada tip tiene un payment del mismo método) → APLICAR smart cash
-    #
-    #   "Edición manual" = SaleTip tiene algún método QUE NO está en payments
-    #     (ej. tip transfer cuando solo hay payment cash) → RESPETAR el split
-    #     (el dueño editó intencionalmente: cliente dejó propina por canal
-    #      distinto al pago)
-    #
-    # Regla smart cash: cuando es reparto automático y la venta tuvo cash
-    # en payment, asumimos toda la propina fue cash (típico cafetería —
-    # mayoría pago con tarjeta + propina en billete).
-    #
-    # Total tips no cambia. Solo cambia atribución de cuánto va a cash.
-    # Fix raíz pendiente: aceptar tips_in explícito en create_sale.
-
-    # Cargar SalePayments por sale_id para conocer métodos usados
-    sale_payment_methods = {}  # sale_id → set of methods
-    for sp in SalePayment.objects.filter(sale_id__in=sale_ids_in_range).values("sale_id", "method"):
-        sale_payment_methods.setdefault(sp["sale_id"], set()).add(sp["method"])
-
-    # Cargar SaleTip rows agrupados por sale para evaluar la heurística
-    saletip_rows_all = list(
-        SaleTip.objects
-        .filter(sale_id__in=sale_ids_in_range)
-        .values("sale_id", "method", "amount")
+    # Recolectar TODAS las "tip rows" — reales (SaleTip) + sinteticas para
+    # ventas legacy sin SaleTip (datos pre-Fase C o tests que crean Sale
+    # + SalePayment directo). El loop siguiente sobre `saletip_rows`
+    # las usa para alimentar tips_by_method, legacy_tips_by_method y
+    # fase_a_extra_cash uniformemente.
+    saletip_rows = list(
+        SaleTip.objects.filter(
+            sale_id__in=sale_ids_in_range,
+        ).values_list("sale_id", "method", "amount")
     )
-    tips_by_sale = {}  # sale_id → list of (method, amount)
-    for r in saletip_rows_all:
-        tips_by_sale.setdefault(r["sale_id"], []).append((r["method"], r["amount"]))
+    sales_with_saletips = {row[0] for row in saletip_rows}
 
-    sales_with_saletips = set(tips_by_sale.keys())
-
-    for sid, tip_list in tips_by_sale.items():
-        pay_methods = sale_payment_methods.get(sid, set())
-        tip_methods = {m for m, _ in tip_list}
-        total_tip = sum((a for _, a in tip_list), zero)
-
-        # ¿Es reparto automático? Todos los tip methods están en payments
-        is_auto_split = tip_methods.issubset(pay_methods) and len(tip_methods) > 1
-        has_cash_payment = "cash" in pay_methods
-
-        if is_auto_split and has_cash_payment:
-            # SMART CASH: toda la propina a cash (cuenta como 1 venta con tip cash)
-            tips_by_method["cash"] += total_tip
-            tip_count_by_method["cash"] += 1
-        else:
-            # Respetar el split del SaleTip (edición manual o caso simple)
-            for method, amount in tip_list:
-                m = _bucket(method)
-                tips_by_method[m] += amount
-                tip_count_by_method[m] += 1
-
-    # Path legacy para ventas con tip>0 pero sin filas SaleTip.
-    # `.only()` minimiza columnas traídas — el loop solo usa tip,
-    # tip_method, payments. -40% bytes transferidos por venta.
-    legacy_sales = sales_in_range.filter(
-        tip__gt=0,
-    ).exclude(id__in=sales_with_saletips).only(
-        "id", "tip", "tip_method", "tenant_id"
-    ).prefetch_related("payments")
-    for sale in legacy_sales:
+    legacy_sales_no_saletip = sales_in_range.filter(tip__gt=0).exclude(
+        id__in=sales_with_saletips,
+    ).only("id", "tip", "tip_method", "tenant_id").prefetch_related("payments")
+    for sale in legacy_sales_no_saletip:
         explicit_method = (sale.tip_method or "").strip().lower()
         if explicit_method:
-            m = _bucket(explicit_method)
-            tips_by_method[m] += sale.tip
-            tip_count_by_method[m] += 1
+            saletip_rows.append((sale.id, explicit_method, sale.tip))
             continue
-
         payments = list(sale.payments.all())
         if not payments:
-            tips_by_method["cash"] += sale.tip
-            tip_count_by_method["cash"] += 1
+            saletip_rows.append((sale.id, "cash", sale.tip))
             continue
         total_paid = sum((p.amount for p in payments), zero)
         if total_paid <= 0:
@@ -305,16 +248,18 @@ def _session_summary(session):
         running = zero
         for p in payments[:-1]:
             share = (sale.tip * p.amount / total_paid).quantize(Decimal("1"))
-            m = _bucket(p.method)
-            tips_by_method[m] += share
-            tip_count_by_method[m] += 1
+            saletip_rows.append((sale.id, p.method, share))
             running += share
         last = payments[-1]
         last_share = sale.tip - running
-        m = _bucket(last.method)
         if last_share > 0:
-            tips_by_method[m] += last_share
-            tip_count_by_method[m] += 1
+            saletip_rows.append((sale.id, last.method, last_share))
+
+    # Alimentar tips_by_method (informativo display)
+    for sale_id, method, amount in saletip_rows:
+        m = _bucket(method)
+        tips_by_method[m] += amount
+        tip_count_by_method[m] += 1
 
     # Single query for movements: GROUP BY type
     mov_totals = dict(
@@ -333,55 +278,79 @@ def _session_summary(session):
     # TODOS los métodos (incluso débito/crédito), no solo cash. Si la
     # propina iba por tarjeta, igual aparecía como "propina en efectivo".
     #
-    # Fix completo:
-    # - cash_tips = solo las propinas pagadas en efectivo.
-    # - Display _sales = pagos brutos − propinas → "ventas netas" sin
-    #   duplicar lo que ya está en el widget de propinas.
-    # - expected_cash usa cash_payments_total (que ya incluye todo el
-    #   efectivo físico que entró: ventas + propinas en cash).
-    #   Eso es matemáticamente equivalente a fondo + cash_sales_neto +
-    #   cash_tips + movs, pero evita el riesgo de doble suma.
     cash_tips     = tips_by_method.get("cash", zero)
     debit_tips    = tips_by_method.get("debit", zero)
     card_tips     = tips_by_method.get("card", zero)
     transfer_tips = tips_by_method.get("transfer", zero)
     total_tips    = sum(tips_by_method.values(), zero)
 
-    # Display: ventas NETAS (sin propinas) por método. La propina se
-    # muestra aparte en el widget "Propinas del turno".
-    #
-    # CASO EDGE (Daniel 29/04/26 — split tips relacional): si la propina
-    # de un método X excede los payments del mismo método X, restar daría
-    # negativo (ej. cliente pagó cash $4.000 con tip $500, después dueño
-    # editó tip a "$200 transferencia + $300 cash" → payments siguen
-    # cash, pero tip transferencia $200 no tiene payment respaldo).
-    # Clamp a 0 para no mostrar -$200 al usuario. El exceso es propina
-    # "fuera de banda" (cliente la entregó por canal distinto al pago) y
-    # se ve correctamente en el widget de propinas.
-    cash_sales     = max(zero, cash_payments_total     - cash_tips)
-    debit_sales    = max(zero, debit_payments_total    - debit_tips)
-    card_sales     = max(zero, card_payments_total     - card_tips)
-    transfer_sales = max(zero, transfer_payments_total - transfer_tips)
+    # Fase D (25/05/26): distinguir ventas LEGACY (SalePayment.amount incluye
+    # propina) vs FASE A (SalePayment.amount = solo venta, propina aparte).
+    # Heuristica por venta usando Sale.subtotal (invariante en ambos casos):
+    #   Si sum(SalePayment per sale) > Sale.subtotal + tolerancia → LEGACY
+    #     → SaleTip(method=X) representa propina YA EMBEBIDA en SalePayment(X)
+    #     → restarla de "sales" para mostrar venta neta
+    #     → NO sumarla a expected_cash (ya está en cash_payments_total)
+    #   Si sum(SalePayment per sale) <= Sale.subtotal → FASE A
+    #     → SaleTip(cash) representa cash FISICO ADICIONAL al payment
+    #     → NO restarla de "sales" (payment ya es solo venta)
+    #     → SI sumarla a expected_cash (es cash extra que entró)
+    sale_subtotals_map = dict(sales_in_range.values_list("id", "subtotal"))
+    payments_per_sale = {}  # sale_id -> {method: sum_amount}
+    for sp in SalePayment.objects.filter(
+        sale_id__in=sale_ids_in_range,
+    ).values("sale_id", "method", "amount"):
+        sm = payments_per_sale.setdefault(sp["sale_id"], {})
+        sm[sp["method"]] = sm.get(sp["method"], zero) + sp["amount"]
+
+    legacy_sale_ids = set()
+    fase_a_sale_ids = set()
+    for sid, payments_methods in payments_per_sale.items():
+        sale_subtotal = sale_subtotals_map.get(sid, zero) or zero
+        sum_payments = sum(payments_methods.values(), zero)
+        if sum_payments - sale_subtotal > Decimal("0.01"):
+            legacy_sale_ids.add(sid)
+        else:
+            fase_a_sale_ids.add(sid)
+
+    # Tips a restar de payments para mostrar "ventas netas" (solo legacy).
+    legacy_tips_by_method = {"cash": zero, "debit": zero, "card": zero, "transfer": zero}
+    # Tips fisicos extra que llegaron aparte del SalePayment (solo Fase A).
+    fase_a_extra_cash = zero
+    for sale_id, method, amount in saletip_rows:
+        m = method.strip().lower()
+        if sale_id in legacy_sale_ids:
+            if m in legacy_tips_by_method:
+                legacy_tips_by_method[m] += amount
+        elif sale_id in fase_a_sale_ids:
+            if m == "cash":
+                fase_a_extra_cash += amount
+
+    # Display: ventas NETAS (sin propinas) por metodo.
+    cash_sales     = max(zero, cash_payments_total     - legacy_tips_by_method["cash"])
+    debit_sales    = max(zero, debit_payments_total    - legacy_tips_by_method["debit"])
+    card_sales     = max(zero, card_payments_total     - legacy_tips_by_method["card"])
+    transfer_sales = max(zero, transfer_payments_total - legacy_tips_by_method["transfer"])
 
     # total_sales: usar el subtotal real de las ventas en rango, NO la suma
     # de los _sales por método. Razón: con split tips libres puede haber
-    # inconsistencia entre tips_by_method y payments_by_method (ej. tip
-    # transferencia $200 sin payment de transferencia → clamped a 0). El
-    # subtotal real (Sale.total agregado) sigue siendo la fuente de verdad
-    # de cuánto vendió el local.
+    # inconsistencia entre tips_by_method y payments_by_method.
     total_sales = sales_in_range.aggregate(
         s=Coalesce(Sum("total"), zero),
     )["s"]
 
-    # expected_cash usa el total pagado en efectivo directo (ya incluye
-    # propinas en cash). Esto evita la doble suma del bug original.
-    #
-    # NOTA edge case split tips: si la propina cash declarada excede
-    # los payments cash, ese exceso es cash adicional que entró por fuera
-    # del payment registrado. Lo sumamos a expected_cash para que el
-    # cuadre refleje el cash físico real esperado en caja.
-    extra_cash_from_tips = max(zero, cash_tips - cash_payments_total)
-    expected = session.initial_amount + cash_payments_total + extra_cash_from_tips + movements_in - movements_out
+    # expected_cash:
+    #   initial_amount
+    #   + cash_payments_total (incluye propinas embebidas legacy)
+    #   + fase_a_extra_cash    (propinas cash Fase A que llegaron aparte)
+    #   + movements_in - movements_out
+    expected = (
+        session.initial_amount
+        + cash_payments_total
+        + fase_a_extra_cash
+        + movements_in
+        - movements_out
+    )
     return {
         "initial_amount":  str(session.initial_amount),
         # Desglose por método de pago (ventas netas, sin propinas)

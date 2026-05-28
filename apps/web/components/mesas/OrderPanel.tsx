@@ -373,15 +373,34 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
 
   const [lastSaleId, setLastSaleId] = useState<number | null>(null);
 
-  async function handleCheckout(payments: PaymentRow[], tip: number, mode: "all" | "partial", lineIds: number[], saleType?: string) {
+  async function handleCheckout(
+    payments: PaymentRow[],
+    tip: number,
+    mode: "all" | "partial",
+    lineIds: number[],
+    saleType?: string,
+    tipMethod?: string,
+    lineQtys?: Record<number, number>,
+  ) {
     setPayLoading(true); setPayErr(""); setPayShortages(null);
     try {
       const payArr = payments.map(r => ({ method: r.method, amount: Number(r.amount) }));
+      // Fase A (Fudo-style): si hay propina, mandar `tips` explicito
+      // con el metodo elegido. El backend separa SalePayment (solo cuenta)
+      // de SaleTip (solo propina), sin reparto proporcional ni smart-cash.
+      const tipsArr = tip > 0 && tipMethod
+        ? [{ method: tipMethod, amount: tip }]
+        : undefined;
       const res = await apiFetch(`/tables/orders/${order.id}/checkout/`, {
         method: "POST",
         body: JSON.stringify({
           mode, line_ids: mode === "partial" ? lineIds : [],
           payments: payArr, tip: tip > 0 ? tip : undefined,
+          tips: tipsArr,
+          // line_qtys: cobro parcial intra-line (Mario 25/05/26).
+          // Solo se manda en partial mode + cuando hay alguna line con
+          // qty < total (PaymentModal ya filtro lo que toca).
+          line_qtys: lineQtys,
           sale_type: saleType || "VENTA",
         }),
       });

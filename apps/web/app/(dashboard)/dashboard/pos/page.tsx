@@ -98,6 +98,10 @@ export default function PosPage() {
   // Payment
   const [payRows, setPayRows] = useState<PosPayRow[]>([{ method: "cash", amount: "" }]);
   const [tipAmount, setTipAmount] = useState("");
+  // Fase A (Fudo-style): metodo de la propina, independiente del pago
+  // de la cuenta. Default "cash" porque en cafeteria es lo mas comun
+  // (cliente paga cuenta con tarjeta + deja billete suelto).
+  const [tipMethod, setTipMethod] = useState<string>("cash");
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -241,7 +245,9 @@ export default function PosPage() {
     if (cart.length === 0) { setErr("El carrito esta vacio.");       return; }
     const validCart = cart.filter(c => c.qty > 0);
     if (validCart.length === 0) { setErr("No hay items válidos en el carrito"); return; }
-    if (totalPaid < grandTotal) { setErr(`Falta pagar $${formatCLP(grandTotal - totalPaid)}.`); return; }
+    // Fase A: payments cubre la cuenta (sin propina). La propina va aparte
+    // como SaleTip. Validamos contra `total`, no `grandTotal`.
+    if (totalPaid < total) { setErr(`Falta pagar $${formatCLP(total - totalPaid)} de la cuenta.`); return; }
 
     setBusy(true); setErr(null); setShortages(null); setLastSaleId(null);
     try {
@@ -269,7 +275,13 @@ export default function PosPage() {
         payload.global_discount_value = globalDiscountValue.toFixed(2);
       }
       if (saleNote.trim()) payload.note = saleNote.trim();
-      if (tip > 0) payload.tip = tip.toFixed(2);
+      if (tip > 0) {
+        payload.tip = tip.toFixed(2);
+        // Fase A: tips explicito por metodo. Frontend siempre manda 1
+        // fila con el metodo elegido (UX simple — split avanzado se hace
+        // desde la pantalla de edicion de propina post-venta).
+        payload.tips = [{ method: tipMethod, amount: tip.toFixed(2) }];
+      }
 
       const res        = await apiFetch("/sales/sales/", { method:"POST", body:JSON.stringify(payload) });
       const saleId     = Number(res?.id ?? 0) || null;
@@ -539,6 +551,8 @@ export default function PosPage() {
           onPayRowsChange={setPayRows}
           tipAmount={tipAmount}
           onTipChange={setTipAmount}
+          tipMethod={tipMethod}
+          onTipMethodChange={setTipMethod}
           tip={tip}
           grandTotal={grandTotal}
           totalPaid={totalPaid}
