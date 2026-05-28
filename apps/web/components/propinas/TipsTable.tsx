@@ -32,6 +32,11 @@ interface TipRow {
   payment_method_label: string;
   total_sale: string;
   tip_amount: string;
+  /** Desglose relacional de la propina (Fudo-style). Cuando la propina se
+      dividió en varios métodos, esto trae 1 fila por método. El frontend
+      lo usa para mostrar badges separados (Efectivo $X + Débito $Y) en
+      vez de un único "Mixto". */
+  tips?: { id: number; method: string; amount: string }[];
   register_id: number | null;
   register_name: string | null;
   sale_type: string;
@@ -317,7 +322,11 @@ export function TipsTable({
                     </Td>
                     <Td compact={compact} style={{ fontWeight: 600 }}>{row.cashier_name}</Td>
                     <Td compact={compact}>
-                      <PaymentBadge method={row.payment_method} label={row.payment_method_label} />
+                      <PaymentMethodCell
+                        method={row.payment_method}
+                        label={row.payment_method_label}
+                        tips={row.tips}
+                      />
                     </Td>
                     <Td compact={compact} right style={{ fontVariantNumeric: "tabular-nums" }}>
                       {fmtCLP(row.total_sale)}
@@ -401,6 +410,52 @@ function Td({ children, right, center, compact, style }: { children: React.React
       ...style,
     }}>{children}</td>
   );
+}
+
+/** Labels cortos por método para los badges desglosados (caben mejor que
+    "Tarj. Débito" cuando hay varios en la misma celda). */
+const SHORT_METHOD_LABEL: Record<string, string> = {
+  cash: "Efectivo",
+  debit: "Débito",
+  card: "Crédito",
+  transfer: "Transferencia",
+};
+
+/** Celda "Medio de pago" de la tabla de propinas.
+ *
+ * Si la propina se dividió en varios métodos (payment_method === "mixed"
+ * y hay desglose en `tips`), muestra un badge por método con su monto
+ * — Mario lo pidió: "no como Mixto, sino efectivo/débito/transferencia
+ * por separado" para poder cuadrar caja. Si es 1 solo método (o legacy
+ * sin desglose), muestra el badge único como antes. */
+function PaymentMethodCell({
+  method, label, tips,
+}: {
+  method: string; label: string;
+  tips?: { id: number; method: string; amount: string }[];
+}) {
+  if (method === "mixed" && tips && tips.length > 0) {
+    // Agrupar por método (sumar montos del mismo método si hubiera varias
+    // filas del mismo) y ordenar por monto desc.
+    const byMethod = new Map<string, number>();
+    for (const t of tips) {
+      const amt = parseFloat(t.amount) || 0;
+      byMethod.set(t.method, (byMethod.get(t.method) || 0) + amt);
+    }
+    const entries = Array.from(byMethod.entries()).sort((a, b) => b[1] - a[1]);
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {entries.map(([m, amt]) => (
+          <PaymentBadge
+            key={m}
+            method={m}
+            label={`${SHORT_METHOD_LABEL[m] || m} ${fmtCLP(amt)}`}
+          />
+        ))}
+      </div>
+    );
+  }
+  return <PaymentBadge method={method} label={label} />;
 }
 
 function PaymentBadge({ method, label }: { method: string; label: string }) {
