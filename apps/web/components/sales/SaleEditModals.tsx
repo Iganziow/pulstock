@@ -120,10 +120,19 @@ function ErrorBanner({ msg }: { msg: string | null }) {
 
 
 export function EditPaymentsModal({
-  open, saleId, currentPayments, total, tip, onClose, onSaved,
+  open, saleId, currentPayments, total, tip,
+  isLegacy = false, legacyRawTotal = 0,
+  onClose, onSaved,
 }: {
   open: boolean; saleId: number; currentPayments: Payment[];
   total: number; tip: number;
+  /** True si la venta es legacy (pago original venía con propina embebida).
+      En ese caso `currentPayments` ya viene pre-prorrateado al monto NETO de
+      venta. Mostramos un banner explicativo y al guardar la venta queda
+      auto-migrada a Fase A (payments = solo venta, SaleTip = propina aparte). */
+  isLegacy?: boolean;
+  /** Sólo informativo: monto total que tenía el pago raw (venta+propina mezclados). */
+  legacyRawTotal?: number;
   onClose: () => void; onSaved: () => void;
 }) {
   // Inicializar amounts como string entero (sin decimales). 4000.00 → "4000"
@@ -176,6 +185,17 @@ export function EditPaymentsModal({
   return (
     <ModalShell open={open} title="Editar método de pago" onClose={onClose} busy={busy}>
       <ErrorBanner msg={err} />
+      {isLegacy && (
+        <div style={{
+          padding: "10px 12px", background: C.amberBg, border: `1px solid ${C.amberBd}`,
+          borderRadius: 6, color: C.amber, fontSize: 12, marginBottom: 12, lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 2 }}>ⓘ Venta antigua</div>
+          El pago original venía con la propina sumada (${legacyRawTotal.toLocaleString("es-CL")}).
+          Mostramos sólo el <b>monto de venta</b> (${total.toLocaleString("es-CL")}) para evitar
+          confusión. Al guardar, la propina queda guardada por separado (${tip.toLocaleString("es-CL")}).
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
         {rows.map((r, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 36px", gap: 8 }}>

@@ -401,3 +401,163 @@ class TestSaleEditTip:
         assert r.status_code == 400
 
 
+# ─── Auto-migración legacy → Fase A vía edición ─────────────────────────
+
+
+@pytest.mark.django_db
+class TestEditLegacyAutoMigratesToFaseA:
+    """27/05/26 — El frontend (DetailPanel) ahora pre-rellena el modal de
+    edición de pagos con el monto NETO de venta (sin propina embebida) en
+    lugar del legacy mezclado.
+
+    Antes: SalePayment(debit, 5280) con SaleTip(debit, 480) — sum_pay > total.
+    Ahora al editar (incluso sin cambios reales) → SalePayment(debit, 4800),
+    SaleTip intacta — sum_pay == total. Es la misma migración que hace
+    `migrate_tips_explicit.py` pero on-demand cuando un manager toca la venta.
+
+    Estos tests aseguran que:
+      1. El backend acepta el escenario (no rompe).
+      2. SaleTip queda intacta (la propina NO se duplica ni se pierde).
+      3. Sale.tip NO cambia.
+      4. El total cobrado al cliente (Sale.total + Sale.tip) sigue igual.
+    """
+
+    def test_edit_legacy_payment_to_net_preserves_tip(
+        self, api_client, tenant, warehouse, product,
+    ):
+        """Venta legacy: payment $5280 mezclado con propina $480. Manager
+        edita pagos al monto neto $4800. SaleTip queda intacta."""
+        _stock(tenant, warehouse, product, qty="10", avg_cost="500")
+        # Simular venta LEGACY a mano (no via API porque ahora Fase A es
+        # default). subtotal=$4800, tip=$480, payment_amount=$5280 mezclado.
+        from core.models import User
+        owner = User.objects.first()
+        sale = Sale.objects.create(
+            tenant=tenant, store=warehouse.store, warehouse=warehouse,
+            created_by=owner,
+            subtotal=Decimal("4800"), total=Decimal("4800"),
+            tip=Decimal("480"),
+            status="COMPLETED", sale_type="VENTA",
+        )
+        SalePayment.objects.create(
+            sale=sale, tenant=tenant, method="debit",
+            amount=Decimal("5280"),  # ← legacy mezclado
+        )
+        SaleTip.objects.create(
+            sale=sale, tenant=tenant, method="debit",
+            amount=Decimal("480"),
+        )
+
+        # Sanity check pre-edición: sum_payments > total (legacy)
+        assert sum(p.amount for p in SalePayment.objects.filter(sale=sale)) == Decimal("5280")
+
+        # Manager edita el pago al monto NETO (lo que el nuevo modal pre-rellena)
+        r = api_client.patch(
+            f"/api/sales/sales/{sale.id}/payments/",
+            {"payments": [{"method": "debit", "amount": "4800"}]},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+
+        # Post-edición: payment ahora es Fase A (== total), SaleTip intacta
+        pays = list(SalePayment.objects.filter(sale=sale))
+        assert len(pays) == 1
+        assert pays[0].method == "debit"
+        assert pays[0].amount == Decimal("4800.00")
+
+        tips = list(SaleTip.objects.filter(sale=sale))
+        assert len(tips) == 1
+        assert tips[0].method == "debit"
+        assert tips[0].amount == Decimal("480.00")
+
+        # Sale.tip NO cambia. Total cobrado al cliente sigue siendo $5280
+        # (4800 venta + 480 propina) — exactamente lo mismo que antes.
+        sale.refresh_from_db()
+        assert sale.tip == Decimal("480.00")
+        assert sale.total == Decimal("4800.00")
+
+    def test_edit_legacy_with_split_payment_to_net_preserves_tip(
+        self, api_client, tenant, warehouse, product,
+    ):
+        """Caso split: legacy con 2 pagos prorrateados al neto via edición."""
+        _stock(tenant, warehouse, product, qty="10", avg_cost="500")
+        from core.models import User
+        owner = User.objects.first()
+        sale = Sale.objects.create(
+            tenant=tenant, store=warehouse.store, warehouse=warehouse,
+            created_by=owner,
+            subtotal=Decimal("10000"), total=Decimal("10000"),
+            tip=Decimal("1000"),
+            status="COMPLETED", sale_type="VENTA",
+        )
+        # Legacy: 2 pagos que suman $11000 (10000 venta + 1000 tip mezclado)
+        SalePayment.objects.create(sale=sale, tenant=tenant, method="cash",  amount=Decimal("5500"))
+        SalePayment.objects.create(sale=sale, tenant=tenant, method="debit", amount=Decimal("5500"))
+        SaleTip.objects.create(sale=sale, tenant=tenant, method="cash", amount=Decimal("1000"))
+
+        # Frontend prorratea: cash $5500 → $5000, debit $5500 → $5000
+        # (último ajusta para sumar 10000 exacto)
+        r = api_client.patch(
+            f"/api/sales/sales/{sale.id}/payments/",
+            {"payments": [
+                {"method": "cash",  "amount": "5000"},
+                {"method": "debit", "amount": "5000"},
+            ]},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+
+        # Suma de pagos ahora == total (Fase A)
+        total_pays = sum(p.amount for p in SalePayment.objects.filter(sale=sale))
+        assert total_pays == Decimal("10000.00")
+
+        # SaleTip intacta
+        tips = list(SaleTip.objects.filter(sale=sale))
+        assert len(tips) == 1
+        assert tips[0].amount == Decimal("1000.00")
+
+        sale.refresh_from_db()
+        assert sale.tip == Decimal("1000.00")
+        assert sale.total == Decimal("10000.00")
+
+    def test_edit_fase_a_payment_no_op_round_trip(
+        self, api_client, tenant, warehouse, product,
+    ):
+        """Venta Fase A (nueva): payment ya es neto. Editar sin cambios
+        debe ser no-op (los amounts ya coinciden)."""
+        _stock(tenant, warehouse, product, qty="10", avg_cost="500")
+        # Crear venta Fase A via API normal (con tips_in explícito)
+        payload = {
+            "warehouse_id": warehouse.id,
+            "lines": [{"product_id": product.id, "qty": "1", "unit_price": "3000"}],
+            "payments": [{"method": "debit", "amount": "3000"}],
+            "tip": "500",
+            "tips": [{"method": "cash", "amount": "500"}],
+        }
+        r = api_client.post("/api/sales/sales/", payload, format="json")
+        assert r.status_code == 201, r.data
+        sale_id = r.data["id"]
+
+        # SalePayment ya es neto ($3000)
+        pays_pre = list(SalePayment.objects.filter(sale_id=sale_id))
+        assert len(pays_pre) == 1
+        assert pays_pre[0].amount == Decimal("3000.00")
+
+        # Edición "no-op" (frontend manda el mismo neto)
+        r = api_client.patch(
+            f"/api/sales/sales/{sale_id}/payments/",
+            {"payments": [{"method": "debit", "amount": "3000"}]},
+            format="json",
+        )
+        assert r.status_code == 200
+
+        # Todo intacto
+        pays_post = list(SalePayment.objects.filter(sale_id=sale_id))
+        assert len(pays_post) == 1
+        assert pays_post[0].amount == Decimal("3000.00")
+        tips = list(SaleTip.objects.filter(sale_id=sale_id))
+        assert len(tips) == 1
+        assert tips[0].method == "cash"
+        assert tips[0].amount == Decimal("500.00")
+
+
