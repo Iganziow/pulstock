@@ -6,6 +6,7 @@ prediction intervals, days-to-stockout, statsmodels lazy imports.
 """
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from statistics import median
 import math
 import logging
 
@@ -45,9 +46,18 @@ def _try_import_ets():
 def clean_series(daily_series, stockout_dates=None, holiday_dates=None, promo_dates=None):
     """
     Pre-process training data:
-    1. Replace stockout zeros with same-weekday interpolation (weight 0.5)
+    1. Replace stockout zeros with same-weekday imputation (weight 0.5)
     2. Dampen outliers using percentile method (weight 0.7)
     3. Reduce weight of promo days (weight 0.6)
+
+    F1.3 (Mario 29/05/26) — imputación de quiebres mejorada:
+    antes se rellenaban los días de stockout con el PROMEDIO de los últimos 3
+    valores del mismo día-de-semana × 0.5. Problemas: (a) el promedio se
+    dispara con un outlier; (b) 3 valores es poca señal; (c) si el negocio
+    creció, esos valores quedan viejos y subestiman. Ahora se usa la MEDIANA
+    de las últimas ~8 semanas del mismo día-de-semana, escalada por un factor
+    de crecimiento (nivel reciente vs nivel histórico, acotado). Más robusto
+    a outliers y a la tendencia → mejor serie de entrenamiento → mejor MAE.
     """
     if not daily_series:
         return []
@@ -76,18 +86,34 @@ def clean_series(daily_series, stockout_dates=None, holiday_dates=None, promo_da
         p975 = sorted_vals[min(int(n * 0.975), n - 1)]
         iqr_limit = max(q3_val + 2.0 * iqr, p975)
 
+    # Factor de crecimiento del negocio (F1.3): nivel reciente vs nivel
+    # histórico, medido con mediana (robusta). Corrige que los valores del
+    # día-de-semana disponibles sean viejos cuando los recientes están en
+    # quiebre. Acotado a [0.6, 1.8] para no exagerar con series ruidosas.
+    growth = 1.0
+    if len(all_nonzero) >= 14:
+        recent_level = median(all_nonzero[-21:])
+        base_level = median(all_nonzero)
+        if base_level > 0:
+            growth = max(0.6, min(1.8, recent_level / base_level))
+
+    def _impute_stockout(dow):
+        dow_vals = dow_values.get(dow, [])
+        if dow_vals:
+            # Mediana de las últimas ~8 semanas del mismo día, ajustada por
+            # crecimiento. Mediana es robusta a un sábado-pico aislado.
+            # (con 1 solo valor, median([x]) = x → back-compat con el promedio).
+            return median(dow_vals[-8:]) * growth, 0.5
+        if all_nonzero:
+            return median(all_nonzero) * growth, 0.3
+        return 0.0, 0.3
+
     for d, q in daily_series:
         qty = float(q)
         weight = 1.0
 
         if d in stockout_dates and qty == 0:
-            dow_vals = dow_values.get(d.weekday(), [])
-            if dow_vals:
-                qty = sum(dow_vals[-3:]) / len(dow_vals[-3:])
-                weight = 0.5
-            else:
-                qty = sum(all_nonzero) / len(all_nonzero) if all_nonzero else 0
-                weight = 0.3
+            qty, weight = _impute_stockout(d.weekday())
         elif d not in holiday_dates and qty > iqr_limit and iqr_limit < float("inf"):
             qty = iqr_limit
             weight = 0.7

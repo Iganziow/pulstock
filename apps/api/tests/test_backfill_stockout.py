@@ -142,3 +142,50 @@ class TestStockoutInterpolationEffect:
         cleaned_map = {row[0]: row[1] for row in cleaned}
         for d in stockout_dates:
             assert cleaned_map[d] > 0, f"día stockout {d} debe imputarse, no quedar en 0"
+
+
+# ── F1.3: imputación mejorada (mediana ponderada + crecimiento) ──────────
+
+@pytest.mark.django_db
+class TestImputationF13:
+    def test_median_robust_to_outlier(self):
+        """La imputación usa MEDIANA (no promedio), robusta a un pico aislado."""
+        from forecast.engine.utils import clean_series
+        base = date_cls.today() - timedelta(days=70)
+        series, stockout = [], set()
+        for i in range(70):
+            d = base + timedelta(days=i)
+            if d.weekday() == 5:  # sábados
+                series.append((d, 40.0 if i == 12 else 4.0))
+            else:
+                series.append((d, 2.0))
+        last_sat = max(d for d, q in series if d.weekday() == 5)
+        series = [(d, 0.0) if d == last_sat else (d, q) for d, q in series]
+        stockout.add(last_sat)
+
+        cleaned = {row[0]: float(row[1]) for row in clean_series(series, stockout)}
+        assert 3.0 <= cleaned[last_sat] <= 6.0, f"imputado={cleaned[last_sat]} (debería ~4, no inflado por el 40)"
+
+    def test_growth_factor_lifts_old_dow_values(self):
+        """Si el negocio creció, la imputación escala por el factor de crecimiento."""
+        from forecast.engine.utils import clean_series
+        base = date_cls.today() - timedelta(days=84)
+        series, stockout = [], set()
+        for i in range(84):
+            d = base + timedelta(days=i)
+            level = 2.0 if i < 42 else 6.0
+            series.append((d, level))
+        target = base + timedelta(days=80)
+        series = [(d, 0.0) if d == target else (d, q) for d, q in series]
+        stockout.add(target)
+
+        cleaned = {row[0]: float(row[1]) for row in clean_series(series, stockout)}
+        assert cleaned[target] >= 4.0, f"imputado={cleaned[target]} (debería reflejar crecimiento, ~6)"
+
+    def test_no_stockout_series_unchanged(self):
+        """Sin días de stockout, clean_series no altera los valores."""
+        from forecast.engine.utils import clean_series
+        base = date_cls.today() - timedelta(days=20)
+        series = [(base + timedelta(days=i), 3.0) for i in range(20)]
+        cleaned = {row[0]: float(row[1]) for row in clean_series(series, set())}
+        assert all(abs(v - 3.0) < 0.01 for v in cleaned.values())
