@@ -24,6 +24,13 @@ class DailySales(models.Model):
     gross_profit = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     qty_lost = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0.000"))
     qty_received = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0.000"))
+    # F28 (Mario 29/05/26): consumo interno (regalos, muestras, staff). Descuenta
+    # stock pero NO es demanda de venta → el forecast lo ignora. Separado de
+    # qty_sold para no inflar las predicciones.
+    qty_sold_internal = models.DecimalField(
+        max_digits=12, decimal_places=3, default=Decimal("0.000"),
+        help_text="Consumo interno (regalos/muestras): descuenta stock pero no es demanda.",
+    )
 
     # ── Promociones (para excluir del forecast) ──
     promo_qty = models.DecimalField(

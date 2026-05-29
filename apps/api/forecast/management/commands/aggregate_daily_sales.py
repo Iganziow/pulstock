@@ -66,10 +66,14 @@ class Command(BaseCommand):
         # esos son atributos del producto VENDIDO directamente (Latte vainilla,
         # Cappuccino, etc.), no de los ingredientes que se descuentan vía receta.
         # Para qty_sold usamos StockMove (ver más abajo).
+        # F28: solo VENTA real (excluir CONSUMO_INTERNO). El consumo interno
+        # no genera ingreso ni demanda → no debe sumar a revenue ni servir de
+        # fallback de qty_sold.
         sale_agg = (
             SaleLine.objects.filter(
                 tenant=tenant,
                 sale__created_at__date=target_date,
+                sale__sale_type="VENTA",
             )
             .values("product_id", "sale__warehouse_id")
             .annotate(
@@ -119,6 +123,24 @@ class Command(BaseCommand):
         consumed_map = {
             (row["product_id"], row["warehouse_id"]): row["total_qty"] or Decimal("0.000")
             for row in stockmove_sale_agg
+        }
+
+        # ── F28: consumo INTERNO (regalos/muestras/staff) ──────────────────
+        # Descuenta stock igual que una venta, pero NO es demanda → se agrega
+        # aparte (qty_sold_internal) y NO entra en qty_sold del forecast.
+        internal_agg = (
+            StockMove.objects.filter(
+                tenant=tenant,
+                created_at__date=target_date,
+                move_type="OUT",
+                ref_type="INTERNAL",
+            )
+            .values("product_id", "warehouse_id")
+            .annotate(total_qty=Coalesce(Sum("qty"), Decimal("0.000")))
+        )
+        internal_map = {
+            (row["product_id"], row["warehouse_id"]): row["total_qty"] or Decimal("0.000")
+            for row in internal_agg
         }
 
         # ── Promotional sales: SaleLines with promotion set ──
@@ -182,6 +204,7 @@ class Command(BaseCommand):
             | set(loss_map.keys())
             | set(recv_map.keys())
             | set(consumed_map.keys())
+            | set(internal_map.keys())
         )
 
         for product_id, warehouse_id in all_keys:
@@ -200,6 +223,7 @@ class Command(BaseCommand):
             gross_profit = sale_data.get("gross_profit", Decimal("0.00"))
             qty_lost = loss_map.get((product_id, warehouse_id), Decimal("0.000"))
             qty_received = recv_map.get((product_id, warehouse_id), Decimal("0.000"))
+            qty_sold_internal = internal_map.get((product_id, warehouse_id), Decimal("0.000"))
             promo_data = promo_map.get((product_id, warehouse_id), {})
 
             # Nunca sobreescribir registros importados como histórico externo
@@ -222,6 +246,7 @@ class Command(BaseCommand):
                     "gross_profit": gross_profit,
                     "qty_lost": qty_lost,
                     "qty_received": qty_received,
+                    "qty_sold_internal": qty_sold_internal,
                     "promo_qty": promo_data.get("promo_qty", Decimal("0.000")),
                     "promo_revenue": promo_data.get("promo_revenue", Decimal("0.00")),
                 },

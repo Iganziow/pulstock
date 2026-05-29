@@ -479,6 +479,12 @@ def create_sale(
         # físico, y registrar uno con qty=0 ensucia el kardex sin aportar
         # valor (la SaleLine ya registra la venta).
         if actual_decrement > 0:
+            # F28 (Mario 29/05/26): distinguir el consumo INTERNO (regalos,
+            # muestras, staff) de la venta real. Ambos descuentan stock, pero
+            # el consumo interno NO es demanda → el forecast debe ignorarlo
+            # (sino sobre-predice y sobre-pide). El ref_type permite que
+            # aggregate_daily_sales lo separe en qty_sold_internal.
+            move_ref_type = "INTERNAL" if sale_type == Sale.SALE_TYPE_CONSUMO else "SALE"
             stock_moves.append(
                 StockMove(
                     tenant_id=tenant_id,
@@ -486,7 +492,7 @@ def create_sale(
                     product_id=pid,
                     move_type=StockMove.OUT,
                     qty=actual_decrement,
-                    ref_type="SALE",
+                    ref_type=move_ref_type,
                     ref_id=sale.id,
                     note=f"Sale #{sale.id}",
                     created_by=user,
