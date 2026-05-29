@@ -619,12 +619,25 @@ class CheckoutView(APIView):
             tip = Decimal("0")
             payments_in = []
 
-        # Validate payment amounts sum >= order total + tip (for non-consumo).
-        # Antes solo validaba contra order_total, lo que dejaba un agujero:
-        # un cliente con bug podía mandar propina $1.000 con payments que
-        # solo cubrían el subtotal, y el sistema creaba la venta con
-        # tip=$1.000 que el cajero NUNCA cobró → equipo "debía" propina
-        # fantasma.
+        # Fase A (Fudo-style): si vienen tips EXPLÍCITOS (`tips`), la propina
+        # se cobra y registra aparte como SaleTip — los payments cubren SOLO
+        # la cuenta (order_total). Si NO vienen tips (legacy), la propina va
+        # embebida en los payments, así que estos deben cubrir cuenta+propina.
+        # Parseamos `tips` ANTES de validar para elegir el `required` correcto.
+        tips_in = request.data.get("tips")  # None si no se manda
+        if sale_type == "CONSUMO_INTERNO":
+            tips_in = None
+        has_explicit_tips = isinstance(tips_in, list) and len(tips_in) > 0
+
+        # Validate payment amounts.
+        # - Legacy (sin tips explícitos): payments deben cubrir order_total + tip
+        #   (la propina viene embebida). Sin esto, un cliente con bug podía
+        #   mandar propina $1.000 con payments que solo cubrían el subtotal y
+        #   el equipo "debía" propina fantasma.
+        # - Fase A (con tips explícitos): payments cubren SOLO order_total;
+        #   la propina ya está cubierta por las filas `tips` (cobrada en su
+        #   propio método). Validar contra order_total+tip acá rechazaba
+        #   incorrectamente el cobro de mesas con propina (bug Mario 28/05/26).
         if payments_in and sale_type != "CONSUMO_INTERNO":
             try:
                 pay_total = sum(Decimal(str(p.get("amount") or 0)) for p in payments_in)
@@ -656,21 +669,24 @@ class CheckoutView(APIView):
                     order_total = sum(
                         (_qty_for(l) * l.unit_price).quantize(Decimal("0.01")) for l in partial_lines
                     )
-                required = order_total + tip
-                if pay_total < required:
-                    return Response(
-                        {"detail": f"Pago insuficiente: {pay_total} < {required} (cuenta {order_total} + propina {tip})"},
-                        status=400,
-                    )
+                # Fase A: payments cubren solo la cuenta (propina aparte en
+                # SaleTip). Legacy: payments cubren cuenta + propina.
+                if has_explicit_tips:
+                    required = order_total
+                    if pay_total < required:
+                        return Response(
+                            {"detail": f"Pago insuficiente: {pay_total} < {required} (cuenta {order_total})"},
+                            status=400,
+                        )
+                else:
+                    required = order_total + tip
+                    if pay_total < required:
+                        return Response(
+                            {"detail": f"Pago insuficiente: {pay_total} < {required} (cuenta {order_total} + propina {tip})"},
+                            status=400,
+                        )
             except OpenOrder.DoesNotExist:
                 pass  # Will be caught by checkout_order
-
-        # Fase A (Fudo-style): tips opcional separado de payments.
-        # Si viene → SalePayment.amount = solo venta, SaleTip explicito.
-        tips_in = request.data.get("tips")  # None si no se manda
-        # CONSUMO_INTERNO no debe tener propinas tampoco (ya forzamos tip=0 arriba).
-        if sale_type == "CONSUMO_INTERNO":
-            tips_in = None
 
         try:
             result = checkout_order(

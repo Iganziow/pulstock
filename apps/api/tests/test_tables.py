@@ -553,6 +553,101 @@ class TestCheckoutWithTip:
         # Tip is NOT added to total
         assert sale.total == Decimal("1000.00")
 
+    def test_checkout_fase_a_payment_covers_only_subtotal(
+        self, api_client, warehouse, product, tenant,
+    ):
+        """Bug Mario 28/05/26: con propina explícita (`tips`), el pago debe
+        cubrir SOLO el subtotal — la propina se cobra aparte (SaleTip).
+        Antes el endpoint exigía pago >= subtotal+propina y rechazaba con
+        "Pago insuficiente", rompiendo el cobro de mesas con propina.
+
+        Escenario exacto del bug: cuenta $13.980, propina 10% = $1.398
+        cobrada en débito, pago débito cubre los $13.980 de la cuenta."""
+        from sales.models import SaleTip
+        _ensure_stock(tenant, warehouse, product)
+
+        r = _create_table(api_client, name="Mesa FaseA")
+        table_id = r.json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 1, "unit_price": "13980.00"},
+        ])
+
+        resp = api_client.post(_checkout_url(order_id), {
+            "mode": "all",
+            # Pago cubre SOLO la cuenta ($13.980), NO subtotal+propina.
+            "payments": [{"method": "debit", "amount": "13980.00"}],
+            "tip": "1398.00",
+            # Propina explícita (Fase A) → cobrada aparte.
+            "tips": [{"method": "debit", "amount": "1398.00"}],
+        }, format="json")
+        assert resp.status_code == 201, resp.json()
+
+        sale = Sale.objects.get(id=resp.json()["id"])
+        assert sale.total == Decimal("13980.00")
+        assert sale.tip == Decimal("1398.00")
+        # SalePayment cubre solo la cuenta
+        pay_total = sum(p.amount for p in sale.payments.all())
+        assert pay_total == Decimal("13980.00")
+        # SaleTip registra la propina aparte con su método
+        tips = list(SaleTip.objects.filter(sale=sale))
+        assert len(tips) == 1
+        assert tips[0].method == "debit"
+        assert tips[0].amount == Decimal("1398.00")
+
+    def test_checkout_fase_a_tip_distinto_metodo_que_pago(
+        self, api_client, warehouse, product, tenant,
+    ):
+        """Caso clave Fudo: cuenta pagada con débito, propina dejada en
+        efectivo (método distinto). El pago débito cubre solo la cuenta."""
+        from sales.models import SaleTip
+        _ensure_stock(tenant, warehouse, product)
+
+        r = _create_table(api_client, name="Mesa MixMethod")
+        table_id = r.json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 1, "unit_price": "5000.00"},
+        ])
+
+        resp = api_client.post(_checkout_url(order_id), {
+            "mode": "all",
+            "payments": [{"method": "debit", "amount": "5000.00"}],
+            "tip": "500.00",
+            "tips": [{"method": "cash", "amount": "500.00"}],
+        }, format="json")
+        assert resp.status_code == 201, resp.json()
+
+        sale = Sale.objects.get(id=resp.json()["id"])
+        tips = list(SaleTip.objects.filter(sale=sale))
+        assert len(tips) == 1
+        assert tips[0].method == "cash"  # propina en efectivo, pago en débito
+
+    def test_checkout_legacy_sin_tips_sigue_exigiendo_subtotal_mas_propina(
+        self, api_client, warehouse, product, tenant,
+    ):
+        """Regresión: SIN `tips` explícito (legacy), la propina va embebida
+        en el pago, así que el pago debe cubrir subtotal+propina. Un pago
+        que solo cubre el subtotal debe rechazarse (evita propina fantasma
+        que el equipo nunca cobró)."""
+        _ensure_stock(tenant, warehouse, product)
+
+        r = _create_table(api_client, name="Mesa Legacy")
+        table_id = r.json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 1, "unit_price": "5000.00"},
+        ])
+
+        resp = api_client.post(_checkout_url(order_id), {
+            "mode": "all",
+            # Pago cubre solo subtotal, propina $500 SIN tips explícito → legacy
+            "payments": [{"method": "cash", "amount": "5000.00"}],
+            "tip": "500.00",
+        }, format="json")
+        assert resp.status_code == 400
+        assert "insuficiente" in str(resp.json()).lower()
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CANCEL ORDER

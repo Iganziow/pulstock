@@ -102,8 +102,16 @@ export function PaymentModal({
   const tip = Math.max(0, Number(tipStr) || 0);
   const grandTotal = lineSubtotal + tip;
   const totalPaid = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const change = Math.max(0, totalPaid - grandTotal);
-  const pending = Math.max(0, grandTotal - totalPaid);
+  // Fase A (Fudo-style): los `rows` de pago cubren SOLO la cuenta
+  // (lineSubtotal). La propina se cobra aparte (vía tipMethod → SaleTip),
+  // por eso cuenta como dinero recibido pero NO está en `rows`. El total
+  // que el cliente entrega = pago(cuenta) + propina. Calculamos
+  // pendiente/vuelto contra el grandTotal usando ese recibido efectivo,
+  // para que con autoSync (pago == subtotal) + propina dé "Pagado exacto"
+  // en vez del falso "Falta = propina" (bug Mario 28/05/26).
+  const effectivePaid = totalPaid + tip;
+  const change = Math.max(0, effectivePaid - grandTotal);
+  const pending = Math.max(0, grandTotal - effectivePaid);
   const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
   // autoSync: mantener el monto del único pago = lineSubtotal (Fase A:
@@ -529,7 +537,9 @@ export function PaymentModal({
         {!isConsumoInterno && totalPaid > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid, marginBottom: 2 }}>
-              <span>Pagado</span><span>${fmt(totalPaid)}</span>
+              {/* "Pagado" muestra el total recibido = cuenta + propina, para
+                  que coincida con "Total a cobrar" cuando está completo. */}
+              <span>{tip > 0 ? "Recibido (cuenta + propina)" : "Pagado"}</span><span>${fmt(effectivePaid)}</span>
             </div>
             {change > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.green }}><span>Vuelto</span><span>${fmt(change)}</span></div>}
             {pending > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.red }}><span>Falta</span><span>${fmt(pending)}</span></div>}
