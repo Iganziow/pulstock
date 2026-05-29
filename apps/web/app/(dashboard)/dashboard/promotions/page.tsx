@@ -10,6 +10,7 @@ import { formatDatetimeLocal } from "@/components/promotions/helpers";
 import { PromotionTable } from "@/components/promotions/PromotionTable";
 import { PromotionFormModal } from "@/components/promotions/PromotionFormModal";
 import { DeleteConfirmDialog } from "@/components/promotions/DeleteConfirmDialog";
+import { CombosPanel } from "@/components/promotions/CombosPanel";
 import type { Promotion, Product, PromotionForm, Conflict, Toast } from "@/components/promotions/types";
 import { EMPTY_FORM } from "@/components/promotions/types";
 
@@ -17,6 +18,8 @@ import { EMPTY_FORM } from "@/components/promotions/types";
 
 export default function PromotionsPage() {
   const mob = useIsMobile();
+  // Pestañas: "descuentos" (ofertas % / precio fijo) y "combos" (packs).
+  const [tab, setTab] = useState<"descuentos" | "combos">("descuentos");
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -322,31 +325,60 @@ export default function PromotionsPage() {
               Ofertas y Promociones
             </h1>
             <p style={{ fontSize: 13, color: C.mute, marginTop: 4 }}>
-              Gestiona descuentos y ofertas para tus productos
+              Gestiona descuentos, ofertas y combos para tus productos
             </p>
           </div>
-          <Btn variant="primary" onClick={openCreate}>+ Crear Oferta</Btn>
+          {tab === "descuentos" && <Btn variant="primary" onClick={openCreate}>+ Crear Oferta</Btn>}
         </div>
 
-        {/* Error */}
-        {error && (
-          <div style={{
-            padding: "10px 14px", marginBottom: 16, borderRadius: C.r,
-            background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
-            fontSize: 13,
-          }}>
-            {error}
-          </div>
-        )}
+        {/* Tabs: Descuentos | Combos */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}` }}>
+          {([
+            { key: "descuentos", label: "Descuentos" },
+            { key: "combos", label: "Combos" },
+          ] as const).map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: "8px 16px", border: "none", background: "transparent",
+                fontSize: 14, fontWeight: tab === t.key ? 700 : 500,
+                color: tab === t.key ? C.accent : C.mute,
+                borderBottom: `2px solid ${tab === t.key ? C.accent : "transparent"}`,
+                cursor: "pointer", fontFamily: "inherit", marginBottom: -1,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-        {/* Table */}
-        <PromotionTable
-          promotions={promotions}
-          loading={loading}
-          onEdit={openEdit}
-          onClone={clonePromotion}
-          onDelete={(id) => setConfirmDeleteId(id)}
-        />
+        {tab === "descuentos" ? (
+          <>
+            {/* Error */}
+            {error && (
+              <div style={{
+                padding: "10px 14px", marginBottom: 16, borderRadius: C.r,
+                background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red,
+                fontSize: 13,
+              }}>
+                {error}
+              </div>
+            )}
+
+            {/* Table */}
+            <PromotionTable
+              promotions={promotions}
+              loading={loading}
+              onEdit={openEdit}
+              onClone={clonePromotion}
+              onDelete={(id) => setConfirmDeleteId(id)}
+            />
+          </>
+        ) : (
+          <CombosPanel mob={mob} />
+        )}
       </div>
 
       {/* Delete confirmation dialog */}

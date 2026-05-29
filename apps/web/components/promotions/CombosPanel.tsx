@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * /dashboard/combos — Crear y gestionar combos/packs (Mario 28/05/26).
+ * CombosPanel — gestión de combos/packs, embebido como pestaña dentro de
+ * la pantalla de Ofertas (Mario 28/05/26).
  *
  * Un combo es un producto a precio fijo armado con otros productos
  * ("Capu amaretto + Brownie = $5.600"). Por detrás el backend crea un
@@ -14,7 +15,6 @@ import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { extractErr } from "@/lib/format";
 
 interface ComboComponent {
@@ -39,14 +39,12 @@ type Toast = { type: "ok" | "err"; text: string } | null;
 
 const fmtCLP = (v: string | number) => "$" + Math.round(Number(v) || 0).toLocaleString("es-CL");
 
-export default function CombosPage() {
-  const mob = useIsMobile();
+export function CombosPanel({ mob }: { mob?: boolean }) {
   const [combos, setCombos] = useState<Combo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState<Toast>(null);
 
-  // Modal
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
@@ -55,7 +53,6 @@ export default function CombosPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
-  // Product picker
   const [products, setProducts] = useState<PickProduct[]>([]);
   const [search, setSearch] = useState("");
 
@@ -78,7 +75,6 @@ export default function CombosPage() {
 
   const loadProducts = useCallback(async () => {
     try {
-      // Solo productos activos y NO combos (un combo no puede contener combos)
       const data = await apiFetch("/catalog/products/?page_size=500&is_active=true");
       const rows = data?.results ?? data ?? [];
       setProducts(rows.filter((p: any) => !p.is_combo).map((p: any) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price })));
@@ -114,14 +110,12 @@ export default function CombosPage() {
   };
   const removeItem = (pid: number) => setItems(prev => prev.filter(i => i.product_id !== pid));
 
-  // Precio normal (suma de componentes) y ahorro, para mostrar referencia.
   const normalPrice = items.reduce((s, it) => {
     const p = products.find(x => x.id === it.product_id);
     return s + (Number(p?.price) || 0) * it.qty;
   }, 0);
   const priceNum = Number(price) || 0;
   const savings = normalPrice - priceNum;
-
   const totalUnits = items.reduce((s, i) => s + i.qty, 0);
   const canSave = name.trim() && priceNum > 0 && items.length > 0 && totalUnits >= 2;
 
@@ -180,65 +174,60 @@ export default function CombosPage() {
         }}>{toast.text}</div>
       )}
 
-      <div style={{ padding: mob ? "16px 12px" : "28px 32px", maxWidth: 1000, margin: "0 auto", fontFamily: C.font }}>
-        <div style={{ display: "flex", flexDirection: mob ? "column" : "row", justifyContent: "space-between", alignItems: mob ? "stretch" : "center", gap: mob ? 12 : 0, marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text, margin: 0 }}>Combos</h1>
-            <p style={{ fontSize: 13, color: C.mute, marginTop: 4 }}>
-              Agrupa productos a precio de pack (ej: Capu + Brownie = $5.600). Aparecen en las mesas como un ítem.
-            </p>
-          </div>
-          <Btn variant="primary" onClick={openCreate}>+ Nuevo combo</Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <p style={{ fontSize: 13, color: C.mute, margin: 0 }}>
+          Agrupa productos a precio de pack (ej: Capu + Brownie = $5.600). Aparecen en las mesas como un ítem.
+        </p>
+        <Btn variant="primary" onClick={openCreate}>+ Nuevo combo</Btn>
+      </div>
+
+      {error && (
+        <div style={{ padding: "10px 14px", marginBottom: 16, borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 13 }}>{error}</div>
+      )}
+
+      {loading ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: 40 }}><Spinner /></div>
+      ) : combos.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 20px", color: C.mute }}>
+          <div style={{ fontSize: 36, marginBottom: 10 }}>🍩☕</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sin combos todavía</div>
+          <div style={{ fontSize: 13 }}>Creá tu primer combo para venderlo en las mesas.</div>
         </div>
-
-        {error && (
-          <div style={{ padding: "10px 14px", marginBottom: 16, borderRadius: C.r, background: C.redBg, border: `1px solid ${C.redBd}`, color: C.red, fontSize: 13 }}>{error}</div>
-        )}
-
-        {loading ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: 40 }}><Spinner /></div>
-        ) : combos.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "48px 20px", color: C.mute }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>🍩☕</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sin combos todavía</div>
-            <div style={{ fontSize: 13 }}>Creá tu primer combo para venderlo en las mesas.</div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {combos.map(c => (
-              <div key={c.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: "14px 16px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{c.name}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {c.components.map(comp => (
-                        <span key={comp.product_id} style={{
-                          fontSize: 12, padding: "3px 9px", borderRadius: 99,
-                          background: C.bg, color: C.mid, border: `1px solid ${C.border}`, fontWeight: 500,
-                        }}>
-                          {comp.name} ×{Number(comp.qty) % 1 === 0 ? Math.round(Number(comp.qty)) : Number(comp.qty)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: C.accent, fontVariantNumeric: "tabular-nums" }}>{fmtCLP(c.price)}</div>
-                    {Number(c.savings) > 0 && (
-                      <div style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>
-                        Ahorro {fmtCLP(c.savings)} <span style={{ color: C.mute, textDecoration: "line-through", fontWeight: 400 }}>{fmtCLP(c.normal_price)}</span>
-                      </div>
-                    )}
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {combos.map(c => (
+            <div key={c.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{c.name}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {c.components.map(comp => (
+                      <span key={comp.product_id} style={{
+                        fontSize: 12, padding: "3px 9px", borderRadius: 99,
+                        background: C.bg, color: C.mid, border: `1px solid ${C.border}`, fontWeight: 500,
+                      }}>
+                        {comp.name} ×{Number(comp.qty) % 1 === 0 ? Math.round(Number(comp.qty)) : Number(comp.qty)}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-                  <Btn variant="secondary" size="sm" onClick={() => openEdit(c)}>Editar</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => handleDelete(c)}>Eliminar</Btn>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: C.accent, fontVariantNumeric: "tabular-nums" }}>{fmtCLP(c.price)}</div>
+                  {Number(c.savings) > 0 && (
+                    <div style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>
+                      Ahorro {fmtCLP(c.savings)} <span style={{ color: C.mute, textDecoration: "line-through", fontWeight: 400 }}>{fmtCLP(c.normal_price)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+                <Btn variant="secondary" size="sm" onClick={() => openEdit(c)}>Editar</Btn>
+                <Btn variant="danger" size="sm" onClick={() => handleDelete(c)}>Eliminar</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal crear/editar */}
       {showModal && (
@@ -264,7 +253,6 @@ export default function CombosPage() {
                   style={{ padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", background: C.surface, color: C.text }} />
               </label>
 
-              {/* Productos del combo */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.05em" }}>Productos del combo</span>
                 {items.length > 0 && (
@@ -284,7 +272,6 @@ export default function CombosPage() {
                     ))}
                   </div>
                 )}
-                {/* Buscador para agregar */}
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto para agregar…"
                   style={{ padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: "inherit", background: C.surface, color: C.text }} />
                 {search && (
@@ -310,7 +297,6 @@ export default function CombosPage() {
                 </div>
               </label>
 
-              {/* Referencia: precio normal vs combo */}
               {items.length > 0 && normalPrice > 0 && (
                 <div style={{ padding: "10px 12px", background: C.bg, borderRadius: 6, fontSize: 12, color: C.mid }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
