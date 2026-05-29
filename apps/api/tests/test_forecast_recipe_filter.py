@@ -243,3 +243,91 @@ def test_kpis_exclude_recipe_products_from_at_risk(tenant, warehouse):
     # at_risk_7d cuenta SOLO ingredientes — Cortado no se cuenta
     assert kpis["at_risk_7d"] == 1
     assert kpis["imminent_3d"] == 1
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# generate_suggestions: NO debe sugerir COMPRAR productos con receta
+# (bug Mario 29/05/26: "Capuccino 38u $38.000" salía en sugerencias de
+# pedido aunque no se compra, se arma con ingredientes).
+# ────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_suggestions_exclude_recipe_products(tenant, warehouse, owner):
+    """generate_suggestions NO debe crear líneas para productos con receta
+    activa. El forecast de demanda del producto-receta existe (para derivar
+    ingredientes), pero NO se compra → no genera sugerencia de pedido.
+
+    Antes el filtro solo tocaba `active_models` (confidence/algorithm), pero
+    las líneas salían de `daily_forecasts` (query Forecast sin filtrar), así
+    que el Capuccino se colaba como 'pedir 38 unidades'."""
+    from forecast.services import generate_suggestions
+    from forecast.models import PurchaseSuggestion, SuggestionLine
+    from sales.models import Sale, SaleLine
+
+    p_ing = _make_product(tenant, "Café en grano")   # se compra
+    p_rec = _make_product(tenant, "Capuccino")        # se arma (receta)
+    _make_recipe(tenant, p_rec)
+
+    m1 = _make_forecast_model(tenant, warehouse, p_ing)
+    m2 = _make_forecast_model(tenant, warehouse, p_rec)
+
+    today = date.today()
+    # Ambos sin stock + demanda futura → ambos serían "at risk"
+    StockItem.objects.create(tenant=tenant, warehouse=warehouse, product=p_ing, on_hand=Decimal("0"), avg_cost=Decimal("1000"))
+    StockItem.objects.create(tenant=tenant, warehouse=warehouse, product=p_rec, on_hand=Decimal("0"), avg_cost=Decimal("0"))
+    for d in range(1, 15):
+        _make_forecast(tenant, warehouse, p_ing, m1, today + timedelta(days=d), 1)
+        _make_forecast(tenant, warehouse, p_rec, m2, today + timedelta(days=d), 1)
+
+    # Ventas reales últimos 30 días (el cap de seguridad las exige). Ambos
+    # se venden — para demostrar que aunque el Capuccino se venda, NO se
+    # sugiere comprarlo (se compra el café).
+    sale = Sale.objects.create(
+        tenant=tenant, store=warehouse.store, warehouse=warehouse,
+        created_by=owner,
+        subtotal=Decimal("50000"), total=Decimal("50000"), status="COMPLETED",
+    )
+    for prod in (p_ing, p_rec):
+        SaleLine.objects.create(
+            tenant=tenant, sale=sale, product=prod,
+            qty=Decimal("50.000"), unit_price=Decimal("1000.00"), line_total=Decimal("50000.00"),
+        )
+
+    n_sug, n_lines = generate_suggestions(tenant, today, threshold=7, target_days=7)
+
+    # Las líneas generadas deben ser SOLO del ingrediente, nunca del Capuccino
+    line_products = set(
+        SuggestionLine.objects.filter(suggestion__tenant=tenant)
+        .values_list("product_id", flat=True)
+    )
+    assert p_ing.id in line_products, "el ingrediente comprable SÍ debe sugerirse"
+    assert p_rec.id not in line_products, "el producto con receta NO se compra → no debe sugerirse"
+
+
+@pytest.mark.django_db
+def test_suggestions_include_product_when_recipe_inactive(tenant, warehouse, owner):
+    """Si la receta está inactiva, el producto vuelve a comprarse → sí aparece."""
+    from forecast.services import generate_suggestions
+    from forecast.models import SuggestionLine
+    from sales.models import Sale, SaleLine
+
+    p = _make_product(tenant, "Bebida embotellada")
+    _make_recipe(tenant, p, is_active=False)  # receta inactiva → se compra
+    m = _make_forecast_model(tenant, warehouse, p)
+    today = date.today()
+    StockItem.objects.create(tenant=tenant, warehouse=warehouse, product=p, on_hand=Decimal("0"), avg_cost=Decimal("1000"))
+    for d in range(1, 15):
+        _make_forecast(tenant, warehouse, p, m, today + timedelta(days=d), 1)
+    sale = Sale.objects.create(
+        tenant=tenant, store=warehouse.store, warehouse=warehouse,
+        created_by=owner,
+        subtotal=Decimal("50000"), total=Decimal("50000"), status="COMPLETED",
+    )
+    SaleLine.objects.create(
+        tenant=tenant, sale=sale, product=p,
+        qty=Decimal("50.000"), unit_price=Decimal("1000.00"), line_total=Decimal("50000.00"),
+    )
+
+    generate_suggestions(tenant, today, threshold=7, target_days=7)
+    line_products = set(SuggestionLine.objects.filter(suggestion__tenant=tenant).values_list("product_id", flat=True))
+    assert p.id in line_products

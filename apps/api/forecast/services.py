@@ -1580,15 +1580,26 @@ def generate_suggestions(tenant, today, threshold, target_days):
     max_lead = max((s.lead_time_days for s in supplier_lead_times.values()), default=default_lead_time)
     max_target = max(21, max_lead + 14)
 
-    # Future demand — fetch for max window, we'll filter per-product later
+    # Future demand — fetch for max window, we'll filter per-product later.
+    #
+    # FIX 29/05/26 (Mario): excluir productos con receta activa TAMBIÉN acá.
+    # Antes el filtro solo se aplicaba a `active_models` (usado para
+    # confidence/algorithm), pero las LÍNEAS de sugerencia se generan
+    # iterando `daily_forecasts`, que sale de esta query. Como el forecast
+    # de demanda SÍ se calcula para productos con receta (Capuccino, Latte —
+    # para derivar ingredientes), esos Forecast existían y se colaban como
+    # "pedir 38 capuccinos". Un producto con receta NO se compra: se arma.
+    # El sistema ya sugiere sus ingredientes (café, leche) por separado.
+    forecast_qs = Forecast.objects.filter(
+        tenant=tenant,
+        forecast_date__gt=today,
+        forecast_date__lte=today + timedelta(days=max_target),
+    )
+    if products_with_recipe:
+        forecast_qs = forecast_qs.exclude(product_id__in=products_with_recipe)
     future_forecasts_raw = list(
-        Forecast.objects.filter(
-            tenant=tenant,
-            forecast_date__gt=today,
-            forecast_date__lte=today + timedelta(days=max_target),
-        )
-        .values("product_id", "warehouse_id", "forecast_date",
-                "qty_predicted", "upper_bound")
+        forecast_qs.values("product_id", "warehouse_id", "forecast_date",
+                           "qty_predicted", "upper_bound")
     )
 
     # Build per-product daily forecasts
