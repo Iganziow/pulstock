@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui";
 import { MesaModal } from "./MesaModal";
 import { MesaBtn as Btn } from "./MesaBtn";
 import { OrderLine, PaymentRow } from "./types";
-import { fmt, PAY_METHODS } from "./helpers";
+import { fmt, PAY_METHODS, buildCheckoutSplit } from "./helpers";
 
 /**
  * Detalle de cada producto sin stock que el backend devuelve cuando el
@@ -631,49 +631,11 @@ export function PaymentModal({
         <Btn variant={isConsumoInterno ? "danger" : "primary"} full size="lg"
           disabled={loading || lineSubtotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < grandTotal)}
           onClick={() => {
-            // Fudo-style: PAGO cubre el TOTAL (subtotal + propina). Para el
-            // backend Fase A separamos la propina del pago:
-            //   1. PROPINA → tips (SaleTip explicito por metodo).
-            //   2. PAGO de la cuenta por metodo = bruto(PAGO) − propina(metodo).
-            //   3. Clamp del pago al subtotal (el vuelto NO entra a la caja).
-            // Asi SalePayment = solo la cuenta y SaleTip = propina, sin
-            // importar si el cliente dejo propina en el mismo metodo o en
-            // otro.
-
-            // 1. Propina
-            const tipsClean = tipRows
-              .map(r => ({ method: r.method, amount: Math.round(Number(r.amount) || 0) }))
-              .filter(r => r.amount > 0);
-            const tipTotal = tipsClean.reduce((s, r) => s + r.amount, 0);
-            const tipByMethod: Record<string, number> = {};
-            for (const r of tipsClean) tipByMethod[r.method] = (tipByMethod[r.method] || 0) + r.amount;
-
-            // 2. Pago de la cuenta = bruto − propina por metodo
-            const grossByMethod: Record<string, number> = {};
-            for (const r of rows) {
-              const amt = Number(r.amount) || 0;
-              if (amt > 0) grossByMethod[r.method] = (grossByMethod[r.method] || 0) + amt;
-            }
-            let salePays = Object.entries(grossByMethod)
-              .map(([method, gross]) => ({ method, amount: gross - (tipByMethod[method] || 0) }))
-              .filter(p => p.amount > 0);
-
-            // 3. Clamp al subtotal (vuelto solo en UI, no entra a SalePayment)
-            if (!isConsumoInterno && salePays.length > 0 && lineSubtotal > 0) {
-              let running = 0;
-              salePays = salePays
-                .map((p, i) => {
-                  if (i < salePays.length - 1) { running += p.amount; return p; }
-                  return { ...p, amount: Math.max(0, lineSubtotal - running) };
-                })
-                .filter(p => p.amount > 0);
-            }
-            // Fallback defensivo: si la resta dejo el pago en 0 (ej. propina
-            // en un metodo sin pago), mandar 1 pago por el subtotal en el
-            // metodo del primer PAGO para no enviar payments vacios.
-            if (!isConsumoInterno && salePays.length === 0 && lineSubtotal > 0) {
-              salePays = [{ method: rows[0]?.method || "cash", amount: lineSubtotal }];
-            }
+            // Fudo-style: PAGO cubre el TOTAL (subtotal + propina). La
+            // separación propina↔cuenta vive en buildCheckoutSplit() (función
+            // pura testeada en __tests__/mesas-checkout.test.ts) para poder
+            // auditar todos los casos borde sin renderizar el componente.
+            const split = buildCheckoutSplit(rows, tipRows, lineSubtotal);
 
             // En partial mode: mandar lineQtys SOLO para lines seleccionadas
             // donde el qty elegido es < line.qty (cobro parcial real).
@@ -693,11 +655,11 @@ export function PaymentModal({
               }
             }
             onConfirm(
-              isConsumoInterno ? [] : salePays.map(p => ({ method: p.method, amount: String(p.amount) })),
-              isConsumoInterno ? 0 : tipTotal,
+              isConsumoInterno ? [] : split.payments.map(p => ({ method: p.method, amount: p.amount })),
+              isConsumoInterno ? 0 : split.tipTotal,
               checkoutMode, [...selLines],
               isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
-              isConsumoInterno ? undefined : tipsClean,
+              isConsumoInterno ? undefined : split.tips,
               partialLineQtys,
             );
           }}>
