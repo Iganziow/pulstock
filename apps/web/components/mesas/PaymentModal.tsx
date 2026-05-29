@@ -32,7 +32,9 @@ interface PaymentModalProps {
     mode: "all" | "partial",
     lineIds: number[],
     saleType?: string,
-    tipMethod?: string,
+    /** Propinas explícitas (Fudo-style split). Cada fila {método, monto}
+        viaja como SaleTip. Reemplaza el antiguo `tipMethod` único. */
+    tipsArr?: { method: string; amount: number }[],
     /** Cobro parcial intra-line: {line_id: qty_a_cobrar}. Si la qty es
         menor a line.qty, deja remanente en la mesa. Mario 25/05/26. */
     lineQtys?: Record<number, number>,
@@ -48,11 +50,12 @@ interface PaymentModalProps {
 export function PaymentModal({
   total, tableName, onConfirm, onClose, loading, unpaidLines, canConsumoInterno, error, shortages,
 }: PaymentModalProps) {
-  const [rows, setRows] = useState<PaymentRow[]>([{ method: "cash", amount: "" }]);
-  const [tipStr, setTipStr] = useState("");
-  // Fase A (Fudo-style): metodo de la propina. La propina se cobra y
-  // contabiliza aparte del pago de la cuenta. Default "cash" (cafeteria).
-  const [tipMethod, setTipMethod] = useState<string>("cash");
+  const [rows, setRows] = useState<PaymentRow[]>([{ method: "cash", amount: "" }]); // PAGO
+  // PROPINA (Fudo-style): filas {metodo, monto}. Vacio = sin propina.
+  // Soporta split (varios metodos, ej. $800 efectivo + $600 debito). Los
+  // botones rapidos de % setean 1 sola fila. Al enviar, cada fila viaja
+  // como SaleTip explicito y se RESTA del pago para obtener la cuenta neta.
+  const [tipRows, setTipRows] = useState<PaymentRow[]>([]);
   const [splitN, setSplitN] = useState("");
   const [checkoutMode, setCheckoutMode] = useState<"all" | "partial">("all");
   const [selLines, setSelLines] = useState<Set<number>>(new Set(unpaidLines.map(l => l.id)));
@@ -99,36 +102,32 @@ export function PaymentModal({
           return s + qty * Number(l.unit_price);
         }, 0)
     : total;
-  const tip = Math.max(0, Number(tipStr) || 0);
+  // Propina = suma de las filas PROPINA (split soportado).
+  const tip = tipRows.reduce((s, r) => s + Math.max(0, Number(r.amount) || 0), 0);
   const grandTotal = lineSubtotal + tip;
+  // PAGO (Fudo-style): cubre el TOTAL (subtotal + propina). `totalPaid` es
+  // lo que el cliente entrega en total. Vuelto/falta se calculan contra el
+  // grandTotal. Al enviar (ver submit) se separa la propina del pago para
+  // que SalePayment = solo la cuenta y SaleTip = propina (Fase A backend).
   const totalPaid = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  // Fase A (Fudo-style): los `rows` de pago cubren SOLO la cuenta
-  // (lineSubtotal). La propina se cobra aparte (vía tipMethod → SaleTip),
-  // por eso cuenta como dinero recibido pero NO está en `rows`. El total
-  // que el cliente entrega = pago(cuenta) + propina. Calculamos
-  // pendiente/vuelto contra el grandTotal usando ese recibido efectivo,
-  // para que con autoSync (pago == subtotal) + propina dé "Pagado exacto"
-  // en vez del falso "Falta = propina" (bug Mario 28/05/26).
-  const effectivePaid = totalPaid + tip;
-  const change = Math.max(0, effectivePaid - grandTotal);
-  const pending = Math.max(0, grandTotal - effectivePaid);
+  const change = Math.max(0, totalPaid - grandTotal);
+  const pending = Math.max(0, grandTotal - totalPaid);
   const splitPer = splitN && Number(splitN) > 0 ? Math.round(grandTotal / Number(splitN)) : null;
 
-  // autoSync: mantener el monto del único pago = lineSubtotal (Fase A:
-  // SIN incluir propina — la propina se cobra y registra aparte como
-  // SaleTip via el campo `tips` del payload). El cajero ve el campo
-  // prellenado con el monto de la cuenta. La propina se muestra abajo
-  // como un boton aparte con su propio metodo. Ver comentario en
-  // declaración de autoSync arriba.
+  // autoSync (Fudo-style): mantener el monto del único pago = grandTotal
+  // (subtotal + propina). El cajero ve el PAGO prellenado con el TOTAL a
+  // cobrar, igual que Fudo. Cuando cambia la propina, el PAGO se actualiza
+  // solo. Al enviar se separa la propina del pago (submit). Si el cajero
+  // edita el monto a un valor distinto (vuelto), autoSync se desactiva.
   useEffect(() => {
     if (!autoSync) return;
     if (isConsumoInterno) return;
     if (rows.length !== 1) return;
-    const expected = lineSubtotal > 0 ? String(lineSubtotal) : "";
+    const expected = grandTotal > 0 ? String(grandTotal) : "";
     if (rows[0].amount !== expected) {
       setRows([{ method: rows[0].method, amount: expected }]);
     }
-  }, [lineSubtotal, autoSync, rows, isConsumoInterno]);
+  }, [grandTotal, autoSync, rows, isConsumoInterno]);
 
   // Restaurantes grandes: una mesa de 40 personas puede dividirse en muchos
   // pagos individuales (cada persona paga su parte en el método que quiera —
@@ -176,6 +175,27 @@ export function PaymentModal({
     const rest = rows.reduce((s, r, j) => j !== i ? s + (Number(r.amount) || 0) : s, 0);
     const val = Math.max(0, Math.round(grandTotal - rest));
     if (val > 0) updateRow(i, "amount", String(val));
+  }
+
+  // ── PROPINA rows (split Fudo-style) ──────────────────────────────────
+  function addTipRow() {
+    const used = new Set(tipRows.map(r => r.method));
+    const next = PAY_METHODS.find(m => !used.has(m.value))?.value || "cash";
+    setTipRows(prev => [...prev, { method: next, amount: "" }]);
+  }
+  function removeTipRow(i: number) {
+    setTipRows(prev => prev.filter((_, j) => j !== i));
+  }
+  function updateTipRow(i: number, field: keyof PaymentRow, val: string) {
+    if (field === "amount" && val !== "" && Number(val) < 0) return;
+    setTipRows(prev => prev.map((r, j) => j === i ? { ...r, [field]: val } : r));
+  }
+  // Boton rapido de %: setea UNA sola fila de propina con ese % del
+  // subtotal, conservando el metodo de la primera fila (o efectivo).
+  function setQuickTip(pct: number) {
+    const amount = Math.round(lineSubtotal * pct / 100);
+    const method = tipRows[0]?.method || "cash";
+    setTipRows(amount > 0 ? [{ method, amount: String(amount) }] : []);
   }
 
   return (
@@ -434,26 +454,24 @@ export function PaymentModal({
         )}
       </div>}
 
-      {/* Tip — con botones rápidos de %.
-          Mario lo pidió: "de última sería buena idea que se genere el
-          total y el subtotal y si no quiere agregar la propina se borra
-          nomás o se agrega lo que quiera dejar el cliente". El monto del
-          pago ya se sincroniza automáticamente vía autoSync; estos
-          botones evitan calcular el % a mano. Si el cliente quiere otro
-          monto, lo escribe directo en el input. */}
+      {/* PROPINA (Fudo-style): seccion propia con filas {metodo, monto}.
+          Soporta split (varios metodos) via "+". Los botones rapidos de %
+          setean 1 fila. Vacia = sin propina (estado "Sin propina"). */}
       {!isConsumoInterno && (
       <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: C.r, border: `1px solid ${C.amberBd}`, background: C.amberBg }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.amber }}>Propina (opcional)</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Propina {tipRows.length > 0 ? `· $${fmt(tip)}` : "(opcional)"}
+          </span>
           <div style={{ display: "flex", gap: 4 }}>
             {[5, 10, 15].map(pct => {
               const amount = Math.round(lineSubtotal * pct / 100);
-              const active = tip === amount && tipStr !== "";
+              const active = tipRows.length === 1 && tip === amount;
               return (
                 <button
                   key={pct}
                   type="button"
-                  onClick={() => setTipStr(amount > 0 ? String(amount) : "")}
+                  onClick={() => setQuickTip(pct)}
                   style={{
                     padding: "3px 8px", borderRadius: 99,
                     border: `1px solid ${active ? C.amber : C.amberBd}`,
@@ -468,10 +486,10 @@ export function PaymentModal({
                 </button>
               );
             })}
-            {tipStr !== "" && (
+            {tipRows.length > 0 && (
               <button
                 type="button"
-                onClick={() => setTipStr("")}
+                onClick={() => setTipRows([])}
                 style={{
                   padding: "3px 8px", borderRadius: 99,
                   border: `1px solid ${C.border}`,
@@ -486,36 +504,63 @@ export function PaymentModal({
             )}
           </div>
         </div>
-        <input type="number" min="0" value={tipStr} onChange={e => setTipStr(e.target.value)}
-          placeholder="$0" style={{ width: "100%", padding: "6px 10px", border: `1px solid ${C.amberBd}`, borderRadius: C.r, fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff" }} />
-        {/* Metodo de la propina — Fase A Fudo-style: la propina se cobra
-            y registra aparte del pago de la cuenta. Solo aparece si hay
-            propina > 0. */}
-        {tip > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, alignSelf: "center", marginRight: 4 }}>
-              Cobrada en:
-            </span>
-            {PAY_METHODS.map(m => {
-              const active = tipMethod === m.value;
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setTipMethod(m.value)}
+
+        {tipRows.length === 0 ? (
+          <button
+            type="button"
+            onClick={addTipRow}
+            style={{
+              width: "100%", padding: "8px", borderRadius: C.r,
+              border: `1px dashed ${C.amberBd}`, background: "#fff",
+              color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              fontFamily: "inherit", display: "flex", alignItems: "center",
+              justifyContent: "center", gap: 6,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Agregar propina
+          </button>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {tipRows.map((row, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <select value={row.method} onChange={e => updateTipRow(i, "method", e.target.value)}
                   style={{
-                    padding: "4px 10px", borderRadius: 99,
-                    border: `1px solid ${active ? C.amber : C.amberBd}`,
-                    background: active ? C.amber : "#fff",
-                    color: active ? "#fff" : C.amber,
-                    fontSize: 10, fontWeight: 700, cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {m.label}
+                    padding: "6px 8px", border: `1px solid ${C.amberBd}`, borderRadius: C.r,
+                    fontSize: 12, fontWeight: 600, fontFamily: "inherit", outline: "none",
+                    background: "#fff", color: C.text, cursor: "pointer", minWidth: 110,
+                  }}>
+                  {PAY_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: C.amber, pointerEvents: "none" }}>$</span>
+                  <input type="number" min="0" value={row.amount}
+                    onChange={e => updateTipRow(i, "amount", e.target.value)}
+                    placeholder="0" style={{
+                      width: "100%", padding: "6px 10px 6px 20px",
+                      border: `1px solid ${C.amberBd}`, borderRadius: C.r,
+                      fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff",
+                    }} />
+                </div>
+                <button type="button" aria-label="Eliminar propina" onClick={() => removeTipRow(i)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: C.amber, padding: 2, display: "flex", flexShrink: 0 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
-              );
-            })}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addTipRow}
+              style={{
+                alignSelf: "flex-start", padding: "3px 10px", borderRadius: C.r,
+                border: `1px dashed ${C.amberBd}`, background: "transparent",
+                color: C.amber, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4,
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Dividir propina
+            </button>
           </div>
         )}
       </div>
@@ -537,9 +582,8 @@ export function PaymentModal({
         {!isConsumoInterno && totalPaid > 0 && (
           <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid, marginBottom: 2 }}>
-              {/* "Pagado" muestra el total recibido = cuenta + propina, para
-                  que coincida con "Total a cobrar" cuando está completo. */}
-              <span>{tip > 0 ? "Recibido (cuenta + propina)" : "Pagado"}</span><span>${fmt(effectivePaid)}</span>
+              {/* PAGO cubre el total (subtotal + propina), igual que Fudo. */}
+              <span>Pagado</span><span>${fmt(totalPaid)}</span>
             </div>
             {change > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.green }}><span>Vuelto</span><span>${fmt(change)}</span></div>}
             {pending > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.red }}><span>Falta</span><span>${fmt(pending)}</span></div>}
@@ -585,39 +629,54 @@ export function PaymentModal({
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
         <Btn variant={isConsumoInterno ? "danger" : "primary"} full size="lg"
-          disabled={loading || lineSubtotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < lineSubtotal)}
+          disabled={loading || lineSubtotal === 0 || (checkoutMode === "partial" && selLines.size === 0) || (!isConsumoInterno && totalPaid < grandTotal)}
           onClick={() => {
-            // CRÍTICO (auditoría E2E): si el cliente paga más que el total
-            // (ej. da $11.000 por una cuenta de $10.000), el cajero
-            // devuelve $1.000 de vuelto. Pero si mandamos al backend
-            // payment.amount=$11.000, la caja va a "esperar" ese dinero
-            // en el cajón al cerrar. Recortamos el ÚLTIMO pago al monto
-            // que falta para llegar exacto al SUBTOTAL DE LA CUENTA — el
-            // vuelto queda solo en UI, NO entra al SalePayment.
-            //
-            // Fase A (Fudo-style): payments = solo subtotal de la cuenta
-            // (sin propina). La propina viaja aparte en el campo `tips`
-            // del payload y se registra como SaleTip(method=tipMethod).
-            const validRows = rows.filter(r => Number(r.amount) > 0);
-            let clampedRows = validRows;
-            if (!isConsumoInterno && validRows.length > 0) {
-              let running = 0;
-              clampedRows = validRows.map((r, i) => {
-                const amt = Number(r.amount) || 0;
-                if (i < validRows.length - 1) {
-                  running += amt;
-                  return r;
-                }
-                // Última fila: clampear al exacto remanente para que
-                // sum(rows) === lineSubtotal (sin propina, sin vuelto).
-                const remaining = Math.max(0, lineSubtotal - running);
-                return { ...r, amount: String(remaining) };
-              });
+            // Fudo-style: PAGO cubre el TOTAL (subtotal + propina). Para el
+            // backend Fase A separamos la propina del pago:
+            //   1. PROPINA → tips (SaleTip explicito por metodo).
+            //   2. PAGO de la cuenta por metodo = bruto(PAGO) − propina(metodo).
+            //   3. Clamp del pago al subtotal (el vuelto NO entra a la caja).
+            // Asi SalePayment = solo la cuenta y SaleTip = propina, sin
+            // importar si el cliente dejo propina en el mismo metodo o en
+            // otro.
+
+            // 1. Propina
+            const tipsClean = tipRows
+              .map(r => ({ method: r.method, amount: Math.round(Number(r.amount) || 0) }))
+              .filter(r => r.amount > 0);
+            const tipTotal = tipsClean.reduce((s, r) => s + r.amount, 0);
+            const tipByMethod: Record<string, number> = {};
+            for (const r of tipsClean) tipByMethod[r.method] = (tipByMethod[r.method] || 0) + r.amount;
+
+            // 2. Pago de la cuenta = bruto − propina por metodo
+            const grossByMethod: Record<string, number> = {};
+            for (const r of rows) {
+              const amt = Number(r.amount) || 0;
+              if (amt > 0) grossByMethod[r.method] = (grossByMethod[r.method] || 0) + amt;
             }
+            let salePays = Object.entries(grossByMethod)
+              .map(([method, gross]) => ({ method, amount: gross - (tipByMethod[method] || 0) }))
+              .filter(p => p.amount > 0);
+
+            // 3. Clamp al subtotal (vuelto solo en UI, no entra a SalePayment)
+            if (!isConsumoInterno && salePays.length > 0 && lineSubtotal > 0) {
+              let running = 0;
+              salePays = salePays
+                .map((p, i) => {
+                  if (i < salePays.length - 1) { running += p.amount; return p; }
+                  return { ...p, amount: Math.max(0, lineSubtotal - running) };
+                })
+                .filter(p => p.amount > 0);
+            }
+            // Fallback defensivo: si la resta dejo el pago en 0 (ej. propina
+            // en un metodo sin pago), mandar 1 pago por el subtotal en el
+            // metodo del primer PAGO para no enviar payments vacios.
+            if (!isConsumoInterno && salePays.length === 0 && lineSubtotal > 0) {
+              salePays = [{ method: rows[0]?.method || "cash", amount: lineSubtotal }];
+            }
+
             // En partial mode: mandar lineQtys SOLO para lines seleccionadas
-            // donde el qty elegido es < line.qty (cobro parcial real). Si
-            // qty === line.qty (line completa), no incluir → backend usa
-            // el comportamiento legacy de marcar line entera como paid.
+            // donde el qty elegido es < line.qty (cobro parcial real).
             let partialLineQtys: Record<number, number> | undefined;
             if (checkoutMode === "partial" && !isConsumoInterno) {
               partialLineQtys = {};
@@ -634,11 +693,11 @@ export function PaymentModal({
               }
             }
             onConfirm(
-              isConsumoInterno ? [] : clampedRows,
-              isConsumoInterno ? 0 : tip,
+              isConsumoInterno ? [] : salePays.map(p => ({ method: p.method, amount: String(p.amount) })),
+              isConsumoInterno ? 0 : tipTotal,
               checkoutMode, [...selLines],
               isConsumoInterno ? "CONSUMO_INTERNO" : "VENTA",
-              isConsumoInterno ? undefined : tipMethod,
+              isConsumoInterno ? undefined : tipsClean,
               partialLineQtys,
             );
           }}>

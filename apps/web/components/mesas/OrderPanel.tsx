@@ -379,17 +379,18 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     mode: "all" | "partial",
     lineIds: number[],
     saleType?: string,
-    tipMethod?: string,
+    tipsIn?: { method: string; amount: number }[],
     lineQtys?: Record<number, number>,
   ) {
     setPayLoading(true); setPayErr(""); setPayShortages(null);
     try {
       const payArr = payments.map(r => ({ method: r.method, amount: Number(r.amount) }));
-      // Fase A (Fudo-style): si hay propina, mandar `tips` explicito
-      // con el metodo elegido. El backend separa SalePayment (solo cuenta)
-      // de SaleTip (solo propina), sin reparto proporcional ni smart-cash.
-      const tipsArr = tip > 0 && tipMethod
-        ? [{ method: tipMethod, amount: tip }]
+      // Fase A (Fudo-style): si hay propina, mandar `tips` explicito (split
+      // soportado — varias filas {metodo, monto}). El backend separa
+      // SalePayment (solo cuenta) de SaleTip (solo propina), sin reparto
+      // proporcional ni smart-cash.
+      const tipsArr = tipsIn && tipsIn.length > 0
+        ? tipsIn.filter(t => t.amount > 0).map(t => ({ method: t.method, amount: t.amount }))
         : undefined;
       const res = await apiFetch(`/tables/orders/${order.id}/checkout/`, {
         method: "POST",
@@ -955,8 +956,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         <PaymentModal total={Number(quickPayLine.line_total)} tableName={`${quickPayLine.product_name}`}
           unpaidLines={[quickPayLine]} onClose={() => setQuickPayLine(null)}
           loading={payLoading} error={payErr} shortages={payShortages || undefined}
-          onConfirm={(payments, tip, _mode, _lineIds) => {
-            handleCheckout(payments, tip, "partial", [quickPayLine.id]);
+          onConfirm={(payments, tip, _mode, _lineIds, _saleType, tipsArr) => {
+            handleCheckout(payments, tip, "partial", [quickPayLine.id], undefined, tipsArr);
             setQuickPayLine(null);
           }} />
       )}
