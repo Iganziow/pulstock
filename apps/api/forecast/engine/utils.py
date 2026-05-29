@@ -204,12 +204,36 @@ def _compute_metrics(actuals, predictions):
     else:
         wape = 999
 
+    # ── F3.1 (Mario 29/05/26): métricas honestas para demanda intermitente ──
+    # MASE — Mean Absolute Scaled Error: escala el MAE por el error de un
+    # naive-1 (predecir "lo mismo que ayer"). MASE < 1 → el modelo le gana al
+    # naive trivial; > 1 → peor. NO explota con ceros (a diferencia de MAPE),
+    # por eso es la métrica de referencia para baja rotación.
+    naive_diffs = [abs(actuals[i] - actuals[i - 1]) for i in range(1, n)]
+    naive_mae = sum(naive_diffs) / len(naive_diffs) if naive_diffs else 0.0
+    mase = (mae / naive_mae) if naive_mae > 0 else (0.0 if mae == 0 else 999)
+
+    # sMAPE simétrico, acotado [0, 200]. No queda indefinido cuando real=0.
+    smape_terms = [
+        200 * abs(p - a) / (abs(a) + abs(p))
+        for a, p in zip(actuals, predictions) if (abs(a) + abs(p)) > 0
+    ]
+    smape = sum(smape_terms) / len(smape_terms) if smape_terms else 0.0
+
+    # tracking_signal = |Σ errores| / MAD. Detecta SESGO persistente (sub o
+    # sobre-predicción sistemática) — lo que de verdad mata el inventario.
+    # |TS| > 4 ⇒ el modelo se equivoca siempre para el mismo lado. (MAD = MAE.)
+    tracking_signal = (abs(sum(errors)) / mae) if mae > 0 else 0.0
+
     return {
         "mae": round(mae, 3),
         "mape": round(mape, 1),
         "wape": round(wape, 1),
         "rmse": round(rmse, 3),
         "bias": round(bias, 3),
+        "mase": round(mase, 3),
+        "smape": round(smape, 1),
+        "tracking_signal": round(tracking_signal, 2),
     }
 
 
@@ -217,13 +241,18 @@ def _average_metrics(fold_metrics):
     """Average metrics across walk-forward folds."""
     n = len(fold_metrics)
     if n == 0:
-        return {"mae": 999, "mape": 999, "wape": 999, "rmse": 999, "bias": 0}
+        return {"mae": 999, "mape": 999, "wape": 999, "rmse": 999, "bias": 0,
+                "mase": 999, "smape": 999, "tracking_signal": 0}
     return {
         "mae": round(sum(f["mae"] for f in fold_metrics) / n, 3),
         "mape": round(sum(f["mape"] for f in fold_metrics) / n, 1),
         "wape": round(sum(f.get("wape", 999) for f in fold_metrics) / n, 1),
         "rmse": round(sum(f["rmse"] for f in fold_metrics) / n, 3),
         "bias": round(sum(f["bias"] for f in fold_metrics) / n, 3),
+        # F3.1: promediar las métricas honestas para intermitentes.
+        "mase": round(sum(f.get("mase", 999) for f in fold_metrics) / n, 3),
+        "smape": round(sum(f.get("smape", 999) for f in fold_metrics) / n, 1),
+        "tracking_signal": round(sum(abs(f.get("tracking_signal", 0)) for f in fold_metrics) / n, 2),
     }
 
 

@@ -113,7 +113,14 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
     def _err(c):
         m = c["metrics"]
         w = m.get("wape")
-        return w if w is not None else m.get("mape", 999)
+        base = w if w is not None else m.get("mape", 999)
+        # F3.2 (Mario 29/05/26): penalizar SESGO persistente. Un modelo con
+        # tracking_signal alto se equivoca siempre para el mismo lado (sub o
+        # sobre-predice sistemáticamente) — eso vacía o llena la bodega aunque
+        # su WAPE "se vea" bien. +5pp de WAPE por cada unidad de TS sobre 4.
+        ts = abs(m.get("tracking_signal", 0) or 0)
+        bias_penalty = max(0.0, ts - 4) * 5
+        return base + bias_penalty
 
     # Pick best: for intermittent use MAE (WAPE/MAPE unreliable with zeros).
     if demand_pattern in ("intermittent", "lumpy"):
