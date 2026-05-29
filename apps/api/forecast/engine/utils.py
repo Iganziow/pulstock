@@ -218,21 +218,48 @@ def _get_month_bucket(day_of_month):
 
 # ── Forecast generation ──────────────────────────────────────────────────────
 
+def predict_dow_base(avg_daily, dow, dow_factors, dow_additive=None, closed_dows=None):
+    """Predicción BASE de un día según su día-de-semana, antes de month_factors.
+
+    F8 (Mario 29/05/26): soporta dos modos de estacionalidad semanal —
+      - MULTIPLICATIVO (default): predicted = avg_daily × factor[dow].
+        Bien para demanda regular (smooth). Es el comportamiento histórico.
+      - ADITIVO (si se pasa `dow_additive`): predicted = avg_daily + add[dow].
+        Para demanda INTERMITENTE/lumpy: con avg_daily ≈ 0.5, el
+        multiplicativo × 2.0 daba ~1.0 y perdía la señal del finde; el
+        aditivo +1.5 preserva la magnitud absoluta del pico del sábado.
+
+    Días cerrados (`closed_dows`): siempre 0 (el local no abre). Devuelve float.
+    """
+    avg = float(avg_daily)
+    if closed_dows and dow in closed_dows:
+        return 0.0
+    if dow_additive is not None:
+        return max(0.0, avg + float(dow_additive.get(dow, 0.0)))
+    return avg * float(dow_factors.get(dow, 1.0))
+
+
 def generate_daily_forecasts(avg_daily, dow_factors, start_date, horizon_days=14,
-                             month_factors=None):
-    """Generate day-by-day forecasts from moving average with weekly + monthly seasonality."""
+                             month_factors=None, dow_additive=None, closed_dows=None):
+    """Generate day-by-day forecasts from moving average with weekly + monthly seasonality.
+
+    Si `dow_additive` se provee, la estacionalidad semanal se aplica de forma
+    ADITIVA (ver predict_dow_base). Si no, multiplicativa (comportamiento
+    histórico). `month_factors` siempre se aplica multiplicativo encima.
+    """
     forecasts = []
     for i in range(1, horizon_days + 1):
         forecast_date = start_date + timedelta(days=i)
         dow = forecast_date.weekday()
-        factor = Decimal(str(dow_factors.get(dow, 1.0)))
+        base = Decimal(str(predict_dow_base(avg_daily, dow, dow_factors,
+                                            dow_additive=dow_additive, closed_dows=closed_dows)))
 
         if month_factors:
             bucket = _get_month_bucket(forecast_date.day)
             mf = Decimal(str(month_factors.get(bucket, 1.0)))
-            factor = factor * mf
+            base = base * mf
 
-        predicted = _q3(avg_daily * factor)
+        predicted = _q3(base)
         margin = _q3(predicted * Decimal("0.30"))
         lower = max(D0, _q3(predicted - margin))
         upper = _q3(predicted + margin)

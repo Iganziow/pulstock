@@ -38,6 +38,9 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         "window": window,
         "month_factors": month_factors,
         "stockout_dates": stockout_dates,
+        # F8: los algoritmos MA usan el pattern para elegir estacionalidad
+        # aditiva (intermittent/lumpy) vs multiplicativa (smooth).
+        "demand_pattern": demand_pattern,
     }
 
     for algo_cls in ALGORITHM_REGISTRY.values():

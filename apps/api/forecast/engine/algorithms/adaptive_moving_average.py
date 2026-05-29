@@ -7,8 +7,11 @@ from ..utils import (
     generate_daily_forecasts,
 )
 
+# F8: patrones donde conviene estacionalidad ADITIVA (ver weighted_moving_average).
+_ADDITIVE_PATTERNS = ("intermittent", "lumpy")
 
-def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None):
+
+def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None, use_additive=False):
     """
     Moving Average with optimized decay parameter.
     Tests multiple decay values and picks the one with lowest backtest error.
@@ -83,9 +86,19 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None):
     # Generate forecasts with optimal config
     avg_daily = _q3(best_config["avg"])
     today = daily_series[-1][0]
+    # F8: para intermitentes, derivar offset aditivo del factor
+    # (additive = avg×(factor−1)) y forzar 0 en días cerrados (factor 0).
+    dow_additive = None
+    closed_dows = None
+    if use_additive:
+        avg_f = float(avg_daily)
+        bf = best_config["dow_factors"]
+        dow_additive = {d: round(avg_f * (bf.get(d, 1.0) - 1.0), 3) for d in range(7)}
+        closed_dows = {d for d, f in bf.items() if f == 0.0}
     forecasts = generate_daily_forecasts(
         avg_daily, best_config["dow_factors"], today, horizon_days,
         month_factors=month_factors,
+        dow_additive=dow_additive, closed_dows=closed_dows,
     )
 
     return {
@@ -102,7 +115,7 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None):
     }
 
 
-def _backtest_adaptive_ma(daily_series, test_days=7, n_folds=3, month_factors=None):
+def _backtest_adaptive_ma(daily_series, test_days=7, n_folds=3, month_factors=None, use_additive=False):
     """Walk-forward cross-validation for Adaptive MA."""
     min_train = 21
     if len(daily_series) < min_train + test_days:
@@ -117,7 +130,8 @@ def _backtest_adaptive_ma(daily_series, test_days=7, n_folds=3, month_factors=No
             break
         train = daily_series[:test_start]
         test = daily_series[test_start:test_end]
-        result = _adaptive_moving_average(train, horizon_days=test_days, month_factors=month_factors)
+        result = _adaptive_moving_average(train, horizon_days=test_days,
+                                          month_factors=month_factors, use_additive=use_additive)
         if result is None:
             continue
         actuals = [float(item[1]) for item in test]
@@ -136,9 +150,12 @@ class AdaptiveMovingAverage(ForecastAlgorithm):
     demand_patterns = None  # all
 
     def forecast(self, daily_series, horizon_days=14, month_factors=None, **kwargs):
+        use_additive = kwargs.get("demand_pattern") in _ADDITIVE_PATTERNS
         return _adaptive_moving_average(daily_series, horizon_days=horizon_days,
-                                        month_factors=month_factors)
+                                        month_factors=month_factors, use_additive=use_additive)
 
     def backtest(self, daily_series, test_days=7, n_folds=3, month_factors=None, **kwargs):
+        use_additive = kwargs.get("demand_pattern") in _ADDITIVE_PATTERNS
         return _backtest_adaptive_ma(daily_series, test_days=test_days,
-                                     n_folds=n_folds, month_factors=month_factors)
+                                     n_folds=n_folds, month_factors=month_factors,
+                                     use_additive=use_additive)
