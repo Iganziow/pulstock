@@ -253,12 +253,29 @@ class Command(BaseCommand):
                 closing = stock_snapshot.get((product_id, warehouse_id))
                 if closing is None:
                     continue
-                qty_sold = sales_map.get((product_id, warehouse_id), {}).get(
-                    "qty_sold", Decimal("0.000")
-                )
-                # Stockout heuristic: stock is zero AND qty_sold was near-zero
-                is_stockout = (
-                    closing <= Decimal("0.000") and qty_sold <= Decimal("0.500")
+                # F1.2 (Mario 29/05/26): qty_sold REAL = demanda total (directa
+                # + vía recetas), desde StockMove. Antes se leía
+                # sales_map[...]["qty_sold"] pero la clave es "qty_sold_direct"
+                # → siempre 0, y la detección de stockout quedaba determinada
+                # solo por closing<=0 (sobre-marcaba). Usamos consumed_map con
+                # fallback a la venta directa, igual que qty_sold del registro.
+                qty_sold = consumed_map.get((product_id, warehouse_id))
+                if not qty_sold:
+                    qty_sold = sales_map.get((product_id, warehouse_id), {}).get(
+                        "qty_sold_direct", Decimal("0.000")
+                    )
+                qty_lost = loss_map.get((product_id, warehouse_id), Decimal("0.000"))
+                qty_received = recv_map.get((product_id, warehouse_id), Decimal("0.000"))
+
+                # Detección intra-día: el stock al INICIO del día = closing +
+                # vendido + perdido − recibido. Marcamos stockout si cerró en 0
+                # HABIENDO tenido stock al abrir (o habiendo recibido ese día) —
+                # se agotó. Si abrió en 0 y no recibió (producto sin reponer,
+                # sin demanda), NO lo marcamos: evita el falso positivo que
+                # inflaría la demanda interpolada de productos de baja rotación.
+                opening = closing + qty_sold + qty_lost - qty_received
+                is_stockout = (closing <= Decimal("0.000")) and (
+                    opening > Decimal("0.000") or qty_received > Decimal("0.000")
                 )
                 DailySales.objects.filter(
                     tenant=tenant,
