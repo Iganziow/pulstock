@@ -101,6 +101,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/caja/categorias",  label: "Categorías",  icon: "sales",   requires: "caja" },
   { href: "/dashboard/mesas",          label: "Mesas",      icon: "pos",       requires: "pos" },
   { href: "/dashboard/promotions",     label: "Ofertas",    icon: "offers",    requires: "catalog_write" },
+  { href: "/dashboard/combos",         label: "Combos",     icon: "offers",    requires: "catalog_write" },
   { href: "/dashboard/purchases",      label: "Compras",    icon: "purchases", section: "Inventario", requires: "purchases" },
   { href: "/dashboard/inventory/stock", label: "Stock",     icon: "stock",     requires: "inventory" },
   { href: "/dashboard/inventory/kardex", label: "Kardex",   icon: "kardex",    requires: "inventory" },

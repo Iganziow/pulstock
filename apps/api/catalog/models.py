@@ -131,6 +131,19 @@ class Product(models.Model):
         help_text="Si está activo, se puede vender este producto aunque no haya stock.",
     )
 
+    # Combo / pack: este producto es un combo cuya "receta" son OTROS
+    # productos vendibles (ej: "Combo Capu + Brownie" = 1 Capuccino +
+    # 1 Brownie a precio fijo). Se modela como Product + Recipe (la infra
+    # de recetas ya descuenta el stock de los componentes y calcula el
+    # costo). El flag es para que la UI de Combos los liste/edite aparte
+    # de los productos normales y para distinguirlos en reportes. Un
+    # producto con receta de INGREDIENTES (ej: Latte = leche + café) NO
+    # es combo; un combo agrupa productos terminados a precio de pack.
+    is_combo = models.BooleanField(
+        default=False,
+        help_text="Si está activo, este producto es un combo/pack de otros productos a precio fijo.",
+    )
+
     # Override de estación de impresión a nivel producto. Si null, hereda
     # de la categoría. Útil cuando un producto no debe ir donde indica su
     # categoría (ej: "Café irlandés" en cat. "Tragos" pero sale en cocina).

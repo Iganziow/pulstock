@@ -207,6 +207,7 @@ class ProductReadSerializer(serializers.ModelSerializer):
             "brand", "image_url",
             "print_station_override", "effective_print_station_id",
             "allow_negative_stock",
+            "is_combo",
             "created_at", "updated_at",
         ]
 

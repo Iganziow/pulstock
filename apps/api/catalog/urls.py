@@ -22,6 +22,7 @@ from .views import (
     CostBulkUpdateView,
     ProductAvgCostUpdateView,
 )
+from .combo_views import ComboListCreate, ComboDetail
 
 urlpatterns = [
     path("categories/", CategoryListCreate.as_view(), name="category-list-create"),
@@ -45,4 +46,6 @@ urlpatterns = [
     path("products/<int:pk>/avg-cost/", ProductAvgCostUpdateView.as_view(), name="product-avg-cost-update"),
     path("products/without-barcode/", ProductsWithoutBarcode.as_view(), name="products-without-barcode"),
     path("products/<int:pk>/assign-barcode/", AssignBarcode.as_view(), name="assign-barcode"),
+    path("combos/", ComboListCreate.as_view(), name="combo-list-create"),
+    path("combos/<int:pk>/", ComboDetail.as_view(), name="combo-detail"),
 ]
