@@ -188,6 +188,53 @@ class TestOpenOrder:
         t = Table.objects.get(id=table_id)
         assert t.status == Table.STATUS_OPEN
 
+    def test_list_include_orders_returns_subtotal_not_zero(
+        self, api_client, warehouse, product, tenant,
+    ):
+        """Bug Mario 28/05/26: GET /tables/?include_orders=true devolvía
+        active_order con `subtotal_unpaid` pero SIN `subtotal` ni
+        `items_count`, así que la barra "Comandas activas" del frontend
+        (que lee `subtotal`) mostraba $0 aunque la mesa tenía productos.
+        Ahora el formato completo incluye AMBOS campos para compat."""
+        _ensure_stock(tenant, warehouse, product)
+        r = _create_table(api_client, name="Mesa Subtotal")
+        table_id = r.json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 2, "unit_price": "2990.00"},
+            {"product_id": product.id, "qty": 1, "unit_price": "4000.00"},
+        ])
+
+        resp = api_client.get("/api/tables/tables/?include_orders=true")
+        assert resp.status_code == 200
+        mesa = next(t for t in resp.json() if t["id"] == table_id)
+        ao = mesa["active_order"]
+        assert ao is not None
+        # subtotal = 2*2990 + 1*4000 = 9980 — NO debe ser 0
+        assert ao["subtotal"] == "9980.00", ao
+        assert ao["subtotal_unpaid"] == "9980.00", ao
+        assert ao["items_count"] == 2, ao
+
+    def test_list_without_include_orders_still_has_subtotal(
+        self, api_client, warehouse, product, tenant,
+    ):
+        """Regresión: el formato liviano (sin include_orders) sigue
+        devolviendo subtotal e items_count como antes."""
+        _ensure_stock(tenant, warehouse, product)
+        r = _create_table(api_client, name="Mesa Liviana")
+        table_id = r.json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 3, "unit_price": "1000.00"},
+        ])
+
+        resp = api_client.get("/api/tables/tables/")
+        assert resp.status_code == 200
+        mesa = next(t for t in resp.json() if t["id"] == table_id)
+        ao = mesa["active_order"]
+        assert ao["subtotal"] == "3000.00", ao
+        assert ao["items_count"] == 1, ao
+
     def test_open_order_with_customer_name(self, api_client, warehouse):
         r = _create_table(api_client, name="Mesa Cliente")
         table_id = r.json()["id"]

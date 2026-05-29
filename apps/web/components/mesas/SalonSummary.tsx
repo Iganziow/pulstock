@@ -10,9 +10,18 @@ interface SalonSummaryProps {
   onSelectTable: (t: Table) => void;
 }
 
+// Subtotal de una orden activa, tolerante al formato del backend:
+// `subtotal` (resumen liviano) o `subtotal_unpaid` (formato completo con
+// ?include_orders=true). Sin este fallback la barra mostraba $0 cuando la
+// página carga las mesas con include_orders=true (bug Mario 28/05/26).
+function orderSubtotal(ao: Table["active_order"]): number {
+  if (!ao) return 0;
+  return Number(ao.subtotal ?? ao.subtotal_unpaid ?? 0);
+}
+
 export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryProps) {
   const openTables = tables.filter(t => t.status === "OPEN" && t.active_order);
-  const totalSalon = openTables.reduce((s, t) => s + Number(t.active_order?.subtotal || 0), 0);
+  const totalSalon = openTables.reduce((s, t) => s + orderSubtotal(t.active_order), 0);
 
   return (
     <div style={{ padding: "16px" }}>
@@ -60,7 +69,7 @@ export function SalonSummary({ tables, allOrders, onSelectTable }: SalonSummaryP
                     {!t.is_counter && t.zone && <span style={{ fontSize: 10, color: C.mute }}>&middot; {t.zone}</span>}
                   </div>
                   <span style={{ fontWeight: 800, fontSize: 14, color: C.text }}>
-                    ${fmt(t.active_order?.subtotal || 0)}
+                    ${fmt(orderSubtotal(t.active_order))}
                   </span>
                 </div>
 

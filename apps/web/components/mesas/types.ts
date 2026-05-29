@@ -5,6 +5,10 @@ export interface TableActiveOrder {
   opened_at: string;
   items_count: number;
   subtotal: string;
+  /** Presente cuando la mesa se carga con ?include_orders=true (formato
+      completo). Es el subtotal de las líneas NO pagadas. SalonSummary lo
+      usa como fallback de `subtotal` para no mostrar $0. */
+  subtotal_unpaid?: string;
   customer_name?: string;
 }
 

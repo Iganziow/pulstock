@@ -66,6 +66,9 @@ def _table_data_with_order(table, include_lines=False):
                 # construida con los lines YA prefetched (no dispara queries
                 # nuevas). Ordenamos en Python para no invalidar el cache.
                 sorted_lines = sorted(all_lines, key=lambda l: l.added_at)
+                subtotal_str = str(
+                    sum((l.qty * l.unit_price).quantize(Decimal("0.01")) for l in active_lines)
+                )
                 active_order = {
                     "id": order.id,
                     "table_id": order.table_id,
@@ -78,18 +81,24 @@ def _table_data_with_order(table, include_lines=False):
                     "note": order.note,
                     "warehouse_id": order.warehouse_id,
                     "lines": [_line_data(l) for l in sorted_lines],
-                    "subtotal_unpaid": str(
-                        sum((l.qty * l.unit_price).quantize(Decimal("0.01")) for l in active_lines)
-                    ),
+                    "subtotal_unpaid": subtotal_str,
+                    # Compat con el formato liviano (SalonSummary lee estos
+                    # campos). Antes solo iban en el resumen, así que con
+                    # include_orders=true la lista mostraba "$0" e items_count
+                    # vacío en la barra de Comandas activas (bug Mario 28/05/26).
+                    "subtotal": subtotal_str,
+                    "items_count": len(active_lines),
                 }
             else:
-                # Resumen liviano (legacy)
+                # Resumen liviano (legacy). quantize a 2 decimales para
+                # consistencia con el formato completo (antes daba 5 dec:
+                # "3000.00000").
                 active_order = {
                     "id": order.id,
                     "opened_at": order.opened_at.isoformat(),
                     "items_count": len(active_lines),
                     "subtotal": str(
-                        sum(l.qty * l.unit_price for l in active_lines)
+                        sum((l.qty * l.unit_price).quantize(Decimal("0.01")) for l in active_lines)
                     ),
                     "customer_name": order.customer_name,
                 }
