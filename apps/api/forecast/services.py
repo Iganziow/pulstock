@@ -2170,12 +2170,20 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
     ).order_by("-version").first()
     new_version = (existing.version + 1) if existing else 1
 
-    # Metrics: usa backtest si disponible, sino 0 (sin historia comparable)
+    # Metrics: usa backtest si disponible, sino sentinels (sin historia
+    # comparable). F3 (Mario 31/05/26): incluir SIEMPRE las claves nuevas
+    # (mase/smape/tracking_signal) para que los derivados no queden con
+    # "—" y para que _average_metrics / la selección no fallen. Cuando hay
+    # backtest, _compute_metrics ya las trae (incluido el tracking_signal
+    # que mide el sesgo del derivado — el punto ciego que tenían).
     if bt_metrics is not None:
         metrics_to_save = bt_metrics
         wape_str = f"WAPE {bt_metrics.get('wape', 0):.0f}%"
     else:
-        metrics_to_save = {"mae": 0, "mape": 0, "wape": 999, "rmse": 0, "bias": 0}
+        metrics_to_save = {
+            "mae": 0, "mape": 0, "wape": 999, "rmse": 0, "bias": 0,
+            "mase": 999, "smape": 999, "tracking_signal": 0,
+        }
         wape_str = "sin backtest (insuficiente historia)"
 
     fm = ForecastModel.objects.create(
