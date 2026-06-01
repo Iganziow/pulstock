@@ -2149,6 +2149,28 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "upper_bound": (qty + margin).quantize(Decimal("0.001")),
         })
 
+    # F (Mario 31/05/26): corrección de sesgo TAMBIÉN para los derivados.
+    # Antes solo los modelos organic se auto-corregían (train_product_model);
+    # los derivados (leche, café — alto volumen) heredaban el sesgo de los
+    # padres SIN corrección → tracking_signal alto (TS 18-21). Ahora, si el
+    # ingrediente acumuló error sistemático reciente (no por stockout), se
+    # corrige con apply_bias_correction (damped al 50%, umbral 10%). Usa solo
+    # accuracy desde trusted_from para no contaminar con el período viejo.
+    from forecast.models import ForecastAccuracy
+    acc_cut = today - timedelta(days=14)
+    trusted = getattr(tenant, "ingredient_forecast_trusted_from", None)
+    if trusted and trusted > acc_cut:
+        acc_cut = trusted
+    recent_acc = list(
+        ForecastAccuracy.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            date__gte=acc_cut,
+        ).values("date", "error", "was_stockout")
+    )
+    bias_corr = None
+    if recent_acc:
+        bias_corr = apply_bias_correction(forecasts, recent_acc, avg_daily)
+
     if make_active:
         # Modo histórico: este derived es EL modelo activo del producto.
         # Desactivamos cualquier otro activo previo.
@@ -2197,6 +2219,7 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "parent_products": list(parent_ids),
             "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
             "backtest_days": len(actual_by_date) if actual_by_date else 0,
+            **({"bias_correction": bias_corr} if bias_corr else {}),
         },
         metrics=metrics_to_save,
         trained_at=timezone.now(),
