@@ -2257,13 +2257,21 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             o_wape = (organic_active.metrics.get("wape", 999)
                       if organic_active and organic_active.metrics else 999)
             if Decimal(str(d_wape)) < Decimal(str(o_wape)) * SWAP_MARGIN:
-                # SWAP — derived gana (Forecast ya está importado a nivel modulo)
-                if organic_active:
-                    Forecast.objects.filter(
-                        model=organic_active, forecast_date__gt=today,
-                    ).delete()
-                    organic_active.is_active = False
-                    organic_active.save(update_fields=["is_active"])
+                # SWAP — derived gana (Forecast ya está importado a nivel modulo).
+                # BUGFIX 01/06/26: desactivar TODOS los modelos activos previos
+                # del (product, warehouse), no sólo el organic. Antes sólo se
+                # desactivaba el organic_active → los derivados activos de
+                # noches anteriores quedaban activos y se ACUMULABAN (15
+                # "Leche entera" activas a la vez). Mantener la invariante de
+                # 1 modelo activo por (product, warehouse).
+                prev_active = ForecastModel.objects.filter(
+                    tenant=tenant, product=product, warehouse_id=warehouse_id,
+                    is_active=True,
+                ).exclude(id=fm.id)
+                Forecast.objects.filter(
+                    model__in=prev_active, forecast_date__gt=today,
+                ).delete()
+                prev_active.update(is_active=False)
                 fm.is_active = True
                 fm.confidence_label = "medium"
                 fm.confidence_reason = (
