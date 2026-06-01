@@ -874,6 +874,58 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     )
 
 
+def _collapse_guard(best, raw_series, today, horizon, product=None):
+    """CIRCUIT BREAKER anti-colapso (Mario 31/05/26).
+
+    Caso real: "Leche deslactosada" vendía ~400 u/día pero theta predecía 0
+    → quiebre garantizado de un top-seller. Causa: un cambio de escala/unidad
+    del producto rompió el ajuste y theta colapsó a nivel 0; las métricas
+    dieron 0 (el backtest cayó en el régimen viejo) y nadie lo detectó.
+    Generalizable: cualquier algoritmo (theta/ets) puede colapsar.
+
+    Guard: si la demanda REAL reciente es claramente > 0 pero el forecast del
+    MISMO horizonte es despreciable (< 30%), el modelo colapsó → reemplazar
+    por un fallback robusto (media móvil ponderada sobre la ventana reciente,
+    que captura el régimen actual y no la escala vieja).
+
+    Compara TOTALES en ventanas equivalentes para NO disparar en productos
+    intermitentes legítimos (venden de a poco, pero el total del forecast
+    acompaña al total real). Devuelve `best` (modificado o intacto).
+    """
+    if not best.get("forecasts"):
+        return best
+    hz = min(horizon, 21)
+    cut = today - timedelta(days=hz)
+    recent_total = sum(float(q) for d, q in raw_series if d > cut)
+    fc_total = sum(float(f["qty_predicted"]) for f in best["forecasts"][:hz])
+    if recent_total <= 10 or fc_total >= 0.30 * recent_total:
+        return best  # demanda chica o forecast acompaña → no es colapso
+
+    recent_series = [(d, q) for d, q in raw_series if d > today - timedelta(days=35)]
+    if len(recent_series) < 5:
+        return best
+    from forecast.engine import weighted_moving_average, generate_daily_forecasts
+    ma = weighted_moving_average(recent_series, window=min(21, len(recent_series)))
+    if float(ma["avg_daily"]) <= 0:
+        return best
+    best["forecasts"] = generate_daily_forecasts(
+        ma["avg_daily"], ma["day_of_week_factors"], today, horizon,
+    )
+    best.setdefault("params", {})["circuit_breaker"] = {
+        "reason": "collapsed_vs_recent_demand",
+        "recent_total": round(recent_total, 1),
+        "fc_total_before": round(fc_total, 1),
+        "fallback": "wma_recent",
+    }
+    logger.warning(
+        "Circuit breaker product %s (%s): forecast colapsado (fc_total=%.1f) "
+        "vs demanda reciente (%.1f) → fallback WMA reciente.",
+        getattr(product, "id", "?"), getattr(product, "name", "?"),
+        fc_total, recent_total,
+    )
+    return best
+
+
 @transaction.atomic
 def train_product_model(tenant, product, warehouse_id, today,
                         min_days, horizon, window, stock_items, stats):
@@ -1105,6 +1157,10 @@ def train_product_model(tenant, product, warehouse_id, today,
                     f["lower_bound"] = max(D0, _q3(f["lower_bound"] * Decimal(str(adj_factor))))
                     f["upper_bound"] = _q3(f["upper_bound"] * Decimal(str(adj_factor)))
                 best["params"]["price_elasticity_applied"] = round(adj_factor, 3)
+
+    # Circuit breaker anti-colapso (Mario 31/05/26): rescata el forecast si
+    # colapsó a ~0 teniendo demanda real reciente alta (ver _collapse_guard).
+    best = _collapse_guard(best, raw_series, today, horizon, product=product)
 
     # Compare with existing
     existing = ForecastModel.objects.filter(
