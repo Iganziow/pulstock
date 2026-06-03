@@ -12,6 +12,11 @@ from .algorithms.croston_bootstrap import croston_bootstrap_intervals
 
 logger = logging.getLogger(__name__)
 
+# En demanda intermitente, un algoritmo no-Croston solo destrona a Croston si
+# mejora su MASE en este margen (15%). Anti-flicker: evita cambiar de modelo
+# por diferencias marginales noche a noche.
+MASE_OVERRIDE_MARGIN = 0.85
+
 
 def select_best_model(daily_series, window=21, horizon=14, test_days=7,
                       month_factors=None, demand_pattern=None, stockout_dates=None):
@@ -102,54 +107,7 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if ens:
             candidates.append(ens)
 
-    # Bug 1/2 (22/05/26): seleccionar por WAPE, no por MAPE.
-    # El MAPE clasico explota con demanda intermitente (|err|/actual: si un
-    # dia se vende 1 y se predice 8 -> 700%) y llegaba a 15.000%. Con MAPE
-    # roto el selector elegia algoritmos que predicen mal (theta colapsando
-    # a 0, HW con sabados en 0) porque su MAPE "se veia" comparable. WAPE
-    # (Σ|err|/Σactual) es robusto: refleja el error real. Asi el backtest
-    # honesto descarta los algoritmos que no manejan dias cerrados y elige
-    # moving_avg/adaptive_ma que SI los manejan via dow_factors.
-    def _err(c):
-        m = c["metrics"]
-        w = m.get("wape")
-        base = w if w is not None else m.get("mape", 999)
-        # F3.2 (Mario 29/05/26): penalizar SESGO persistente. Un modelo con
-        # tracking_signal alto se equivoca siempre para el mismo lado (sub o
-        # sobre-predice sistemáticamente) — eso vacía o llena la bodega aunque
-        # su WAPE "se vea" bien. +5pp de WAPE por cada unidad de TS sobre 4.
-        ts = abs(m.get("tracking_signal", 0) or 0)
-        bias_penalty = max(0.0, ts - 4) * 5
-        return base + bias_penalty
-
-    # Pick best: for intermittent use MAE (WAPE/MAPE unreliable with zeros).
-    if demand_pattern in ("intermittent", "lumpy"):
-        # PREFERENCIA por Croston cuando demanda es intermitente
-        # ──────────────────────────────────────────────────────
-        # (13/05/26) Croston/Croston_SBA están diseñados específicamente
-        # para demanda intermitente. Otros algoritmos (simple_avg,
-        # moving_avg, theta) pueden dar MAE puntualmente menor en el
-        # backtest porque "promedian a 0" en los días sin demanda — pero
-        # operativamente son inútiles: predicen consumo todos los días
-        # cuando la realidad es esporádica.
-        #
-        # Estrategia: si Croston o Croston-SBA son candidatos viables
-        # (pasaron backtest, no devolvieron MAE sentinel de error),
-        # preferirlos. Entre los dos Croston, el de menor MAE.
-        croston_candidates = [
-            c for c in candidates
-            if c["algorithm"] in ("croston", "croston_sba")
-            and c["metrics"]["mae"] < 998
-        ]
-        if croston_candidates:
-            best = min(
-                croston_candidates,
-                key=lambda c: (c["metrics"]["mae"], _err(c)),
-            )
-        else:
-            best = min(candidates, key=lambda c: (c["metrics"]["mae"], _err(c)))
-    else:
-        best = min(candidates, key=lambda c: (_err(c), c["metrics"]["mae"]))
+    best = choose_best(candidates, demand_pattern)
     best["demand_pattern"] = demand_pattern
 
     logger.info(
@@ -159,3 +117,58 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
     )
 
     return best
+
+
+def _err(c):
+    """Métrica de orden general: WAPE (robusto en intermitente, ver Bug 1/2)
+    + penalización de sesgo. El MAPE clásico explota con ceros; WAPE no."""
+    m = c["metrics"]
+    w = m.get("wape")
+    base = w if w is not None else m.get("mape", 999)
+    # F3.2 (29/05/26): penalizar SESGO persistente. Un modelo con
+    # tracking_signal alto se equivoca siempre para el mismo lado → vacía o
+    # llena la bodega aunque su WAPE "se vea" bien. +5pp por unidad de TS>4.
+    ts = abs(m.get("tracking_signal", 0) or 0)
+    bias_penalty = max(0.0, ts - 4) * 5
+    return base + bias_penalty
+
+
+def _mase(c):
+    """MASE de un candidato. Sentinel 999 (naive_mae==0, serie plana) no es
+    informativo → lo mandamos al fondo del orden."""
+    v = c["metrics"].get("mase")
+    return v if (v is not None and v < 998) else 999.0
+
+
+def choose_best(candidates, demand_pattern):
+    """Elige el mejor candidato según el patrón de demanda.
+
+    Intermitente/lumpy → por MASE (métrica honesta: <1 vence al naive), con
+    un GUARD operativo que conserva Croston salvo que un no-Croston le gane
+    el MASE por >= MASE_OVERRIDE_MARGIN. Smooth/erratic → por _err (WAPE+sesgo).
+    """
+    if demand_pattern in ("intermittent", "lumpy"):
+        # F (01/06/26): seleccionar por MASE, no por MAE crudo.
+        # MAE crudo premia modelos que "promedian a 0" en los días sin demanda
+        # (bajan el MAE pero son operativamente inútiles). MASE escala el MAE
+        # por el del naive → mide si el modelo APORTA algo real.
+        #
+        # GUARD operativo: Croston/Croston-SBA están diseñados para demanda
+        # intermitente (predicen CUÁNDO se consume, no un promedio plano).
+        # Croston gana salvo que un no-Croston le saque ventaja CLARA en MASE.
+        def _key(c):
+            return (_mase(c), _err(c), c["metrics"]["mae"])
+
+        best_overall = min(candidates, key=_key)
+        croston = [
+            c for c in candidates
+            if c["algorithm"] in ("croston", "croston_sba")
+            and c["metrics"]["mae"] < 998
+        ]
+        if croston:
+            best_croston = min(croston, key=_key)
+            if _mase(best_overall) < _mase(best_croston) * MASE_OVERRIDE_MARGIN:
+                return best_overall
+            return best_croston
+        return best_overall
+    return min(candidates, key=lambda c: (_err(c), c["metrics"]["mae"]))
