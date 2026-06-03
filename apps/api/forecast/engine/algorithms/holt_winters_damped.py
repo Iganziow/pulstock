@@ -118,7 +118,9 @@ def _backtest_hw_damped(daily_series, test_days=7, stockout_dates=None, n_folds=
 class HoltWintersDamped(ForecastAlgorithm):
     name = "hw_damped"
     min_data_points = 28
-    demand_patterns = None  # all
+    # Modelo continuo → solo demanda regular (smooth). No compite en
+    # intermitente/lumpy (Croston es el adecuado).
+    demand_patterns = ["smooth"]
 
     def forecast(self, daily_series, horizon_days=14, stockout_dates=None, **kwargs):
         result = _holt_winters_damped_forecast(daily_series, horizon_days=horizon_days,
