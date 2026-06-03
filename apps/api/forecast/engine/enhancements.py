@@ -14,6 +14,14 @@ from .utils import _q3, _get_month_bucket
 SEASONALITY_MIN_DAYS = 180
 YOY_MIN_DAYS = 365
 
+# Tope de la corrección de sesgo como fracción del avg_daily. Sin tope, una
+# accuracy ruidosa/corrupta podía generar una corrección MAYOR que la demanda
+# diaria y clampear el forecast a 0 (colapso). Caso real "helado ingrediente"
+# (01/06/26): mean_bias=426 con avg_daily=141 → corrección 213 → 141-213 < 0 → 0.
+# Con tope 0.5 la corrección nunca puede mover el forecast más de la mitad del
+# avg_daily, así que jamás lo zerea por sí sola.
+MAX_BIAS_CORRECTION_FRAC = 0.5
+
 
 # ── Month-position factors (payday effect) ───────────────────────────────────
 
@@ -495,6 +503,14 @@ def apply_bias_correction(forecasts, recent_accuracy, avg_daily):
     all_errors = [e for _, e in errors]
     mean_bias = sum(all_errors) / len(all_errors)
 
+    avg = float(avg_daily)
+    # Tope absoluto: la corrección no puede superar una fracción del avg_daily,
+    # para que una accuracy ruidosa no zeree el forecast (ver constante arriba).
+    cap = MAX_BIAS_CORRECTION_FRAC * avg
+
+    def _capped(x):
+        return max(-cap, min(cap, x))
+
     dow_errors: dict[int, list[float]] = {}
     for d, err in errors:
         if hasattr(d, "weekday"):
@@ -504,12 +520,12 @@ def apply_bias_correction(forecasts, recent_accuracy, avg_daily):
     for dow, errs in dow_errors.items():
         if len(errs) >= 2:
             dow_mean = sum(errs) / len(errs)
-            if abs(dow_mean) / float(avg_daily) >= 0.10:
-                dow_bias[dow] = dow_mean * 0.5
+            if abs(dow_mean) / avg >= 0.10:
+                dow_bias[dow] = _capped(dow_mean * 0.5)
 
     global_correction = 0.0
-    if abs(mean_bias) / float(avg_daily) >= 0.10:
-        global_correction = mean_bias * 0.5
+    if abs(mean_bias) / avg >= 0.10:
+        global_correction = _capped(mean_bias * 0.5)
 
     applied_any = False
     for fc in forecasts:

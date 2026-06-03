@@ -2171,6 +2171,24 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
     if recent_acc:
         bias_corr = apply_bias_correction(forecasts, recent_acc, avg_daily)
 
+    # F (01/06/26): CIRCUIT BREAKER también para derivados. El path organic
+    # pasa por _collapse_guard (línea ~1163), pero el derived NO → si la
+    # corrección de sesgo o un colapso de los padres deja el forecast en ~0
+    # teniendo consumo REAL reciente alto, nada lo rescataba. Caso real:
+    # "helado ingrediente" consumía ~90 u/día pero el forecast quedó en 0.
+    # Reusamos el mismo guard usando el consumo real del ingrediente
+    # (actual_by_date) como serie de referencia. Se aplica DESPUÉS del bias
+    # para ser la última red de seguridad.
+    circuit_breaker = None
+    if actual_by_date:
+        raw_series = sorted((d, float(q)) for d, q in actual_by_date.items())
+        _guarded = _collapse_guard(
+            {"forecasts": forecasts, "params": {}},
+            raw_series, today, horizon, product=product,
+        )
+        forecasts = _guarded["forecasts"]
+        circuit_breaker = _guarded.get("params", {}).get("circuit_breaker")
+
     if make_active:
         # Modo histórico: este derived es EL modelo activo del producto.
         # Desactivamos cualquier otro activo previo.
@@ -2220,6 +2238,7 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
             "backtest_days": len(actual_by_date) if actual_by_date else 0,
             **({"bias_correction": bias_corr} if bias_corr else {}),
+            **({"circuit_breaker": circuit_breaker} if circuit_breaker else {}),
         },
         metrics=metrics_to_save,
         trained_at=timezone.now(),
