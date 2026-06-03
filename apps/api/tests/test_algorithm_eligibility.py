@@ -41,3 +41,24 @@ def test_adaptive_ma_compite_en_todos():
     a = AdaptiveMovingAverage()
     for p in ("smooth", "intermittent", "lumpy"):
         assert a.is_eligible(120, p), f"adaptive_ma debe competir en {p} (fallback robusto)"
+
+
+class TestKeptPathEligibilityGuard:
+    """El kept-path no debe conservar un modelo cuyo algoritmo ya no aplica."""
+
+    def test_theta_no_elegible_en_intermitente(self):
+        from forecast.services import _algo_eligible_for_pattern
+        assert not _algo_eligible_for_pattern("theta", "intermittent")
+        assert not _algo_eligible_for_pattern("theta", "lumpy")
+        assert _algo_eligible_for_pattern("theta", "smooth")
+
+    def test_croston_elegible_en_intermitente(self):
+        from forecast.services import _algo_eligible_for_pattern
+        assert _algo_eligible_for_pattern("croston_sba", "intermittent")
+        assert not _algo_eligible_for_pattern("croston_sba", "smooth")
+
+    def test_algoritmo_fuera_de_registry_no_fuerza(self):
+        from forecast.services import _algo_eligible_for_pattern
+        # ingredient_derived no está en el registry → True (no forzar reemplazo)
+        assert _algo_eligible_for_pattern("ingredient_derived", "intermittent")
+        assert _algo_eligible_for_pattern("category_prior", "intermittent")

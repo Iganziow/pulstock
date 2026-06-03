@@ -926,6 +926,23 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
     return best
 
 
+def _algo_eligible_for_pattern(algorithm, demand_pattern):
+    """True si `algorithm` sigue siendo elegible para `demand_pattern`.
+
+    Evita que el kept-path conserve un modelo cuyo algoritmo ya NO aplica al
+    patrón actual (ej. theta en demanda intermitente tras restringir su
+    elegibilidad a smooth). Sin esto, el kept-path comparaba por WAPE y
+    conservaba el theta-en-0 porque Croston "no le ganaba" — el modelo
+    inadecuado nunca era reemplazado. Algoritmos fuera del registry
+    (ingredient_derived) → True (no forzar reemplazo)."""
+    from forecast.engine.registry import ALGORITHM_REGISTRY
+    cls = ALGORITHM_REGISTRY.get(algorithm)
+    if cls is None:
+        return True
+    dp = getattr(cls, "demand_patterns", None)
+    return dp is None or demand_pattern in dp
+
+
 @transaction.atomic
 def train_product_model(tenant, product, warehouse_id, today,
                         min_days, horizon, window, stock_items, stats):
@@ -1188,8 +1205,16 @@ def train_product_model(tenant, product, warehouse_id, today,
         existing and existing.demand_pattern
         and existing.demand_pattern != demand_pattern
     )
+    # F (01/06/26): nunca conservar un modelo cuyo algoritmo ya NO es elegible
+    # para el patrón actual. Sin esto, un theta-en-0 sobre demanda intermitente
+    # se conservaba porque por WAPE "Croston no le ganaba" → el modelo
+    # inadecuado nunca se reemplazaba (caso tapas/vasos).
+    existing_algo_ineligible = (
+        existing is not None
+        and not _algo_eligible_for_pattern(existing.algorithm, demand_pattern)
+    )
     if (existing and existing.metrics and existing.metrics.get("wape") is not None
-            and not pattern_changed):
+            and not pattern_changed and not existing_algo_ineligible):
         old_err = existing.metrics.get("wape", 999)
         new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
         if new_err > old_err * 1.1 and old_err < 900:
