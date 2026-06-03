@@ -12,6 +12,14 @@ def cand(algo, mase, wape, mae, ts=0.0):
     }
 
 
+def cand_fc(algo, mase, wape, mae, fc_total, ts=0.0):
+    """Candidato con forecasts que suman fc_total (para el filtro anti-colapso)."""
+    c = cand(algo, mase, wape, mae, ts)
+    n = 14
+    c["forecasts"] = [{"qty_predicted": fc_total / n} for _ in range(n)]
+    return c
+
+
 class TestChooseBestIntermittent:
     def test_non_croston_wins_when_mase_clearly_better(self):
         """Un no-Croston con MASE claramente mejor (>15%) destrona a Croston."""
@@ -67,6 +75,39 @@ class TestChooseBestIntermittent:
         ]
         best = choose_best(cands, "intermittent")
         assert best["algorithm"] == "croston_sba", "en el borde, Croston se conserva"
+
+
+class TestAntiCollapseFilter:
+    """El filtro anti-colapso descarta forecasts ~0 (operativamente inútiles)
+    pero conserva los que producen un forecast real — quirúrgico."""
+
+    def test_theta_colapsado_descartado_aunque_mase_mejor(self):
+        """theta con MASE mejor pero forecast ~0 NO gana (caso tapas/vasos)."""
+        cands = [
+            cand_fc("theta", mase=0.50, wape=116, mae=2, fc_total=0.0),   # colapsado
+            cand_fc("croston_sba", mase=0.95, wape=130, mae=3, fc_total=4.5),  # vivo
+        ]
+        best = choose_best(cands, "intermittent")
+        assert best["algorithm"] == "croston_sba", "no elegir un forecast muerto"
+
+    def test_theta_vivo_si_gana(self):
+        """theta con forecast REAL y MASE claramente mejor SÍ gana (no es parche
+        a theta entero, es a la colapsada)."""
+        cands = [
+            cand_fc("theta", mase=0.50, wape=70, mae=2, fc_total=20.0),   # vivo
+            cand_fc("croston_sba", mase=1.00, wape=120, mae=3, fc_total=18.0),
+        ]
+        best = choose_best(cands, "intermittent")
+        assert best["algorithm"] == "theta", "theta que produce forecast real se conserva"
+
+    def test_todos_colapsados_no_rompe(self):
+        """Si TODOS colapsan (producto sin demanda) elige igual, no explota."""
+        cands = [
+            cand_fc("theta", mase=0.5, wape=100, mae=1, fc_total=0.0),
+            cand_fc("croston_sba", mase=0.9, wape=120, mae=2, fc_total=0.0),
+        ]
+        best = choose_best(cands, "intermittent")
+        assert best["algorithm"] in ("theta", "croston_sba")
 
 
 class TestChooseBestSmooth:

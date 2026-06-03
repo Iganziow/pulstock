@@ -1,7 +1,12 @@
 """
-F (01/06/26) capa 1 — elegibilidad por patrón. Los modelos CONTINUOS
-(theta, ETS, Holt-Winters) NO deben competir en demanda intermitente/lumpy
-(ahí colapsan a 0 y MASE los premia falsamente). Croston sí, y solo ahí.
+Elegibilidad por patrón + guard del kept-path.
+
+Nota (01/06/26): se PROBÓ restringir theta/ETS/HW a smooth (capa 1) pero se
+revirtió — era demasiado brusco: theta ajusta bien ~15 productos intermitentes
+y sacarlo de todos hundió las métricas. El colapso se ataca quirúrgicamente con
+el filtro anti-colapso en choose_best (ver test_selection_mase). Aquí queda el
+estado vigente: los continuos compiten en todos los patrones; Croston solo en
+intermitente/lumpy; y el kept-path no conserva algoritmos inelegibles.
 """
 import pytest
 
@@ -16,17 +21,11 @@ CONTINUOS = [ThetaForecast, ETSForecast, HoltWinters, HoltWintersDamped]
 
 
 @pytest.mark.parametrize("cls", CONTINUOS)
-def test_continuos_no_compiten_en_intermitente(cls):
+def test_continuos_compiten_en_todos_los_patrones(cls):
+    """Los continuos vuelven a competir en todos (capa 1 revertida)."""
     a = cls()
-    n = 120  # datos de sobra (descarta el gate de min_data_points)
-    assert not a.is_eligible(n, "intermittent"), f"{a.name} no debe competir en intermittent"
-    assert not a.is_eligible(n, "lumpy"), f"{a.name} no debe competir en lumpy"
-
-
-@pytest.mark.parametrize("cls", CONTINUOS)
-def test_continuos_si_compiten_en_smooth(cls):
-    a = cls()
-    assert a.is_eligible(120, "smooth"), f"{a.name} SÍ debe competir en smooth (su terreno)"
+    for p in ("smooth", "intermittent", "lumpy"):
+        assert a.is_eligible(120, p), f"{a.name} debe competir en {p}"
 
 
 @pytest.mark.parametrize("cls", [CrostonForecast, CrostonSBA])
@@ -44,18 +43,19 @@ def test_adaptive_ma_compite_en_todos():
 
 
 class TestKeptPathEligibilityGuard:
-    """El kept-path no debe conservar un modelo cuyo algoritmo ya no aplica."""
+    """El kept-path no debe conservar un modelo cuyo algoritmo ya no aplica
+    al patrón actual (helper general, sigue vigente tras revertir capa 1)."""
 
-    def test_theta_no_elegible_en_intermitente(self):
+    def test_croston_inelegible_en_smooth(self):
         from forecast.services import _algo_eligible_for_pattern
-        assert not _algo_eligible_for_pattern("theta", "intermittent")
-        assert not _algo_eligible_for_pattern("theta", "lumpy")
-        assert _algo_eligible_for_pattern("theta", "smooth")
-
-    def test_croston_elegible_en_intermitente(self):
-        from forecast.services import _algo_eligible_for_pattern
-        assert _algo_eligible_for_pattern("croston_sba", "intermittent")
+        # Croston está restringido a intermitente/lumpy → inelegible en smooth.
         assert not _algo_eligible_for_pattern("croston_sba", "smooth")
+        assert _algo_eligible_for_pattern("croston_sba", "intermittent")
+
+    def test_continuos_elegibles_en_todo(self):
+        from forecast.services import _algo_eligible_for_pattern
+        for p in ("smooth", "intermittent", "lumpy"):
+            assert _algo_eligible_for_pattern("theta", p)
 
     def test_algoritmo_fuera_de_registry_no_fuerza(self):
         from forecast.services import _algo_eligible_for_pattern

@@ -140,28 +140,44 @@ def _mase(c):
     return v if (v is not None and v < 998) else 999.0
 
 
+def _fc_total(c):
+    """Suma del forecast del candidato sobre el horizonte. ~0 = colapsado."""
+    return sum(float(f.get("qty_predicted", 0) or 0) for f in c.get("forecasts", []))
+
+
+# Un forecast que suma <= esto sobre TODO el horizonte está colapsado a ~0.
+COLLAPSE_FC_TOTAL = 0.5
+
+
 def choose_best(candidates, demand_pattern):
     """Elige el mejor candidato según el patrón de demanda.
 
     Intermitente/lumpy → por MASE (métrica honesta: <1 vence al naive), con
-    un GUARD operativo que conserva Croston salvo que un no-Croston le gane
-    el MASE por >= MASE_OVERRIDE_MARGIN. Smooth/erratic → por _err (WAPE+sesgo).
+    un FILTRO anti-colapso (descarta forecasts ~0, operativamente inútiles) y
+    un GUARD operativo que conserva Croston salvo que un no-Croston le gane el
+    MASE por >= MASE_OVERRIDE_MARGIN. Smooth → por _err (WAPE+sesgo).
     """
     if demand_pattern in ("intermittent", "lumpy"):
-        # F (01/06/26): seleccionar por MASE, no por MAE crudo.
-        # MAE crudo premia modelos que "promedian a 0" en los días sin demanda
-        # (bajan el MAE pero son operativamente inútiles). MASE escala el MAE
-        # por el del naive → mide si el modelo APORTA algo real.
-        #
-        # GUARD operativo: Croston/Croston-SBA están diseñados para demanda
-        # intermitente (predicen CUÁNDO se consume, no un promedio plano).
-        # Croston gana salvo que un no-Croston le saque ventaja CLARA en MASE.
+        # F (01/06/26) FILTRO ANTI-COLAPSO (capa 2): un candidato cuyo forecast
+        # suma ~0 sobre el horizonte es operativamente inútil (no dice cuándo
+        # reponer) — caso theta-en-0 sobre demanda esporádica, que MASE premia
+        # falsamente (predecir 0 se "parece" al naive). Lo excluimos del pool,
+        # SALVO que todos colapsen (producto realmente sin demanda). Esto es
+        # quirúrgico: descarta solo el theta-colapso, conserva el theta que SÍ
+        # produce un forecast real (donde legítimamente le gana a Croston).
+        alive = [c for c in candidates if _fc_total(c) > COLLAPSE_FC_TOTAL]
+        pool = alive if alive else candidates
+
+        # F (01/06/26): seleccionar por MASE, no por MAE crudo. MAE crudo premia
+        # modelos que "promedian a 0"; MASE escala por el naive → mide aporte real.
+        # GUARD operativo: Croston (diseñado para intermitente) gana salvo que un
+        # no-Croston le saque ventaja CLARA en MASE.
         def _key(c):
             return (_mase(c), _err(c), c["metrics"]["mae"])
 
-        best_overall = min(candidates, key=_key)
+        best_overall = min(pool, key=_key)
         croston = [
-            c for c in candidates
+            c for c in pool
             if c["algorithm"] in ("croston", "croston_sba")
             and c["metrics"]["mae"] < 998
         ]

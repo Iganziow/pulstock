@@ -154,9 +154,7 @@ def _backtest_holt_winters(daily_series, test_days=7, stockout_dates=None, n_fol
 class HoltWinters(ForecastAlgorithm):
     name = "holt_winters"
     min_data_points = 28
-    # Modelo continuo (nivel+tendencia+estacionalidad) → solo demanda regular
-    # (smooth). No compite en intermitente/lumpy (Croston es el adecuado).
-    demand_patterns = ["smooth"]
+    demand_patterns = None  # all
 
     def forecast(self, daily_series, horizon_days=14, stockout_dates=None, **kwargs):
         result = _holt_winters_forecast(daily_series, horizon_days=horizon_days,

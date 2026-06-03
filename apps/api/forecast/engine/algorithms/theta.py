@@ -123,10 +123,7 @@ def _backtest_theta(daily_series, test_days=7, n_folds=3):
 class ThetaForecast(ForecastAlgorithm):
     name = "theta"
     min_data_points = 14
-    # Modelo de tendencia CONTINUA → solo demanda regular (smooth). En
-    # intermitente/lumpy colapsa a 0 y MASE lo premiaba falsamente (predecir
-    # 0 se "parece" al naive en demanda esporádica). Croston es el adecuado ahí.
-    demand_patterns = ["smooth"]
+    demand_patterns = None  # all
 
     def forecast(self, daily_series, horizon_days=14, **kwargs):
         return _theta_forecast(daily_series, horizon_days=horizon_days)
