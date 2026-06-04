@@ -5,10 +5,25 @@ Business logic for the forecast module.
 Views and management commands delegate here — they handle HTTP / CLI concerns only.
 """
 import logging
+import math
+import statistics
 from datetime import date, timedelta
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
+
+# Nivel de servicio objetivo para el safety stock probabilístico.
+# 0.95 = "con este stock, ~95% de probabilidad de NO quebrar en la ventana de
+# reposición". Se usa el z (inverso-normal) en la fórmula clásica de inventario:
+# safety_stock = z(α) × σ_demanda × √(días de exposición).
+DEFAULT_SERVICE_LEVEL = 0.95
+
+
+def _z_for_service_level(alpha: float) -> float:
+    """z-score (inverso de la normal estándar) para un nivel de servicio α.
+    Clampeado a [0.50, 0.999] para evitar valores extremos."""
+    alpha = min(0.999, max(0.50, float(alpha)))
+    return statistics.NormalDist().inv_cdf(alpha)
 
 from django.db import models as db_models
 from django.db.models import Sum, Q, Count
@@ -1608,6 +1623,10 @@ def generate_suggestions(tenant, today, threshold, target_days):
     btype = getattr(tenant, "business_type", "other") or "other"
     default_lead_time = DEFAULT_LEAD_TIMES.get(btype, 7)
 
+    # Nivel de servicio objetivo (config por tenant si existe; default 95%).
+    service_level = float(getattr(tenant, "service_level", None) or DEFAULT_SERVICE_LEVEL)
+    z_service = _z_for_service_level(service_level)
+
     # Build supplier lead_time lookup
     supplier_lead_times = {
         s.name: s for s in Supplier.objects.filter(tenant=tenant, is_active=True)
@@ -1633,9 +1652,12 @@ def generate_suggestions(tenant, today, threshold, target_days):
             "confidence": m.confidence_label,
             "algorithm": m.algorithm,
             "data_points": m.data_points or 0,
+            # σ de la demanda = RMSE del backtest (desvío del error de pronóstico).
+            "rmse": float((m.metrics or {}).get("rmse", 0) or 0),
         }
         for m in active_models.only(
-            "product_id", "warehouse_id", "confidence_label", "algorithm", "data_points"
+            "product_id", "warehouse_id", "confidence_label", "algorithm",
+            "data_points", "metrics",
         )
     }
     # Mantenemos confidence_map por compatibilidad con el código existente.
@@ -1823,18 +1845,35 @@ def generate_suggestions(tenant, today, threshold, target_days):
         if base_qty <= 0:
             continue
 
-        # Safety stock buffer — larger when model is less certain
-        buffer_pct = _safety_buffer(conf_label)
-        safety_qty = (base_qty * buffer_pct).quantize(Decimal("0.001"))
+        # ── SAFETY STOCK PROBABILÍSTICO (nivel de servicio) ───────────────
+        # En vez de un buffer plano %, calculamos el stock de seguridad que
+        # garantiza ~service_level (95%) de NO quebrar en la ventana de
+        # exposición (cobertura + lead time), con la fórmula clásica de
+        # inventario:  SS = z(α) × σ × √(días).  σ = RMSE del modelo (el desvío
+        # del error de pronóstico, ya calculado en el backtest). Esto convierte
+        # "predigo N" en "con este stock, ~95% de no quebrar". Si no hay RMSE
+        # confiable (category_prior / derived sin backtest) caemos al buffer
+        # heurístico previo para no quedar sin colchón.
+        meta = model_meta.get((pid, wid), {})
+        algo = meta.get("algorithm", "")
+        rmse = float(meta.get("rmse", 0) or 0)
+        coverage_days = float(product_target) + float(lead_time)
+        if rmse > 0 and coverage_days > 0:
+            safety_qty = Decimal(
+                str(z_service * rmse * math.sqrt(coverage_days))
+            ).quantize(Decimal("0.001"))
+        else:
+            safety_qty = (base_qty * _safety_buffer(conf_label)).quantize(Decimal("0.001"))
         suggested_qty = base_qty + safety_qty
+        # Buffer efectivo (fracción del safety stock sobre la demanda base) —
+        # para el texto explicativo (_natural_reasoning).
+        buffer_pct = (safety_qty / base_qty) if base_qty > 0 else Decimal("0")
 
         # ── SKIP: producto sin señal real con modelo category_prior ────────
         # Si el modelo es category_prior (promedio de categoría) y el
         # producto NO ha vendido al menos 3 unidades reales en 30 días,
         # cualquier sugerencia es ruido. Mejor no sugerir nada hasta
         # tener señal propia del producto.
-        meta = model_meta.get((pid, wid), {})
-        algo = meta.get("algorithm", "")
         real_sold_30d = real_sales_30d.get(pid, 0)
         consumed_30d = real_consumption_30d.get(pid, 0)
         consumed_21d = real_consumption_21d.get(pid, 0)
