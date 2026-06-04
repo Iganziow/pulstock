@@ -1657,6 +1657,24 @@ def generate_suggestions(tenant, today, threshold, target_days):
     )
     real_sales_30d = {row["product_id"]: float(row["total"] or 0) for row in recent_sales}
 
+    # F (03/06/26): consumo REAL desde DailySales (incluye expansión de receta).
+    # El cap/skip de seguridad de abajo usaban SOLO SaleLine, que NO registra
+    # ingredientes (la leche/syrup no se "venden", se consumen vía receta).
+    # Para un ingrediente real_sales_30d=0 → escapaba TODAS las redes y se
+    # sugerían cantidades absurdas (caso real: 274 "Syrup vainilla" con 0
+    # consumo en 21 días — producto que dejó de usarse el 8/may). DailySales
+    # sí captura el consumo real de ingredientes.
+    def _consumption(days):
+        rows = (
+            DailySales.objects
+            .filter(tenant=tenant, date__gte=today - timedelta(days=days), forecast_only=False)
+            .values("product_id").annotate(total=Sum("qty_sold"))
+        )
+        return {r["product_id"]: float(r["total"] or 0) for r in rows}
+    real_consumption_30d = _consumption(30)
+    real_consumption_21d = _consumption(21)
+    real_consumption_90d = _consumption(90)
+
     # Max coverage window — include lead time headroom
     max_lead = max((s.lead_time_days for s in supplier_lead_times.values()), default=default_lead_time)
     max_target = max(21, max_lead + 14)
@@ -1818,19 +1836,33 @@ def generate_suggestions(tenant, today, threshold, target_days):
         meta = model_meta.get((pid, wid), {})
         algo = meta.get("algorithm", "")
         real_sold_30d = real_sales_30d.get(pid, 0)
+        consumed_30d = real_consumption_30d.get(pid, 0)
+        consumed_21d = real_consumption_21d.get(pid, 0)
+        consumed_90d = real_consumption_90d.get(pid, 0)
         if algo == "category_prior" and real_sold_30d < 3:
             continue
 
-        # ── CAP DE SEGURIDAD: nunca sugerir más de 4× lo realmente vendido
-        # en los últimos 30 días. Es una red de seguridad contra modelos
-        # jóvenes que infla cantidades por promedio de categoría.
-        # Ej: si vendiste 8 mazapanes en 30 días, no podemos sugerir
-        # comprar 200 — máximo 32. Si vendiste 0, el skip de arriba
-        # ya nos sacó del loop.
-        if real_sold_30d > 0:
-            cap = Decimal(str(real_sold_30d * 4))
+        # ── SKIP ZOMBIE: producto que TUVO consumo real (últimos 90d) pero
+        # lleva 21 días en 0, mientras el forecast sigue diciendo que se vende
+        # (>0.2/día). Croston no distingue "gap intermitente" de "dejó de
+        # usarse" y predice sobre la historia vieja → sugiere comprar algo
+        # discontinuado (caso real: Syrup vainilla, última venta 8/may → 274).
+        # Requisitos para NO castigar ingredientes nuevos/derivados sin
+        # historial (esos tienen consumed_90d=0) ni slow-movers legítimos
+        # (esos tienen avg_daily_raw <= 0.2).
+        if consumed_21d == 0 and consumed_90d > 0 and avg_daily_raw > 0.2:
+            continue
+
+        # ── CAP DE SEGURIDAD: nunca sugerir más de 4× el consumo real de los
+        # últimos 30 días. Red contra modelos jóvenes / inflados por promedio
+        # de categoría. Usa el MÁXIMO entre ventas directas (SaleLine) y
+        # consumo vía receta (DailySales) para que aplique también a
+        # ingredientes (antes SaleLine=0 los dejaba sin cap).
+        cap_basis = max(float(real_sold_30d), float(consumed_30d))
+        if cap_basis > 0:
+            cap = Decimal(str(cap_basis * 4))
             if suggested_qty > cap:
-                suggested_qty = cap
+                suggested_qty = Decimal(str(cap))
 
         # Minimum 1 unit (never suggest fractional sub-unit orders)
         from math import ceil
