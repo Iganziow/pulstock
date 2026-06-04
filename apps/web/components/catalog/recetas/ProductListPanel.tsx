@@ -6,17 +6,48 @@ import type { Product } from "./types";
 
 interface ProductListPanelProps {
   products: Product[];
-  filtered: Product[];
   loading: boolean;
   searchQ: string;
   setSearchQ: (v: string) => void;
   selectedId: number | null;
   onSelect: (p: Product) => void;
+  // Paginación server-side
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+  onPrev: () => void;
+  onNext: () => void;
 }
 
 export function ProductListPanel({
-  products, filtered, loading, searchQ, setSearchQ, selectedId, onSelect,
+  products, loading, searchQ, setSearchQ, selectedId, onSelect,
+  page, pageSize, totalCount, hasNext, hasPrev, onPrev, onNext,
 }: ProductListPanelProps) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const start = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = (page - 1) * pageSize + products.length;
+  const showFooter = !loading || products.length > 0;
+
+  const navBtn = (label: string, onClick: () => void, disabled: boolean) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        border: `1px solid ${C.border}`, borderRadius: 6,
+        background: disabled ? C.bg : C.surface,
+        color: disabled ? C.mute : C.text,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        fontSize: 12, padding: "3px 9px", lineHeight: 1.4,
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, overflow: "hidden", boxShadow: C.sh }}>
 
@@ -28,7 +59,7 @@ export function ProductListPanel({
         <input
           value={searchQ}
           onChange={e => setSearchQ(e.target.value)}
-          placeholder="Filtrar productos…"
+          placeholder="Buscar productos…"
           style={{ flex: 1, border: "none", background: "transparent", fontSize: 13, outline: "none" }}
         />
         {searchQ && (
@@ -38,17 +69,17 @@ export function ProductListPanel({
       </div>
 
       {/* Product rows */}
-      <div style={{ maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
+      <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto" }}>
         {loading ? (
           <div style={{ padding: "40px 0", display: "flex", justifyContent: "center", alignItems: "center", gap: 8, color: C.mute }}>
             <Spinner size={16}/><span style={{ fontSize: 13 }}>Cargando…</span>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : products.length === 0 ? (
           <div style={{ padding: "40px 16px", textAlign: "center", color: C.mute, fontSize: 13 }}>
-            {searchQ ? "Sin resultados para ese filtro." : "No hay productos."}
+            {searchQ ? "Sin resultados para esa búsqueda." : "No hay productos."}
           </div>
         ) : (
-          filtered.map(p => (
+          products.map(p => (
             <div
               key={p.id}
               className="rec-row"
@@ -85,12 +116,21 @@ export function ProductListPanel({
         )}
       </div>
 
-      {/* Footer count */}
-      {!loading && (
-        <div style={{ padding: "8px 16px", borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.mute, background: C.bg }}>
-          {filtered.length} producto{filtered.length !== 1 ? "s" : ""}
-          {" · "}
-          {products.filter(p => p.has_recipe).length} con receta
+      {/* Footer: rango + paginación */}
+      {showFooter && (
+        <div style={{ padding: "8px 12px", borderTop: `1px solid ${C.border}`, background: C.bg, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.mute }}>
+            {totalCount === 0
+              ? "Sin productos"
+              : `Mostrando ${start}–${end} de ${totalCount}`}
+          </span>
+          {totalCount > pageSize && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {navBtn("‹ Anterior", onPrev, !hasPrev)}
+              <span style={{ fontSize: 11, color: C.mute }}>Pág. {page}/{totalPages}</span>
+              {navBtn("Siguiente ›", onNext, !hasNext)}
+            </div>
+          )}
         </div>
       )}
     </div>

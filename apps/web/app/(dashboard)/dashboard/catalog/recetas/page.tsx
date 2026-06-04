@@ -21,6 +21,11 @@ const PAGE_CSS = `
 .rec-row:hover{background:#F4F4F5}
 `;
 
+// Tamaño de página para la lista de productos. Paginación server-side: el
+// backend permite hasta max_page_size=500, pero paginamos para soportar
+// catálogos de cualquier tamaño y que la búsqueda corra en TODOS los productos.
+const PAGE_SIZE = 200;
+
 export default function RecetasPage() {
   useGlobalStyles(PAGE_CSS);
   const mob = useIsMobile();
@@ -30,6 +35,16 @@ export default function RecetasPage() {
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [searchQ, setSearchQ]           = useState("");
   const [selectedId, setSelectedId]     = useState<number | null>(null);
+  // El producto seleccionado se cachea aparte para que el editor siga
+  // mostrándolo aunque el usuario pagine a otra página de la lista.
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // Paginación server-side de la lista de productos.
+  const [page, setPage]                 = useState(1);
+  const [count, setCount]               = useState(0);
+  const [hasNext, setHasNext]           = useState(false);
+  const [hasPrev, setHasPrev]           = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [reloadKey, setReloadKey]       = useState(0);
 
   // Right panel -- recipe state
   const [recipe, setRecipe]             = useState<Recipe | null>(null);
@@ -58,23 +73,44 @@ export default function RecetasPage() {
   const [importing, setImporting]       = useState(false);
   const [importErr, setImportErr]       = useState<string | null>(null);
 
-  // ── Load products ──────────────────────────────────────────────────────────
-  const loadProducts = useCallback(async () => {
+  // ── Load products (server-side, paginado + búsqueda) ────────────────────────
+  const loadProducts = useCallback(async (pg: number, q: string) => {
     setLoadingProducts(true);
     try {
-      const data = await apiFetch("/catalog/products/?page_size=200&ordering=name");
-      const list: Product[] = Array.isArray(data) ? data : (data?.results ?? []);
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setProducts(list);
+      const params = new URLSearchParams({
+        page: String(pg), page_size: String(PAGE_SIZE), ordering: "name",
+      });
+      if (q) params.set("q", q);
+      const data = await apiFetch(`/catalog/products/?${params.toString()}`);
+      if (Array.isArray(data)) {
+        setProducts(data); setCount(data.length); setHasNext(false); setHasPrev(false);
+      } else {
+        setProducts(data?.results ?? []);
+        setCount(data?.count ?? 0);
+        setHasNext(!!data?.next);
+        setHasPrev(!!data?.previous);
+      }
     } catch (e) {
       console.error("Recetas: error cargando productos:", e);
-      setProducts([]);
+      setProducts([]); setCount(0); setHasNext(false); setHasPrev(false);
     } finally {
       setLoadingProducts(false);
     }
   }, []);
 
-  useEffect(() => { loadProducts(); }, [loadProducts]);
+  // Debounce de la búsqueda: al tipear, esperar 300ms, resetear a página 1 y
+  // disparar la búsqueda server-side (busca en TODOS los productos, no solo
+  // la página cargada).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQ.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  // Carga cuando cambia página, búsqueda (debounced) o tras un import.
+  useEffect(() => { loadProducts(page, debouncedSearch); }, [page, debouncedSearch, reloadKey, loadProducts]);
 
   // ── Load units ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -85,6 +121,7 @@ export default function RecetasPage() {
   const selectProduct = useCallback(async (p: Product) => {
     if (selectedId === p.id) return;
     setSelectedId(p.id);
+    setSelectedProduct(p);
     setRecipeErr(null);
     setIngSearch(""); setIngResults([]);
     setCreatingNew(false);
@@ -189,6 +226,7 @@ export default function RecetasPage() {
       })));
       setCreatingNew(false);
       setProducts(prev => prev.map(x => x.id === selectedId ? { ...x, has_recipe: recipeActive } : x));
+      setSelectedProduct(prev => prev && prev.id === selectedId ? { ...prev, has_recipe: recipeActive } : prev);
     } catch (e) {
       setRecipeErr(extractErr(e, "Error guardando receta"));
     } finally {
@@ -208,6 +246,7 @@ export default function RecetasPage() {
       setCreatingNew(false);
       setConfirmDeleteRecipe(false);
       setProducts(prev => prev.map(x => x.id === selectedId ? { ...x, has_recipe: false } : x));
+      setSelectedProduct(prev => prev && prev.id === selectedId ? { ...prev, has_recipe: false } : prev);
     } catch (e) {
       setRecipeErr(extractErr(e, "Error eliminando receta"));
     } finally {
@@ -237,20 +276,16 @@ export default function RecetasPage() {
       const fd = new FormData(); fd.append("file", importFile);
       const result = await apiUpload("/catalog/recipes/import-csv/", fd);
       setImportResult(result);
-      loadProducts();
+      setPage(1);
+      setReloadKey(k => k + 1);
     } catch (e) { setImportErr(extractErr(e, "Error importando recetas")); }
     finally { setImporting(false); }
   };
 
   // ── Computed ───────────────────────────────────────────────────────────────
-  const selectedProduct = products.find(p => p.id === selectedId) ?? null;
-
-  const filtered = searchQ.trim()
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(searchQ.toLowerCase()) ||
-        (p.sku ?? "").toLowerCase().includes(searchQ.toLowerCase())
-      )
-    : products;
+  // `selectedProduct` ahora es estado (cacheado al seleccionar, sobrevive al
+  // paginado). La lista `products` ya viene filtrada/paginada del server — no
+  // hay filtrado client-side (la búsqueda es server-side, ver loadProducts).
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -281,12 +316,18 @@ export default function RecetasPage() {
         {/* LEFT PANEL: Product list */}
         <ProductListPanel
           products={products}
-          filtered={filtered}
           loading={loadingProducts}
           searchQ={searchQ}
           setSearchQ={setSearchQ}
           selectedId={selectedId}
           onSelect={selectProduct}
+          page={page}
+          pageSize={PAGE_SIZE}
+          totalCount={count}
+          hasNext={hasNext}
+          hasPrev={hasPrev}
+          onPrev={() => setPage(p => Math.max(1, p - 1))}
+          onNext={() => setPage(p => p + 1)}
         />
 
         {/* RIGHT PANEL: Recipe editor */}
