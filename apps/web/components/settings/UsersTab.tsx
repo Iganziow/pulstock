@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 import type { Me } from "@/lib/me";
 import { Card, SectionHeader, Btn, Spinner, Label, iS, FL, ROLES, type User, type Store } from "./SettingsUI";
+import { PasswordInput } from "./PasswordInput";
 
 interface UsersTabProps {
   users: User[];
@@ -18,7 +19,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
 
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [nuUser, setNuUser] = useState(""); const [nuPass, setNuPass] = useState("");
-  const [nuPass2, setNuPass2] = useState(""); const [showPass, setShowPass] = useState(false);
+  const [nuPass2, setNuPass2] = useState("");
   const [nuFirst, setNuFirst] = useState(""); const [nuLast, setNuLast] = useState("");
   const [nuEmail, setNuEmail] = useState(""); const [nuRole, setNuRole] = useState("cashier");
   const [nuStoreIds, setNuStoreIds] = useState<number[]>([]);
@@ -45,7 +46,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
         }),
       });
       onRefresh(); setShowCreateUser(false);
-      setNuUser(""); setNuPass(""); setNuPass2(""); setShowPass(false);
+      setNuUser(""); setNuPass(""); setNuPass2("");
       setNuFirst(""); setNuLast(""); setNuEmail(""); setNuRole("cashier"); setNuStoreIds([]);
       flash("ok", "Usuario creado");
     } catch (e: unknown) { flash("err", e instanceof Error ? e.message : "Error creando usuario"); }
@@ -139,26 +140,11 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={FL}>
                 <Label req>Contraseña</Label>
-                <div style={{ position: "relative" }}>
-                  <input type={showPass ? "text" : "password"} value={nuPass} onChange={e => setNuPass(e.target.value)} style={{ ...iS, paddingRight: 40 }} placeholder="Mín. 8 caracteres" data-testid="nu-pass" />
-                  <button type="button" onClick={() => setShowPass(v => !v)} data-testid="toggle-pass"
-                    aria-label={showPass ? "Ocultar contraseña" : "Ver contraseña"} title={showPass ? "Ocultar" : "Ver"}
-                    style={{
-                      position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "none", border: "none", color: C.mute, cursor: "pointer", padding: 4,
-                    }}>
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                      <circle cx="12" cy="12" r="3" />
-                      {showPass && <line x1="3" y1="3" x2="21" y2="21" />}
-                    </svg>
-                  </button>
-                </div>
+                <PasswordInput value={nuPass} onChange={setNuPass} placeholder="Mín. 8 caracteres" autoComplete="new-password" testId="nu-pass" />
               </div>
               <div style={FL}>
                 <Label req>Confirmar contraseña</Label>
-                <input type={showPass ? "text" : "password"} value={nuPass2} onChange={e => setNuPass2(e.target.value)} style={iS} placeholder="Repetir contraseña" data-testid="nu-pass2" />
+                <PasswordInput value={nuPass2} onChange={setNuPass2} placeholder="Repetir contraseña" autoComplete="new-password" testId="nu-pass2" />
                 {passMismatch && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }} data-testid="pass-mismatch">Las contraseñas no coinciden</div>}
               </div>
             </div>
@@ -261,9 +247,9 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
                   <div style={FL}><Label>Apellido</Label><input value={euLast} onChange={e => setEuLast(e.target.value)} style={iS} /></div>
                 </div>
                 <div style={FL}><Label>Email</Label><input type="email" value={euEmail} onChange={e => setEuEmail(e.target.value)} style={iS} /></div>
-                <div style={FL}><Label>Nueva contraseña</Label><input type="password" value={euPw} onChange={e => setEuPw(e.target.value)} style={iS} placeholder="Dejar vacío para no cambiar" /></div>
+                <div style={FL}><Label>Nueva contraseña</Label><PasswordInput value={euPw} onChange={setEuPw} placeholder="Dejar vacío para no cambiar" autoComplete="new-password" testId="eu-pw" /></div>
                 {euPw && u.id !== me?.id && (
-                  <div style={FL}><Label req>Tu contraseña actual (para confirmar)</Label><input type="password" value={euCurrentPw} onChange={e => setEuCurrentPw(e.target.value)} style={iS} placeholder="Tu contraseña de administrador" autoComplete="current-password" /></div>
+                  <div style={FL}><Label req>Tu contraseña actual (para confirmar)</Label><PasswordInput value={euCurrentPw} onChange={setEuCurrentPw} placeholder="Tu contraseña de administrador" autoComplete="current-password" testId="eu-current-pw" /></div>
                 )}
                 <div style={FL}>
                   <Label>Rol</Label>

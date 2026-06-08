@@ -57,16 +57,17 @@ describe("UsersTab — crear usuario (mejoras)", () => {
     setup();
     await openForm(user);
     const pass = screen.getByTestId("nu-pass") as HTMLInputElement;
-    const conf = screen.getByTestId("nu-pass2") as HTMLInputElement;
     expect(pass.type).toBe("password");
-    expect(conf.type).toBe("password");
-    expect(screen.getByTestId("toggle-pass").getAttribute("aria-label")).toContain("Ver");
-    await user.click(screen.getByTestId("toggle-pass"));
+    expect(screen.getByTestId("nu-pass-toggle").getAttribute("aria-label")).toContain("Ver");
+    await user.click(screen.getByTestId("nu-pass-toggle"));
     expect(pass.type).toBe("text");
-    expect(conf.type).toBe("text");
-    expect(screen.getByTestId("toggle-pass").getAttribute("aria-label")).toContain("Ocultar");
-    await user.click(screen.getByTestId("toggle-pass"));
+    expect(screen.getByTestId("nu-pass-toggle").getAttribute("aria-label")).toContain("Ocultar");
+    await user.click(screen.getByTestId("nu-pass-toggle"));
     expect(pass.type).toBe("password");
+    // El campo Confirmar tiene su PROPIO toggle independiente
+    const conf = screen.getByTestId("nu-pass2") as HTMLInputElement;
     expect(conf.type).toBe("password");
+    await user.click(screen.getByTestId("nu-pass2-toggle"));
+    expect(conf.type).toBe("text");
   });
 });

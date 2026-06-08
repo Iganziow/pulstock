@@ -3,6 +3,7 @@ import { useState } from "react";
 import { C } from "@/lib/theme";
 import type { Me } from "@/lib/me";
 import { Card, SectionHeader, Divider, Btn, Spinner, Label, Hint, iS, FL, ROLES } from "./SettingsUI";
+import { PasswordInput } from "./PasswordInput";
 
 interface AccountTabProps {
   me: Me;
@@ -108,11 +109,11 @@ export default function AccountTab({ me, onSave, saving, mob }: AccountTabProps)
         <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "1fr 1fr", gap: 10 }}>
           <div style={FL}>
             <Label>Nueva contraseña</Label>
-            <input type="password" value={accPwNew} onChange={e => setAccPwNew(e.target.value)} style={iS} placeholder="Mínimo 8 caracteres" />
+            <PasswordInput value={accPwNew} onChange={setAccPwNew} placeholder="Mínimo 8 caracteres" autoComplete="new-password" testId="acc-pw-new" />
           </div>
           <div style={FL}>
             <Label>Confirmar contraseña</Label>
-            <input type="password" value={accPwConf} onChange={e => setAccPwConf(e.target.value)} style={iS} placeholder="Repetir contraseña" />
+            <PasswordInput value={accPwConf} onChange={setAccPwConf} placeholder="Repetir contraseña" autoComplete="new-password" testId="acc-pw-conf" />
           </div>
         </div>
         <Hint>Deja en blanco si no quieres cambiarla</Hint>
