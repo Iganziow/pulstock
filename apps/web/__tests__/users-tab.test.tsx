@@ -60,10 +60,11 @@ describe("UsersTab — crear usuario (mejoras)", () => {
     const conf = screen.getByTestId("nu-pass2") as HTMLInputElement;
     expect(pass.type).toBe("password");
     expect(conf.type).toBe("password");
+    expect(screen.getByTestId("toggle-pass").getAttribute("aria-label")).toContain("Ver");
     await user.click(screen.getByTestId("toggle-pass"));
     expect(pass.type).toBe("text");
     expect(conf.type).toBe("text");
-    expect(screen.getByTestId("toggle-pass").textContent).toContain("Ocultar");
+    expect(screen.getByTestId("toggle-pass").getAttribute("aria-label")).toContain("Ocultar");
     await user.click(screen.getByTestId("toggle-pass"));
     expect(pass.type).toBe("password");
     expect(conf.type).toBe("password");

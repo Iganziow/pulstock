@@ -140,11 +140,20 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
               <div style={FL}>
                 <Label req>Contraseña</Label>
                 <div style={{ position: "relative" }}>
-                  <input type={showPass ? "text" : "password"} value={nuPass} onChange={e => setNuPass(e.target.value)} style={{ ...iS, paddingRight: 70 }} placeholder="Mín. 8 caracteres" data-testid="nu-pass" />
-                  <button type="button" onClick={() => setShowPass(v => !v)} data-testid="toggle-pass" style={{
-                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                    background: "none", border: "none", color: C.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0,
-                  }}>{showPass ? "Ocultar" : "Ver"}</button>
+                  <input type={showPass ? "text" : "password"} value={nuPass} onChange={e => setNuPass(e.target.value)} style={{ ...iS, paddingRight: 40 }} placeholder="Mín. 8 caracteres" data-testid="nu-pass" />
+                  <button type="button" onClick={() => setShowPass(v => !v)} data-testid="toggle-pass"
+                    aria-label={showPass ? "Ocultar contraseña" : "Ver contraseña"} title={showPass ? "Ocultar" : "Ver"}
+                    style={{
+                      position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "none", border: "none", color: C.mute, cursor: "pointer", padding: 4,
+                    }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                      <circle cx="12" cy="12" r="3" />
+                      {showPass && <line x1="3" y1="3" x2="21" y2="21" />}
+                    </svg>
+                  </button>
                 </div>
               </div>
               <div style={FL}>
