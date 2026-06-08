@@ -18,6 +18,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
 
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [nuUser, setNuUser] = useState(""); const [nuPass, setNuPass] = useState("");
+  const [nuPass2, setNuPass2] = useState(""); const [showPass, setShowPass] = useState(false);
   const [nuFirst, setNuFirst] = useState(""); const [nuLast, setNuLast] = useState("");
   const [nuEmail, setNuEmail] = useState(""); const [nuRole, setNuRole] = useState("cashier");
   const [nuStoreIds, setNuStoreIds] = useState<number[]>([]);
@@ -32,6 +33,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
   };
 
   const createUser = async () => {
+    if (nuPass !== nuPass2) { flash("err", "Las contraseñas no coinciden"); return; }
     setSaving(true);
     try {
       await apiFetch("/core/users/", {
@@ -43,7 +45,8 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
         }),
       });
       onRefresh(); setShowCreateUser(false);
-      setNuUser(""); setNuPass(""); setNuFirst(""); setNuLast(""); setNuEmail(""); setNuRole("cashier"); setNuStoreIds([]);
+      setNuUser(""); setNuPass(""); setNuPass2(""); setShowPass(false);
+      setNuFirst(""); setNuLast(""); setNuEmail(""); setNuRole("cashier"); setNuStoreIds([]);
       flash("ok", "Usuario creado");
     } catch (e: unknown) { flash("err", e instanceof Error ? e.message : "Error creando usuario"); }
     finally { setSaving(false); }
@@ -83,6 +86,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
   };
 
   const multiStore = stores.length > 1;
+  const passMismatch = nuPass2.length > 0 && nuPass !== nuPass2;
 
   function StoreChips({ selected, onToggle, role }: { selected: number[]; onToggle: (sid: number) => void; role: string }) {
     if (role === "owner") return <div style={{ fontSize: 12, color: C.mute, fontStyle: "italic" }}>Los dueños acceden a todos los locales automáticamente.</div>;
@@ -127,9 +131,27 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
         <Card style={{ borderColor: C.accentBd }}>
           <SectionHeader icon="👤" title="Crear usuario" desc="El usuario podrá acceder al sistema con estas credenciales" />
           <div style={{ display: "grid", gap: 12 }}>
+            <div style={FL}>
+              <Label req>Usuario</Label>
+              <input value={nuUser} onChange={e => setNuUser(e.target.value)} style={{ ...iS, fontFamily: C.mono }} placeholder="jperez" data-testid="nu-user" />
+              <div style={{ fontSize: 11, color: C.mute, marginTop: 3 }}>(usuario para entrar al sistema)</div>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={FL}><Label req>Usuario</Label><input value={nuUser} onChange={e => setNuUser(e.target.value)} style={{ ...iS, fontFamily: C.mono }} placeholder="jperez" /></div>
-              <div style={FL}><Label req>Contraseña</Label><input type="password" value={nuPass} onChange={e => setNuPass(e.target.value)} style={iS} placeholder="Mín. 8 caracteres" /></div>
+              <div style={FL}>
+                <Label req>Contraseña</Label>
+                <div style={{ position: "relative" }}>
+                  <input type={showPass ? "text" : "password"} value={nuPass} onChange={e => setNuPass(e.target.value)} style={{ ...iS, paddingRight: 70 }} placeholder="Mín. 8 caracteres" data-testid="nu-pass" />
+                  <button type="button" onClick={() => setShowPass(v => !v)} data-testid="toggle-pass" style={{
+                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", color: C.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0,
+                  }}>{showPass ? "Ocultar" : "Ver"}</button>
+                </div>
+              </div>
+              <div style={FL}>
+                <Label req>Confirmar contraseña</Label>
+                <input type={showPass ? "text" : "password"} value={nuPass2} onChange={e => setNuPass2(e.target.value)} style={iS} placeholder="Repetir contraseña" data-testid="nu-pass2" />
+                {passMismatch && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }} data-testid="pass-mismatch">Las contraseñas no coinciden</div>}
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={FL}><Label>Nombre</Label><input value={nuFirst} onChange={e => setNuFirst(e.target.value)} style={iS} /></div>
@@ -154,7 +176,7 @@ export default function UsersTab({ users, me, stores, onRefresh, flash }: UsersT
             <StoreChips selected={nuStoreIds} onToggle={sid => toggleStore(nuStoreIds, setNuStoreIds, sid)} role={nuRole} />
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <Btn onClick={() => setShowCreateUser(false)} variant="secondary">Cancelar</Btn>
-              <Btn onClick={createUser} disabled={saving || !nuUser || !nuPass || (nuRole !== "owner" && multiStore && nuStoreIds.length === 0)} variant="success">
+              <Btn onClick={createUser} disabled={saving || !nuUser || !nuPass || !nuPass2 || nuPass !== nuPass2 || (nuRole !== "owner" && multiStore && nuStoreIds.length === 0)} variant="success">
                 {saving ? <><Spinner /> Creando...</> : "Crear usuario"}
               </Btn>
             </div>
