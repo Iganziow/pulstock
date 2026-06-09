@@ -295,6 +295,11 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
+    # Actualiza User.last_login al obtener token (login). Por defecto simplejwt
+    # NO lo toca → la lista de usuarios mostraba "Nunca accedió" para todos
+    # aunque entraran a diario. (Se complementa con el update en el refresh
+    # para reflejar uso activo, no solo el login con credenciales.)
+    "UPDATE_LAST_LOGIN": True,
 }
 
 # ======================================================

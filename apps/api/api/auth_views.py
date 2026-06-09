@@ -5,6 +5,7 @@
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -132,6 +133,13 @@ class CookieTokenRefreshView(APIView):
             resp = Response({"detail": "Tu negocio ha sido suspendido."}, status=401)
             _clear_token_cookies(resp)
             return resp
+
+        # Reflejar uso ACTIVO: cada refresh (~1/hora para usuarios activos)
+        # actualiza last_login. Así "Último acceso" en la lista de usuarios
+        # muestra la actividad real y no "Nunca accedió" para cuentas de uso
+        # diario que casi nunca re-ingresan credenciales (viven del refresh).
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
 
         new = RefreshToken.for_user(user)
         access = str(new.access_token)
