@@ -304,6 +304,7 @@ def get_losses(t_id, s_id, warehouse_id=None, reason=None, date_from=None, date_
             "created_at": m.created_at.isoformat(),
             "product_id": m.product_id,
             "product_name": m.product.name if m.product else None,
+            "sku": (m.product.sku or "") if m.product else "",
             "category": m.product.category.name if m.product and m.product.category else None,
             "warehouse_id": m.warehouse_id,
             "warehouse_name": m.warehouse.name if m.warehouse else None,

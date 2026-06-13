@@ -339,16 +339,22 @@ def _session_summary(session):
 
     # Fase D (25/05/26): distinguir ventas LEGACY (SalePayment.amount incluye
     # propina) vs FASE A (SalePayment.amount = solo venta, propina aparte).
-    # Heuristica por venta usando Sale.subtotal (invariante en ambos casos):
-    #   Si sum(SalePayment per sale) > Sale.subtotal + tolerancia → LEGACY
+    # Discriminador = Sale.total (NETO post-descuento, SIN tip):
+    #   - LEGACY:  payment = total + tip  → sum_payments − total = tip > 0
+    #   - FASE A:  payment = total        → sum_payments − total = 0
+    #   Si sum(SalePayment per sale) > Sale.total + tolerancia → LEGACY
     #     → SaleTip(method=X) representa propina YA EMBEBIDA en SalePayment(X)
     #     → restarla de "sales" para mostrar venta neta
     #     → NO sumarla a expected_cash (ya está en cash_payments_total)
-    #   Si sum(SalePayment per sale) <= Sale.subtotal → FASE A
+    #   Si sum(SalePayment per sale) <= Sale.total → FASE A
     #     → SaleTip(cash) representa cash FISICO ADICIONAL al payment
     #     → NO restarla de "sales" (payment ya es solo venta)
     #     → SI sumarla a expected_cash (es cash extra que entró)
-    sale_subtotals_map = dict(sales_in_range.values_list("id", "subtotal"))
+    # FIX (09/06/26): antes usaba Sale.subtotal (pre-descuento). Con un
+    # descuento >= tip, una venta legacy se mal-clasificaba como Fase A y el
+    # cash tip embebido se contaba dos veces → descuadre. Sale.total ya
+    # descuenta el descuento, así que el discriminador es robusto.
+    sale_totals_map = dict(sales_in_range.values_list("id", "total"))
     payments_per_sale = {}  # sale_id -> {method: sum_amount}
     for sp in SalePayment.objects.filter(
         sale_id__in=sale_ids_in_range,
@@ -359,9 +365,9 @@ def _session_summary(session):
     legacy_sale_ids = set()
     fase_a_sale_ids = set()
     for sid, payments_methods in payments_per_sale.items():
-        sale_subtotal = sale_subtotals_map.get(sid, zero) or zero
+        sale_total = sale_totals_map.get(sid, zero) or zero
         sum_payments = sum(payments_methods.values(), zero)
-        if sum_payments - sale_subtotal > Decimal("0.01"):
+        if sum_payments - sale_total > Decimal("0.01"):
             legacy_sale_ids.add(sid)
         else:
             fase_a_sale_ids.add(sid)

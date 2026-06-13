@@ -93,9 +93,10 @@ class SalesSummaryExportView(APIView):
         headers = ["Fecha", "Ventas", "Ingresos", "Costo", "Ganancia", "Margen %"]
         rows = []
         for day in data.get("daily", []):
-            revenue = float(day.get("total", 0))
+            # get_sales_summary["daily"] entrega revenue/cost/count (no total/profit).
+            revenue = float(day.get("revenue", 0))
             cost = float(day.get("cost", 0))
-            profit = float(day.get("profit", 0))
+            profit = revenue - cost
             margin = round((profit / revenue * 100), 1) if revenue else 0
             rows.append([
                 day.get("date", ""),
@@ -127,15 +128,16 @@ class LossesExportView(APIView):
 
         headers = ["Fecha", "Producto", "SKU", "Bodega", "Razón", "Cantidad", "Costo perdido"]
         rows = []
+        # get_losses["details"] entrega created_at (ISO) y value_lost (no date/cost).
         for item in data.get("details", []):
             rows.append([
-                item.get("date", ""),
+                (item.get("created_at", "") or "")[:10],
                 item.get("product_name", ""),
                 item.get("sku", ""),
                 item.get("warehouse_name", ""),
                 item.get("reason", ""),
                 float(item.get("qty", 0)),
-                float(item.get("cost", 0)),
+                float(item.get("value_lost", 0)),
             ])
 
         return _make_wb("Mermas", headers, rows, f"mermas_{date_from}_{date_to}.xlsx")
@@ -157,17 +159,16 @@ class StockValuedExportView(APIView):
 
         headers = ["Bodega", "SKU", "Producto", "Stock", "Costo promedio", "Valor stock"]
         rows = []
-        for wh in data.get("warehouses", []):
-            wh_name = wh.get("warehouse_name", "")
-            for item in wh.get("items", []):
-                rows.append([
-                    wh_name,
-                    item.get("sku", ""),
-                    item.get("product_name", ""),
-                    float(item.get("on_hand", 0)),
-                    float(item.get("avg_cost", 0)),
-                    float(item.get("stock_value", 0)),
-                ])
+        # get_stock_valued entrega una lista plana en "results" (no warehouses/items).
+        for item in data.get("results", []):
+            rows.append([
+                item.get("warehouse_name", ""),
+                item.get("sku", ""),
+                item.get("name", ""),
+                float(item.get("on_hand", 0)),
+                float(item.get("avg_cost", 0)),
+                float(item.get("stock_value", 0)),
+            ])
 
         return _make_wb("Stock Valorizado", headers, rows, "stock_valorizado.xlsx")
 
@@ -186,6 +187,7 @@ class AuditTrailExportView(APIView):
 
         qs = StockMove.objects.filter(
             tenant_id=t_id,
+            warehouse__store_id=s_id,  # scope a la tienda activa (igual que get_audit_trail)
             created_at__date__gte=date_from,
             created_at__date__lte=date_to,
         ).select_related("product", "warehouse", "created_by").order_by("-created_at")
@@ -308,9 +310,10 @@ class SalesSummaryPDFView(APIView):
         headers = ["Fecha", "Ventas", "Ingresos", "Costo", "Ganancia", "Margen %"]
         rows = []
         for day in data.get("daily", []):
-            revenue = float(day.get("total", 0))
+            # get_sales_summary["daily"] entrega revenue/cost/count (no total/profit).
+            revenue = float(day.get("revenue", 0))
             cost = float(day.get("cost", 0))
-            profit = float(day.get("profit", 0))
+            profit = revenue - cost
             margin = round((profit / revenue * 100), 1) if revenue else 0
             rows.append([day.get("date", ""), day.get("count", 0),
                          f"${revenue:,.0f}", f"${cost:,.0f}", f"${profit:,.0f}", f"{margin}%"])
@@ -332,13 +335,12 @@ class StockValuedPDFView(APIView):
 
         headers = ["Bodega", "SKU", "Producto", "Stock", "Costo prom.", "Valor"]
         rows = []
-        for wh in data.get("warehouses", []):
-            wh_name = wh.get("warehouse_name", "")
-            for item in wh.get("items", []):
-                rows.append([wh_name, item.get("sku", ""), item.get("product_name", ""),
-                             float(item.get("on_hand", 0)),
-                             f"${float(item.get('avg_cost', 0)):,.0f}",
-                             f"${float(item.get('stock_value', 0)):,.0f}"])
+        # get_stock_valued entrega una lista plana en "results" (no warehouses/items).
+        for item in data.get("results", []):
+            rows.append([item.get("warehouse_name", ""), item.get("sku", ""), item.get("name", ""),
+                         float(item.get("on_hand", 0)),
+                         f"${float(item.get('avg_cost', 0)):,.0f}",
+                         f"${float(item.get('stock_value', 0)):,.0f}"])
 
         return _make_pdf("Stock Valorizado", headers, rows,
                          "stock_valorizado.pdf", landscape_mode=True)
@@ -361,11 +363,12 @@ class LossesPDFView(APIView):
 
         headers = ["Fecha", "Producto", "SKU", "Bodega", "Razón", "Cant.", "Costo"]
         rows = []
+        # get_losses["details"] entrega created_at (ISO) y value_lost (no date/cost).
         for item in data.get("details", []):
-            rows.append([item.get("date", ""), item.get("product_name", ""),
+            rows.append([(item.get("created_at", "") or "")[:10], item.get("product_name", ""),
                          item.get("sku", ""), item.get("warehouse_name", ""),
                          item.get("reason", ""), float(item.get("qty", 0)),
-                         f"${float(item.get('cost', 0)):,.0f}"])
+                         f"${float(item.get('value_lost', 0)):,.0f}"])
 
         return _make_pdf("Mermas / Pérdidas", headers, rows,
                          f"mermas_{date_from}_{date_to}.pdf")
@@ -384,6 +387,7 @@ class AuditTrailPDFView(APIView):
 
         qs = StockMove.objects.filter(
             tenant_id=t_id,
+            warehouse__store_id=s_id,  # scope a la tienda activa (igual que get_audit_trail)
             created_at__date__gte=date_from,
             created_at__date__lte=date_to,
         ).select_related("product", "warehouse", "created_by").order_by("-created_at")
@@ -426,7 +430,8 @@ class ABCAnalysisPDFView(APIView):
 
         headers = ["#", "Producto", "SKU", "Clase", "Revenue", "Costo", "Utilidad", "Margen", "Contrib.%"]
         rows = []
-        for item in data.get("items", []):
+        # get_abc_analysis entrega la lista en "results" (no "items").
+        for item in data.get("results", []):
             rows.append([
                 item.get("rank", ""), item.get("product_name", ""),
                 item.get("sku", ""), item.get("abc_class", ""),

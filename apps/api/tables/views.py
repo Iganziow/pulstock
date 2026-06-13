@@ -599,6 +599,11 @@ class CheckoutView(APIView):
         if mode not in ("all", "partial"):
             return Response({"detail": "mode must be 'all' or 'partial'"}, status=400)
 
+        # Idempotencia del cobro: el frontend manda una key estable por intento
+        # de checkout. Si hay retry (timeout/doble-tap) devolvemos la venta
+        # original en vez de error.
+        idempotency_key = (request.data.get("idempotency_key") or "").strip()[:64]
+
         line_ids = request.data.get("line_ids") or []
         # line_qtys: dict {line_id: qty_a_cobrar} para cobro parcial de
         # cada line. Si line_id no esta en el dict, cobra qty completa.
@@ -710,6 +715,7 @@ class CheckoutView(APIView):
                 line_qtys=line_qtys,
                 user=request.user,
                 sale_type=sale_type,
+                idempotency_key=idempotency_key,
             )
         except CheckoutError as exc:
             return Response(exc.detail, status=exc.status_code)

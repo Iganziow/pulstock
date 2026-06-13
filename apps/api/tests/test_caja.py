@@ -427,7 +427,12 @@ class TestTipsCashFlowReconciliation:
             cash_session=session,
             status="COMPLETED",
             sale_type=Sale.SALE_TYPE_VENTA,
-            subtotal=D(total), total=D(total) + D(tip),
+            # Sale.total NO incluye la propina (ver modelo + create_sale:
+            # total = subtotal − descuento). La propina viaja embebida en
+            # SalePayment.amount (legacy). Antes este fixture seteaba
+            # total = venta + tip, lo cual era incorrecto y solo "funcionaba"
+            # porque la clasificación legacy/Fase A usaba subtotal.
+            subtotal=D(total), total=D(total),
             tip=D(tip),
             total_cost=D("0"), gross_profit=D("0"),
         )
@@ -511,7 +516,9 @@ class TestTipsCashFlowReconciliation:
             cash_session=session,
             status="COMPLETED",
             sale_type=Sale.SALE_TYPE_VENTA,
-            subtotal=D("8000"), total=D("9000"),
+            # total = venta neta (8000), SIN la propina. La propina (1000)
+            # viaja embebida en los SalePayment (5625 + 3375 = 9000 = venta+tip).
+            subtotal=D("8000"), total=D("8000"),
             tip=D("1000"),
             total_cost=D("0"), gross_profit=D("0"),
         )

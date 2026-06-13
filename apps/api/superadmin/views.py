@@ -1464,6 +1464,15 @@ class AdminUserResetPasswordView(APIView):
         import secrets, string
         user = get_object_or_404(User, pk=user_id)
 
+        # Este flujo es para usuarios de tenants ("cliente olvidó su pass").
+        # NUNCA permitir resetear la contraseña de otro superusuario de la
+        # plataforma — eso sería escalamiento/takeover entre admins.
+        if user.is_superuser:
+            return Response(
+                {"detail": "No se puede resetear la contraseña de un superusuario."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # Pass legible: 12 chars, sin caracteres confusos (0/O, 1/l/I)
         alphabet = string.ascii_letters + string.digits
         alphabet = "".join(c for c in alphabet if c not in "0OIl1")

@@ -284,7 +284,7 @@ export function TipsTable({
         background: C.surface,
         border: `1px solid ${C.border}`,
         borderRadius: 8,
-        overflow: "hidden",
+        overflowX: "auto",
       }}>
         {loading && (
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><Spinner /></div>
@@ -295,7 +295,7 @@ export function TipsTable({
           </div>
         )}
         {!loading && data && data.results.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
+          <div>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
               <thead>
                 <tr style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>

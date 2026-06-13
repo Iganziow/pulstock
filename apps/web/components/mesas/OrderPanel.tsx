@@ -69,6 +69,17 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     return idemKeyRef.current;
   }
 
+  // UUID estable por INTENTO de cobro. Se mantiene mientras el checkout
+  // falla (timeout/red) para que el reintento mande la MISMA key → el
+  // backend devuelve la venta original en vez de duplicar/errorear. Se
+  // resetea SOLO al cobrar con éxito, así el próximo cobro (ej. otra parte
+  // de un cobro parcial) usa una key nueva.
+  const checkoutKeyRef = useRef<string | null>(null);
+  function ensureCheckoutKey(): string {
+    if (!checkoutKeyRef.current) checkoutKeyRef.current = crypto.randomUUID();
+    return checkoutKeyRef.current;
+  }
+
   // Polling: refrescar la mesa cada 30s para mitigar el caso de
   // concurrencia entre dispositivos (cajero A agrega items, cajero B
   // ve los cambios sin tener que cerrar y reabrir la mesa).
@@ -403,8 +414,12 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           // qty < total (PaymentModal ya filtro lo que toca).
           line_qtys: lineQtys,
           sale_type: saleType || "VENTA",
+          // Idempotencia: dedupe de retry por timeout/doble-tap.
+          idempotency_key: ensureCheckoutKey(),
         }),
       });
+      // Cobro OK → resetear la key para que el próximo cobro use una nueva.
+      checkoutKeyRef.current = null;
       setShowPayment(false);
       const saleId = res?.sale_id || res?.id || null;
       setLastSaleId(saleId);

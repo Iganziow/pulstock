@@ -36,6 +36,7 @@ def checkout_order(
                      # (1 chaparrita de 2). Si no se pasa, cobra qty completa.
     user,
     sale_type="VENTA",
+    idempotency_key="",  # opcional: dedupe de cobros (retry por timeout/doble-tap)
 ):
     """
     Checkout (pay) an open table order.
@@ -57,6 +58,24 @@ def checkout_order(
     Returns the Sale instance created.
     Raises CheckoutError, SaleValidationError, StockShortageError.
     """
+    # Idempotencia (retry por timeout / doble-tap): el doble cobro ya está
+    # prevenido por select_for_update + status=OPEN + guardas de líneas
+    # pagadas, pero sin esto el reintento devolvía un 404 confuso. Si este
+    # checkout ya se procesó (misma key), devolvemos la venta original con
+    # el mismo shape que create_sale en vez de un error.
+    if idempotency_key:
+        from sales.models import Sale
+        from sales.services import _idempotent_response
+        existing = Sale.objects.filter(
+            tenant_id=tenant_id, store_id=store_id, idempotency_key=idempotency_key,
+        ).first()
+        if existing:
+            logger.info(
+                "checkout_order: retry idempotente key=%s → sale #%s",
+                idempotency_key, existing.id,
+            )
+            return _idempotent_response(existing)
+
     try:
         order = OpenOrder.objects.select_for_update().select_related("table").get(
             id=order_id, tenant_id=tenant_id, store_id=store_id, status=OpenOrder.STATUS_OPEN
@@ -126,6 +145,7 @@ def checkout_order(
         tip=tip,
         tips_in=tips_in,
         sale_type=sale_type,
+        idempotency_key=idempotency_key,
     )
 
     sale = result["sale"]

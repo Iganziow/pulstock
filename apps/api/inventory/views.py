@@ -15,7 +15,7 @@ from rest_framework import status, generics
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.pagination import LimitOffsetPagination, PageNumberPagination
 
-from core.permissions import HasTenant
+from core.permissions import HasTenant, IsInventoryOrManager
 from core.models import Warehouse
 from catalog.models import Product
 from .models import StockItem, StockMove, StockTransfer, StockTransferLine
@@ -184,7 +184,9 @@ class StockAdjust(APIView):
       - si qty < 0: descuenta valor al avg_cost actual
     Nota: si quieres permitir "ajuste con costo", se agrega unit_cost al serializer.
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    # Escritura de inventario: solo owner/manager/inventory (no cashier).
+    # Un cajero podía sobreescribir avg_cost / mover stock → corrupción de costos.
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request):
@@ -289,7 +291,8 @@ class StockAdjust(APIView):
 
 
 class StockReceive(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    # Escritura de inventario: solo owner/manager/inventory (no cashier).
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request):
@@ -362,6 +365,16 @@ class StockReceive(APIView):
             value_delta=in_value,      # +valor
         )
 
+        # Aviso si la recepción quedó sin costo (avg_cost=0): los reportes de
+        # margen mostrarán 100% hasta que se cargue el costo real (vía compra
+        # o ajuste con costo). El frontend puede mostrar este aviso al usuario.
+        cost_warning = None
+        if (si.avg_cost or Decimal("0")) <= 0:
+            cost_warning = (
+                "Esta recepción quedó sin costo (costo promedio = 0). "
+                "El margen en reportes será 100% hasta cargar el costo real."
+            )
+
         return Response(
             {
                 "move_id": move.id,
@@ -371,6 +384,7 @@ class StockReceive(APIView):
                 "avg_cost": str(si.avg_cost),
                 "stock_value": str(si.stock_value),
                 "warehouse_store_id": getattr(wh, "store_id", None),
+                "cost_warning": cost_warning,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -381,7 +395,8 @@ class StockIssue(APIView):
     Salida con motivo.
     Costeo: usa avg_cost actual del StockItem como snapshot.
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    # Escritura de inventario: solo owner/manager/inventory (no cashier).
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request):
@@ -650,7 +665,8 @@ class StockTransferCreate(APIView):
       - snapshot = avg_cost ORIGEN
       - destino recalcula avg_cost ponderado (old_qty, old_avg, in_qty, snapshot_cost)
     """
-    permission_classes = [IsAuthenticated, HasTenant]
+    # Escritura de inventario: solo owner/manager/inventory (no cashier).
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     @transaction.atomic
     def post(self, request):

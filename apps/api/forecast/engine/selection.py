@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 # por diferencias marginales noche a noche.
 MASE_OVERRIDE_MARGIN = 0.85
 
+# Cuando la propia Croston no vence al naive (MASE > 1.2), la ventana de backtest
+# tuvo muy pocos eventos de demanda → la comparación es ruido estadístico.
+# En ese caso exigimos mejora del 35% para no cambiar al algoritmo teóricamente
+# incorrecto por un artefacto de la serie escasa.
+MASE_OVERRIDE_MARGIN_SPARSE = 0.65
+MASE_CROSTON_SPARSE_THRESHOLD = 1.2
+
 
 def select_best_model(daily_series, window=21, horizon=14, test_days=7,
                       month_factors=None, demand_pattern=None, stockout_dates=None):
@@ -183,7 +190,15 @@ def choose_best(candidates, demand_pattern):
         ]
         if croston:
             best_croston = min(croston, key=_key)
-            if _mase(best_overall) < _mase(best_croston) * MASE_OVERRIDE_MARGIN:
+            # Cuando Croston mismo no vence al naive (MASE > umbral), la ventana
+            # de backtest tenía demasiado pocos eventos → ruido. Exigir margen
+            # más estricto para no abandonar el algoritmo teóricamente correcto.
+            effective_margin = (
+                MASE_OVERRIDE_MARGIN
+                if _mase(best_croston) <= MASE_CROSTON_SPARSE_THRESHOLD
+                else MASE_OVERRIDE_MARGIN_SPARSE
+            )
+            if _mase(best_overall) < _mase(best_croston) * effective_margin:
                 return best_overall
             return best_croston
         return best_overall

@@ -57,19 +57,37 @@ class TestCrostonPreferenceForIntermittent:
             f"obtuvo {result['algorithm']}"
         )
 
-    def test_lumpy_pattern_picks_croston_when_available(self):
-        """Pattern lumpy también prefiere Croston."""
+    def test_lumpy_pattern_no_colapsa_a_cero(self):
+        """Pattern lumpy: el modelo ganador no debe colapsar a forecast ~0.
+        Croston es preferido, pero adaptive_ma puede ganar si detecta un
+        patrón day-of-week real y supera a Croston por >= 15% en MASE.
+        El test original (Croston obligatorio) fue escrito antes de F8
+        (day-of-week awareness en adaptive_ma), cuando el bug era que MA
+        ganaba 'promediando a cero'. Ahora adaptive_ma produce forecasts
+        reales para lumpy — si genuinamente gana, es el comportamiento correcto."""
         from datetime import date, timedelta
-        # Lumpy: intermitente con tamaños MUY variables
         base = date(2026, 4, 1)
         series = [(base + timedelta(days=d), 0.0) for d in range(30)]
-        # Sustituir días específicos
-        consume = {3: 1, 10: 50, 17: 2, 24: 100}  # variabilidad alta
+        consume = {3: 1, 10: 50, 17: 2, 24: 100}
         for d, q in consume.items():
             series[d] = (series[d][0], float(q))
 
         result = select_best_model(series, demand_pattern="lumpy")
-        assert result["algorithm"] in ("croston", "croston_sba", "none")
+        fc_total = sum(
+            float(f.get("qty_predicted", 0) or 0)
+            for f in result.get("forecasts", [])
+        )
+        # El forecast no debe ser un cero colapsado (eso sería operativamente inútil).
+        assert fc_total > 0.5, (
+            f"Forecast colapsado a ~0: {result['algorithm']} fc_total={fc_total:.3f}"
+        )
+        # Si no es Croston, debe al menos vencer al naive (MASE < 1.0).
+        if result["algorithm"] not in ("croston", "croston_sba", "none"):
+            mase_val = result["metrics"].get("mase", 999)
+            assert mase_val < 1.0, (
+                f"Non-Croston '{result['algorithm']}' gana pero no vence al naive "
+                f"(MASE={mase_val:.3f}). El guard debería haberlo bloqueado."
+            )
 
     def test_smooth_pattern_unchanged(self):
         """Pattern smooth NO debe cambiar de comportamiento — sigue

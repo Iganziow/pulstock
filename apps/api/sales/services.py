@@ -155,6 +155,15 @@ def create_sale(
     """
     payments_in = payments_in or []
 
+    # Defensa: la propina nunca puede ser negativa. Un tip < 0 reduciría el
+    # grand_total a cobrar (camino legacy: subtotal_neto + tip) → subcobro.
+    # El POS parsea con safe_decimal (no clampa); mesas ya clampa, pero acá
+    # cubrimos cualquier caller (API directa incluida).
+    try:
+        tip = max(Decimal("0"), Decimal(str(tip or 0)))
+    except (ValueError, ArithmeticError, TypeError):
+        tip = Decimal("0")
+
     # ── 0. Normalizar tips_in (Fase A: propinas explicitas, opt-in) ──
     # Si tips_in NO se pasa (frontend legacy) → tips_in_explicit = None →
     # camino legacy: SalePayment.amount incluye propina, SaleTip se crea por

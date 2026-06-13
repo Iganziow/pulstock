@@ -61,7 +61,8 @@ def send_weekly_abc_report(self):
             logger.warning("ABC analysis failed for tenant %s: %s", tenant.id, e)
             continue
 
-        items = data.get("items", [])
+        # get_abc_analysis entrega la lista en "results" (no "items").
+        items = data.get("results", [])
         if not items:
             continue
 
