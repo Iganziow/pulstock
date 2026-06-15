@@ -106,7 +106,33 @@ class Command(BaseCommand):
                     wape = None
                     new_reason = f"Sin comparaciones reales en últimos {days} días — calibración default"
 
-                new_label = label_from_wape(wape)
+                # Mario (15/06/26): para demanda intermitente/lumpy el WAPE real
+                # día-a-día es estructuralmente alto aunque la TASA esté bien
+                # capturada — usar WAPE acá mandaba todos los dulces esporádicos
+                # a very_low. Para esos patrones calibramos con MASE (del
+                # backtest), igual criterio que en el entrenamiento. Smooth y
+                # resto siguen con el WAPE real (que es el aporte de este comando).
+                if fm.demand_pattern in ("intermittent", "lumpy"):
+                    from forecast.services import compute_confidence_label
+                    stored_mase = (fm.metrics or {}).get("mase")
+                    new_label, _ = compute_confidence_label(
+                        fm.data_points,
+                        wape if wape is not None else 999.0,
+                        fm.demand_pattern,
+                        mase=stored_mase,
+                    )
+                    # Conservar el texto "WAPE real ..." (lo usa el dashboard) y
+                    # sumar la nota de MASE — la confianza acá toma la mejor de
+                    # ambas señales (ver compute_confidence_label).
+                    mase_txt = ""
+                    try:
+                        if stored_mase is not None and 0 < float(stored_mase) < 5:
+                            mase_txt = f"; MASE backtest {float(stored_mase):.2f}"
+                    except (TypeError, ValueError):
+                        pass
+                    new_reason = f"{new_reason}{mase_txt} — demanda {fm.demand_pattern}"
+                else:
+                    new_label = label_from_wape(wape)
                 old_label = fm.confidence_label
 
                 # Fase 5 (25/05/26): guardar el WAPE REAL en metrics para que

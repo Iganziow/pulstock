@@ -54,21 +54,36 @@ D0 = Decimal("0.000")
 D2 = Decimal("0.01")
 
 
-def compute_confidence_label(data_points: int, error_pct: float, demand_pattern: str) -> tuple[str, str]:
+def compute_confidence_label(
+    data_points: int, error_pct: float, demand_pattern: str, mase: float | None = None,
+) -> tuple[str, str]:
     """
     Return (label, reason) for human-readable confidence.
 
-    `error_pct` debe ser WAPE (Weighted Absolute Percentage Error), NO el
-    MAPE clasico. Bug 1 (22/05/26): el MAPE explota con demanda intermitente
-    (llegaba a 15.000%) y tiraba toda la confianza a "low". WAPE es robusto.
+    `error_pct` debe ser WAPE (Weighted Absolute Percentage Error) — para
+    patrones SMOOTH. Bug 1 (22/05/26): el MAPE explota con demanda
+    intermitente y tiraba toda la confianza a "low". WAPE es robusto.
 
-    Rules (cumulative, sobre WAPE):
-    - data_points >= 180 AND wape < 20 → very_high
-    - data_points >= 60  AND wape < 35 → high
-    - data_points >= 21  AND wape < 55 → medium
-    - data_points >= 7   OR  wape < 80 → low
-    - else → very_low
-    Intermittent/lumpy patterns cap at "high".
+    Mario (15/06/26): para demanda INTERMITTENT/LUMPY el WAPE día-a-día es
+    estructuralmente alto (siempre >100%) aunque el modelo capture bien la
+    TASA de consumo — esto mandaba TODOS los dulces esporádicos a
+    "low/very_low" y la etiqueta dejaba de ser útil. Para esos patrones la
+    confianza se mide con MASE (¿le gana al naive? = ¿la tasa es confiable?),
+    no con WAPE. Smooth sigue calibrándose con WAPE.
+
+    Smooth (sobre WAPE):
+      data_points>=180 & wape<20 → very_high
+      data_points>=60  & wape<35 → high
+      data_points>=21  & wape<55 → medium
+      data_points>=7   | wape<80 → low
+      else → very_low
+
+    Intermittent/lumpy (sobre MASE, tope 'high' — nunca 'very_high'):
+      mase inválido (None/≤0/≥5 → producto ~sin ventas, naive≈0) → very_low
+      data_points>=60 & mase<0.8 → high
+      data_points>=30 & mase<1.0 → medium
+      data_points>=14 & mase<1.4 → low
+      else → very_low
     """
     parts = []
     if data_points >= 180:
@@ -78,13 +93,57 @@ def compute_confidence_label(data_points: int, error_pct: float, demand_pattern:
     else:
         parts.append(f"{data_points} días de datos")
 
+    rank = ["very_low", "low", "medium", "high", "very_high"]
+
+    # ── Intermittent/lumpy: confiar si CUALQUIER señal es buena ──
+    # El WAPE día-a-día es estructuralmente alto en demanda esporádica, así que
+    # un WAPE alto NO debe restar confianza. Pero un WAPE real bajo SÍ suma
+    # (Chocolate Premium: WAPE real 29% es evidencia válida). Y el MASE mide la
+    # TASA (¿le gana al naive?). Tomamos la MEJOR de las dos señales. Tope 'high'
+    # (nunca very_high para demanda intermitente).
+    if demand_pattern in ("intermittent", "lumpy"):
+        parts.append(f"demanda {demand_pattern}")
+        try:
+            mase = float(mase) if mase is not None else None
+        except (TypeError, ValueError):
+            mase = None
+
+        # Señal 1 — MASE (tasa). Inválido (None/≤0/≥5: naive≈0, producto ~sin
+        # ventas) → no aporta confianza.
+        if mase is None or mase <= 0 or mase >= 5:
+            mase_label = "very_low"
+        elif data_points >= 60 and mase < 0.8:
+            mase_label = "high"
+        elif data_points >= 30 and mase < 1.0:
+            mase_label = "medium"
+        elif data_points >= 14 and mase < 1.4:
+            mase_label = "low"
+        else:
+            mase_label = "very_low"
+
+        # Señal 2 — WAPE (solo suma si resulta bueno; tope 'high').
+        if error_pct < 999 and data_points >= 60 and error_pct < 35:
+            wape_label = "high"
+        elif error_pct < 999 and data_points >= 21 and error_pct < 55:
+            wape_label = "medium"
+        elif error_pct < 999 and error_pct < 80:
+            wape_label = "low"
+        else:
+            wape_label = "very_low"
+
+        label = mase_label if rank.index(mase_label) >= rank.index(wape_label) else wape_label
+
+        if mase is not None and 0 < mase < 5:
+            parts.append(f"MASE {mase:.2f}")
+        if error_pct < 999:
+            parts.append(f"WAPE {error_pct:.0f}%")
+        if label == "very_low":
+            parts.append("tasa poco confiable")
+        return label, "; ".join(parts)
+
+    # ── Smooth y resto: lógica WAPE existente ──
     if error_pct < 999:
         parts.append(f"WAPE {error_pct:.0f}%")
-
-    cap = "very_high"
-    if demand_pattern in ("intermittent", "lumpy"):
-        cap = "high"
-        parts.append(f"demanda {demand_pattern}")
 
     if data_points >= 180 and error_pct < 20:
         label = "very_high"
@@ -96,11 +155,6 @@ def compute_confidence_label(data_points: int, error_pct: float, demand_pattern:
         label = "low"
     else:
         label = "very_low"
-
-    # Apply cap
-    rank = ["very_low", "low", "medium", "high", "very_high"]
-    if rank.index(label) > rank.index(cap):
-        label = cap
 
     return label, "; ".join(parts)
 
@@ -1253,6 +1307,7 @@ def train_product_model(tenant, product, warehouse_id, today,
         err_for_conf = err_for_conf * (1 + min(cv2 - 1.0, 1.0) * 0.3)
     conf_label, conf_reason = compute_confidence_label(
         best["data_points"], err_for_conf, demand_pattern,
+        mase=best["metrics"].get("mase"),
     )
 
     # Compute mape_delta tracking
