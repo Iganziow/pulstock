@@ -237,21 +237,46 @@ def _compute_metrics(actuals, predictions):
     }
 
 
+# Valor centinela que _compute_metrics devuelve para las métricas de ratio
+# (mape/wape/mase/smape) cuando la ventana de test es degenerada: sin ventas o
+# plana (Σactual = 0 o naive_mae = 0). NO es un error de N% — significa "este
+# fold no es evaluable para esta métrica".
+_SENTINEL = 900
+
+
 def _average_metrics(fold_metrics):
-    """Average metrics across walk-forward folds."""
+    """Average metrics across walk-forward folds.
+
+    F21.1 (16/06/26): los folds con ventana de test degenerada (plana / sin
+    ventas) devuelven 999 en las métricas de RATIO (mape/wape/mase/smape).
+    Promediar ese 999 con folds buenos producía valores falsos —
+      1 de 3 folds centinela → (999+0.5+0.5)/3 = 333
+      2 de 3 folds centinela → (999+999+0.5)/3 = 666
+    — que inflaban la métrica y ARRUINABAN la selección de algoritmo (Croston
+    perdía por un centinela, no por su error real). Ahora cada métrica de ratio
+    promedia SOLO los folds informativos (< 900); si TODOS son centinela, queda
+    999. Las métricas absolutas (mae/rmse/bias) siguen promediando todos los
+    folds (no usan centinela: son números reales aun en ventanas planas).
+    """
     n = len(fold_metrics)
     if n == 0:
         return {"mae": 999, "mape": 999, "wape": 999, "rmse": 999, "bias": 0,
                 "mase": 999, "smape": 999, "tracking_signal": 0}
+
+    def _avg_ratio(key):
+        """Promedio de la métrica de ratio excluyendo folds centinela."""
+        vals = [f.get(key, 999) for f in fold_metrics if f.get(key, 999) < _SENTINEL]
+        return (sum(vals) / len(vals)) if vals else 999
+
     return {
         "mae": round(sum(f["mae"] for f in fold_metrics) / n, 3),
-        "mape": round(sum(f["mape"] for f in fold_metrics) / n, 1),
-        "wape": round(sum(f.get("wape", 999) for f in fold_metrics) / n, 1),
+        "mape": round(_avg_ratio("mape"), 1),
+        "wape": round(_avg_ratio("wape"), 1),
         "rmse": round(sum(f["rmse"] for f in fold_metrics) / n, 3),
         "bias": round(sum(f["bias"] for f in fold_metrics) / n, 3),
-        # F3.1: promediar las métricas honestas para intermitentes.
-        "mase": round(sum(f.get("mase", 999) for f in fold_metrics) / n, 3),
-        "smape": round(sum(f.get("smape", 999) for f in fold_metrics) / n, 1),
+        # F3.1: métricas honestas para intermitentes — F21.1: sin centinelas.
+        "mase": round(_avg_ratio("mase"), 3),
+        "smape": round(_avg_ratio("smape"), 1),
         "tracking_signal": round(sum(abs(f.get("tracking_signal", 0)) for f in fold_metrics) / n, 2),
     }
 
