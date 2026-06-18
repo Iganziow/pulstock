@@ -24,6 +24,14 @@ MASE_OVERRIDE_MARGIN = 0.85
 MASE_OVERRIDE_MARGIN_SPARSE = 0.65
 MASE_CROSTON_SPARSE_THRESHOLD = 1.2
 
+# F21.2 (18/06/26): cantidad de folds del walk-forward backtest. Antes 3 (solo
+# ~21 días testeados → el estimado oscilaba noche a noche por una sola semana
+# rara). Subido a 8 (~56 días) para un estimado más estable. El loop de cada
+# algoritmo auto-corta si no hay historia suficiente (productos cortos usan los
+# folds que puedan), así que es seguro para todos. Pasado explícito a cada
+# backtest desde acá = fuente única de verdad.
+N_FOLDS = 8
+
 
 def select_best_model(daily_series, window=21, horizon=14, test_days=7,
                       month_factors=None, demand_pattern=None, stockout_dates=None):
@@ -71,7 +79,7 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
             continue
 
         # Backtest
-        metrics = algo.backtest(daily_series, test_days=test_days, **extra_kwargs)
+        metrics = algo.backtest(daily_series, test_days=test_days, n_folds=N_FOLDS, **extra_kwargs)
         if metrics["mae"] >= 998:
             continue
 
