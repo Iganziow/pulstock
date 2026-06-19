@@ -946,7 +946,56 @@ class AdminForecastMetricsView(APIView):
         worsened = active_models.filter(mape_delta__gt=0).count()
         unchanged = active_models.filter(mape_delta=0).count()
 
+        # ── SALUD HONESTA (monitoreo, F21) ──────────────────────────────
+        # MASE sin centinelas: la métrica honesta que NO infla con productos
+        # planos. Centinela (>=900) = no evaluable; "polluted" (>=100, ej.
+        # 333/666 viejos) = artefacto; el resto (0<x<900) es MASE real.
+        # beat-naive% = cuántos productos reales le ganan al naive (<1.0).
+        # status: OK / WARN / ALERT — reemplaza el "entrar por SSH a mirar".
+        import statistics as _stats
+        SENT = 900
+        mase_vals = []
+        polluted_n = 0
+        sentinel_n = 0
+        for metrics in active_models.values_list("metrics", flat=True):
+            mv = (metrics or {}).get("mase")
+            try:
+                mv = float(mv) if mv is not None else None
+            except (TypeError, ValueError):
+                mv = None
+            if mv is None:
+                continue
+            if mv >= SENT:
+                sentinel_n += 1
+            elif mv >= 100:
+                polluted_n += 1
+            elif mv > 0:
+                mase_vals.append(mv)
+
+        honest_health = None
+        if mase_vals:
+            beat = sum(1 for x in mase_vals if x < 1.0)
+            beat_pct = round(100 * beat / len(mase_vals), 1)
+            med = round(_stats.median(mase_vals), 3)
+            mean = round(_stats.mean(mase_vals), 3)
+            if beat_pct < 40 or med > 1.1:
+                status = "ALERT"
+            elif beat_pct < 55 or med > 0.95:
+                status = "WARN"
+            else:
+                status = "OK"
+            honest_health = {
+                "n_evaluable": len(mase_vals),
+                "mase_median": med,
+                "mase_mean": mean,
+                "beat_naive_pct": beat_pct,
+                "polluted_count": polluted_n,
+                "sentinel_count": sentinel_n,
+                "status": status,
+            }
+
         return Response({
+            "honest_health": honest_health,
             "total_active_models": total_models,
             "global_avg_mape": round(float(avg_mape or 0), 2),
             "by_tenant": by_tenant,

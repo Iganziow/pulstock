@@ -65,6 +65,17 @@ type ForecastData = {
     by_algorithm: { algorithm: string; wape: number; n: number }[];
     explanation: string;
   };
+  // Salud honesta (#13 monitoreo): MASE sin centinelas + beat-naive% + status.
+  // Reemplaza el "entrar por SSH a ver cómo amaneció el modelo".
+  honest_health?: {
+    n_evaluable: number;
+    mase_median: number;
+    mase_mean: number;
+    beat_naive_pct: number;
+    polluted_count: number;
+    sentinel_count: number;
+    status: "OK" | "WARN" | "ALERT";
+  } | null;
 };
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -252,6 +263,53 @@ export default function ForecastMetricsPage() {
           color: C.mute, fontSize: 12, fontWeight: 600, cursor: "pointer",
         }}>Actualizar</button>
       </div>
+
+      {/* ═══ SALUD HONESTA DEL MODELO (#13 monitoreo) ═══
+          MASE sin centinelas + beat-naive% + status. Reemplaza el
+          "entrar por SSH a ver cómo amaneció el modelo". */}
+      {data.honest_health && (() => {
+        const hh = data.honest_health!;
+        const sc = hh.status === "OK" ? C.green : hh.status === "WARN" ? C.yellow : C.red;
+        const sLabel = hh.status === "OK" ? "Saludable" : hh.status === "WARN" ? "Atención" : "Alerta";
+        return (
+          <div style={{
+            background: C.card, border: `1px solid ${sc}55`, borderLeft: `4px solid ${sc}`,
+            borderRadius: 14, padding: "16px 22px", marginBottom: 24,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                Salud honesta del modelo
+                <span style={{ fontSize: 10, color: C.mute, textTransform: "uppercase", letterSpacing: ".08em", marginLeft: 8 }}>
+                  MASE sin centinelas · diagnóstico interno
+                </span>
+              </div>
+              <span style={{ padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 800, background: sc + "22", color: sc }}>
+                {sLabel}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <KpiCard
+                label="Le gana al naive"
+                value={`${hh.beat_naive_pct}%`}
+                sub={`${hh.n_evaluable} productos evaluables`}
+                color={hh.beat_naive_pct >= 55 ? C.green : hh.beat_naive_pct >= 40 ? C.yellow : C.red}
+              />
+              <KpiCard
+                label="MASE mediana"
+                value={hh.mase_median.toFixed(2)}
+                sub={`media ${hh.mase_mean.toFixed(2)} · <1 = mejor que naive`}
+                color={hh.mase_median <= 0.95 ? C.green : hh.mase_median <= 1.1 ? C.yellow : C.red}
+              />
+              <KpiCard
+                label="Descartados"
+                value={`${hh.polluted_count + hh.sentinel_count}`}
+                sub={`${hh.polluted_count} sin métrica · ${hh.sentinel_count} planos`}
+                color={C.mute}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ═══ ACCIONES ═══ */}
       <div style={{
