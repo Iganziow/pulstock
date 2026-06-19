@@ -191,7 +191,7 @@ export function CombosPanel({ mob }: { mob?: boolean }) {
         <div style={{ textAlign: "center", padding: "48px 20px", color: C.mute }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>🍩☕</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>Sin combos todavía</div>
-          <div style={{ fontSize: 13 }}>Creá tu primer combo para venderlo en las mesas.</div>
+          <div style={{ fontSize: 13 }}>Crea tu primer combo para venderlo en las mesas.</div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

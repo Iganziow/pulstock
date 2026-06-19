@@ -331,7 +331,7 @@ export default function TenantDetailPage() {
       {/* Notas internas */}
       <Card title="Notas internas (solo admin)" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 12, color: C.mute, marginBottom: 8 }}>
-          Estas notas NO son visibles al cliente. Anota acá contexto del cliente, llamadas, decisiones, etc.
+          Estas notas NO son visibles al cliente. Anota aquí contexto del cliente, llamadas, decisiones, etc.
         </div>
         <textarea
           value={notes}

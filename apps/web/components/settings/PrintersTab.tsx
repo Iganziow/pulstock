@@ -352,7 +352,7 @@ export default function PrintersTab({ mob, flash }: PrintersTabProps) {
             <div style={{ fontSize: 36, marginBottom: 8 }}>🖨️</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.mid, marginBottom: 4 }}>No hay impresoras locales</div>
             <div style={{ fontSize: 12, color: C.mute, marginBottom: 16 }}>
-              Lo normal es no configurar impresoras acá — el flujo recomendado usa el agente del PC del local (más abajo).
+              Lo normal es no configurar impresoras aquí — el flujo recomendado usa el agente del PC del local (más abajo).
             </div>
           </div>
         )}

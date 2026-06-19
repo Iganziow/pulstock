@@ -1298,7 +1298,7 @@ class AdminImportSalesView(APIView):
             except UnicodeDecodeError as e:
                 return Response({
                     "detail": (
-                        f"Encoding inválido: {e}. Guardá el CSV como UTF-8 "
+                        f"Encoding inválido: {e}. Guarda el CSV como UTF-8 "
                         f"(en Excel: Archivo → Guardar como → CSV UTF-8)."
                     )
                 }, status=400)
@@ -1446,7 +1446,7 @@ class AdminImportSalesView(APIView):
                         except (InvalidOperation, TypeError):
                             errors.append(
                                 f"Fila {i}: total inválido '{total_raw}'. "
-                                f"Dejá la celda vacía si no tenés el dato (asumirá 0)."
+                                f"Deja la celda vacía si no tienes el dato (asumirá 0)."
                             )
                             skipped += 1
                             transaction.savepoint_rollback(sid)

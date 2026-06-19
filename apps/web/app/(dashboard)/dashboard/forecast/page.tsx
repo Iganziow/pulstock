@@ -186,10 +186,10 @@ export default function ForecastPage() {
           <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>💰</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 14, color: C.amber }}>
-              Tenés <b>{missingCosts}</b> producto{missingCosts !== 1 ? "s" : ""} sin costo cargado
+              Tienes <b>{missingCosts}</b> producto{missingCosts !== 1 ? "s" : ""} sin costo cargado
             </div>
             <div style={{ fontSize: 12.5, color: C.mid, marginTop: 3, lineHeight: 1.5 }}>
-              Sin costo no podemos calcular margen → las predicciones sugieren cubrir menos días de lo ideal. Cargalos en bloque (5 minutos) y mejorás la calidad de las sugerencias al toque.
+              Sin costo no podemos calcular el margen → las predicciones sugieren cubrir menos días de lo ideal. Cárgalos en bloque (5 minutos) y mejoras la calidad de las sugerencias al instante.
             </div>
           </div>
           <div style={{ fontWeight: 700, color: C.amber, fontSize: 20, flexShrink: 0 }}>→</div>
@@ -256,7 +256,7 @@ export default function ForecastPage() {
           <div style={{ fontSize: 48, marginBottom: 12 }}>&#x1F4CA;</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Todavía no hay predicciones</div>
           <div style={{ fontSize: 13, color: C.mute, maxWidth: 400, margin: "0 auto", lineHeight: 1.7 }}>
-            Necesitamos al menos 2 semanas de ventas registradas para empezar a predecir. Seguí vendiendo normalmente y las predicciones aparecerán automáticamente.
+            Necesitamos al menos 2 semanas de ventas registradas para empezar a predecir. Sigue vendiendo normalmente y las predicciones aparecerán automáticamente.
           </div>
         </div>
       )}

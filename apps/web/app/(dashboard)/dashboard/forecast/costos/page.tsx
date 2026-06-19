@@ -140,7 +140,7 @@ export default function MissingCostsPage() {
           </h1>
           <p style={{ fontSize: 14, color: C.mid, marginTop: 6, lineHeight: 1.6, maxWidth: 720 }}>
             Estos productos no tienen costo cargado, lo que limita las predicciones del sistema.
-            Están ordenados por <b>cantidad vendida en 30 días</b> — cargá los más vendidos primero
+            Están ordenados por <b>cantidad vendida en 30 días</b> — carga los más vendidos primero
             para tener el mayor impacto.
           </p>
         </div>
@@ -210,8 +210,8 @@ export default function MissingCostsPage() {
           }}>
             <div style={{ fontSize: 13, color: C.mid }}>
               {filledCount > 0
-                ? <>Tenés <b>{filledCount}</b> costo{filledCount !== 1 ? "s" : ""} listo{filledCount !== 1 ? "s" : ""} para guardar</>
-                : <>Empezá ingresando el costo de los productos más vendidos (arriba)</>
+                ? <>Tienes <b>{filledCount}</b> costo{filledCount !== 1 ? "s" : ""} listo{filledCount !== 1 ? "s" : ""} para guardar</>
+                : <>Comienza ingresando el costo de los productos más vendidos (arriba)</>
               }
             </div>
             <button

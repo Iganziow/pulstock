@@ -415,9 +415,9 @@ export default function StationsTab({ mob, flash }: StationsTabProps) {
         <div style={{ fontSize: 13, color: C.mid, lineHeight: 1.6 }}>
           <strong>Cómo usar las estaciones:</strong>
           <ol style={{ margin: "6px 0 0 18px", padding: 0 }}>
-            <li>Crea acá tus estaciones (ej: "Cocina", "Bar", "Caja").</li>
-            <li>Asigná al menos una impresora a cada estación. La impresora debe estar primero pareada en la pestaña <em>Impresoras</em>.</li>
-            <li>Marcá una estación como <strong>destino de boletas</strong> (típicamente "Caja"). Las boletas y pre-cuentas siempre van ahí.</li>
+            <li>Crea aquí tus estaciones (ej: "Cocina", "Bar", "Caja").</li>
+            <li>Asigna al menos una impresora a cada estación. La impresora debe estar primero pareada en la pestaña <em>Impresoras</em>.</li>
+            <li>Marca una estación como <strong>destino de boletas</strong> (típicamente "Caja"). Las boletas y pre-cuentas siempre van ahí.</li>
             <li>En <em>Catálogo → Categorías</em>, asocia cada categoría a su estación. Ejemplo: categoría "Bebidas" → estación "Bar".</li>
             <li>Al imprimir una comanda, el sistema agrupa los items por estación y manda un ticket separado a cada impresora.</li>
           </ol>

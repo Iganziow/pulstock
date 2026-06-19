@@ -268,8 +268,8 @@ def _expand_one(*, pid, qty, all_recipes, inactive_pids, expanded_agg, tenant_id
         raise SaleValidationError({
             "detail": (
                 f"La receta de '{_resolve_product_name(pid)}' está activa pero no "
-                f"tiene ingredientes configurados. Agregalos en Catálogo → Recetas, "
-                f"o desactivá la receta si querés vender el producto sin descontar stock."
+                f"tiene ingredientes configurados. Agrégalos en Catálogo → Recetas, "
+                f"o desactiva la receta si quieres vender el producto sin descontar stock."
             )
         })
 

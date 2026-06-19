@@ -325,7 +325,7 @@ export default function ReceiptPage() {
               padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
               background: C.redBg, color: C.red, border: `1px solid ${C.redBd}`,
             }}>
-              ⚠ {printErr || "No se pudo imprimir"}. Probá apretar el botón otra vez.
+              ⚠ {printErr || "No se pudo imprimir"}. Intenta presionar el botón otra vez.
             </div>
           )}
         </div>

@@ -612,7 +612,7 @@ def pair_with_code(code: str, api_url: str = DEFAULT_API_URL) -> tuple[bool, str
 
     if status == 0:
         return False, (
-            "No hay conexión a internet. Verificá tu WiFi/cable de red y "
+            "No hay conexión a internet. Verifica tu WiFi/cable de red y "
             "que puedas abrir pulstock.cl en el navegador."
         ), {}
     if status == 429:

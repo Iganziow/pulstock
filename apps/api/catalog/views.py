@@ -728,7 +728,7 @@ class ProductImport(APIView):
                     if name_key in seen_names:
                         errors.append({
                             "line": i,
-                            "error": f"Producto '{name}' ya apareció en la línea {seen_names[name_key]} (sin SKU). Asigná un SKU único o consolidá las filas.",
+                            "error": f"Producto '{name}' ya apareció en la línea {seen_names[name_key]} (sin SKU). Asigna un SKU único o consolida las filas.",
                             "row": row,
                         })
                         skipped += 1
@@ -812,7 +812,7 @@ class ProductImport(APIView):
                             "line": i,
                             "error": (
                                 f"Plan saturado: alcanzaste el límite de {plan_limit} productos. "
-                                f"Resto del archivo no se procesó. Actualizá tu suscripción para continuar."
+                                f"Resto del archivo no se procesó. Actualiza tu suscripción para continuar."
                             ),
                             "row": row,
                         })
@@ -1280,7 +1280,7 @@ class RecipeImport(APIView):
                     "errors": (errors + cycle_errors)[:50],
                     "detail": (
                         "Import abortado: se detectaron dependencias circulares en "
-                        "el archivo. Corregí las recetas marcadas y reintentá."
+                        "el archivo. Corrige las recetas marcadas e inténtalo de nuevo."
                     ),
                 }, status=status.HTTP_400_BAD_REQUEST)
 

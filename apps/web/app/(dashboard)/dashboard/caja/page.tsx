@@ -173,7 +173,7 @@ export default function CajaPage() {
   };
 
   return (
-    <div style={{ maxWidth: tab === "tips" ? 1200 : 820, margin: "0 auto", padding: mob ? "16px 12px" : "24px 16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+    <div style={{ maxWidth: tab === "tips" ? "100%" : 820, margin: "0 auto", padding: mob ? "16px 12px" : "24px 16px", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>

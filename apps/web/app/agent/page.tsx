@@ -113,7 +113,7 @@ export default function AgentPage() {
           >
             {isWindows
               ? "Descarga, doble clic, pega tu código. Listo."
-              : "Descargá el instalador, ejecutalo, escribí el código."}
+              : "Descarga el instalador, ejecútalo, escribe el código."}
           </p>
         </div>
 
@@ -314,12 +314,12 @@ export default function AgentPage() {
             </ol>
           ) : (
             <ol style={listStyle}>
-              <li>Descomprimí el ZIP</li>
+              <li>Descomprime el ZIP</li>
               <li>
-                Abrí una terminal en la carpeta y ejecutá:{" "}
+                Abre una terminal en la carpeta y ejecuta:{" "}
                 <code style={codeStyle}>bash instalar-pulstock.sh</code>
               </li>
-              <li>Pegá el código de emparejado cuando te lo pida.</li>
+              <li>Pega el código de emparejado cuando te lo pida.</li>
             </ol>
           )}
         </div>
@@ -431,7 +431,7 @@ export default function AgentPage() {
             <FAQ q="Windows Defender lo marca como sospechoso">
               Es un falso positivo común con programas nuevos sin firma.
               El código del agente es público y auditable.
-              Apretá &quot;Más información&quot; → &quot;Ejecutar de todas formas&quot;.
+              Presiona &quot;Más información&quot; → &quot;Ejecutar de todas formas&quot;.
             </FAQ>
             <FAQ q="¿Cómo lo desinstalo?">
               Simplemente borra el archivo{" "}

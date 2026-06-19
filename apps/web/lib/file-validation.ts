@@ -48,7 +48,7 @@ export function validateImportFile(
   const maxLabel = opts?.maxLabel ?? MAX_IMPORT_SIZE_LABEL;
   const allowedExts = opts?.allowedExts ?? ACCEPTED_CSV_OR_XLSX_EXTS;
 
-  if (!file) return { ok: false, error: "Seleccioná un archivo." };
+  if (!file) return { ok: false, error: "Selecciona un archivo." };
 
   if (file.size === 0) {
     return { ok: false, error: "El archivo está vacío." };

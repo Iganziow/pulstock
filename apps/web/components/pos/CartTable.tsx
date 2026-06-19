@@ -179,7 +179,7 @@ export function CartTable({
           <div style={{ padding:mob?"40px 16px":"56px 24px", textAlign:"center" }}>
             <div style={{ fontSize:mob?28:36, marginBottom:10 }}>🛒</div>
             <div style={{ fontSize:mob?14:15, fontWeight:700, color:C.text, marginBottom:4 }}>Carrito vacio</div>
-            <div style={{ fontSize:mob?12:13, color:C.mute }}>Escanea un producto o buscalo por nombre</div>
+            <div style={{ fontSize:mob?12:13, color:C.mute }}>Escanea un producto o búscalo por nombre</div>
           </div>
         ) : (
           <>

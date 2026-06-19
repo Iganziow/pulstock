@@ -521,7 +521,7 @@ export default function CatalogPage() {
           finalAvgCost = r.avg_cost ?? String(avgNum);
         } catch (e: any) {
           // El PATCH ya pasó. Notificamos lo que pudimos guardar y lo que no.
-          setErr("Producto guardado, pero el costo no se pudo actualizar. Probá de nuevo desde la lista.");
+          setErr("Producto guardado, pero el costo no se pudo actualizar. Intenta de nuevo desde la lista.");
           // Aún así actualizamos la lista local con lo que sí cambió
           setItems((prev) => {
             const next = prev.map((x)=>(x.id===updated.id?updated:x));
@@ -1273,7 +1273,7 @@ export default function CatalogPage() {
                   ))}
                 </select>
                 <Hint>
-                  Solo usalo si este producto en particular debe salir en una estación distinta a la de su categoría. Lo normal es dejarlo heredado.
+                  Solo úsalo si este producto en particular debe salir en una estación distinta a la de su categoría. Lo normal es dejarlo heredado.
                 </Hint>
               </div>
             )}

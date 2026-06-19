@@ -129,7 +129,7 @@ export function AddMovementModal({
               borderRadius: 6, fontSize: 12, color: C.amber, lineHeight: 1.4,
             }}>
               ⚠️ Monto alto: <b>${Math.round(Number(moveAmt)).toLocaleString("es-CL")}</b>.
-              Verificá que esté correcto y que sea {moveType === "IN" ? "INGRESO" : "EGRESO"}.
+              Verifica que esté correcto y que sea {moveType === "IN" ? "INGRESO" : "EGRESO"}.
             </div>
           )}
         </div>
@@ -140,7 +140,7 @@ export function AddMovementModal({
             onClick={() => {
               if (Number(moveAmt) > 50000) {
                 const ok = window.confirm(
-                  `Vas a registrar un ${moveType === "IN" ? "INGRESO" : "EGRESO"} de $${Math.round(Number(moveAmt)).toLocaleString("es-CL")}.\n\n¿Confirmás?`
+                  `Vas a registrar un ${moveType === "IN" ? "INGRESO" : "EGRESO"} de $${Math.round(Number(moveAmt)).toLocaleString("es-CL")}.\n\n¿Confirmas?`
                 );
                 if (!ok) return;
               }
