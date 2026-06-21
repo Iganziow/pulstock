@@ -17,7 +17,7 @@ from django.db.models.functions import Coalesce
 
 from core.models import Tenant
 from inventory.models import StockMove, StockItem
-from sales.models import SaleLine
+from sales.models import SaleLine, Sale
 from forecast.models import DailySales
 
 
@@ -61,6 +61,16 @@ class Command(BaseCommand):
         created = 0
         updated = 0
 
+        # F-VOID (19/06/26): ventas ANULADAS (status=VOID) NO son demanda.
+        # Sus StockMove OUT/SALE y SaleLines seguían contándose → inflaban
+        # qty_sold/revenue del forecast (auditoría: 22 voids = 3.330 u fuga).
+        # Excluimos sus ids acá. OJO: una venta anulada DESPUÉS del día en que
+        # se hizo requiere re-agregar ese día (backfill) para limpiarse.
+        voided_ids = list(
+            Sale.objects.filter(tenant=tenant, status=Sale.STATUS_VOID)
+            .values_list("id", flat=True)
+        )
+
         # ── Sales: SaleLine grouped by product + warehouse ──
         # Solo usamos SaleLine para revenue / total_cost / gross_profit:
         # esos son atributos del producto VENDIDO directamente (Latte vainilla,
@@ -74,6 +84,7 @@ class Command(BaseCommand):
                 tenant=tenant,
                 sale__created_at__date=target_date,
                 sale__sale_type="VENTA",
+                sale__status=Sale.STATUS_COMPLETED,  # F-VOID: excluir anuladas
             )
             .values("product_id", "sale__warehouse_id")
             .annotate(
@@ -117,6 +128,7 @@ class Command(BaseCommand):
                 move_type="OUT",
                 ref_type="SALE",
             )
+            .exclude(ref_id__in=voided_ids)  # F-VOID: demanda sin ventas anuladas
             .values("product_id", "warehouse_id")
             .annotate(total_qty=Coalesce(Sum("qty"), Decimal("0.000")))
         )
