@@ -42,8 +42,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  // "standalone" solo para Docker. Vercel no lo necesita.
-  // Descomentar si se despliega con Docker en Hetzner:
+  // "standalone" solo para Docker. No lo usamos: el frontend corre con
+  // `next start` bajo PM2 en Hetzner (ver DEPLOY.md). Descomentar solo si
+  // alguna vez se migra a Docker:
   // output: "standalone",
 
   // Suppress cross-origin warning for the dev preview proxy
