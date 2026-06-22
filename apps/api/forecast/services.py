@@ -1125,9 +1125,9 @@ def train_product_model(tenant, product, warehouse_id, today,
 
     # Demand pattern classification
     # Fase 4 (25/05/26): detectar dias-de-la-semana sistematicamente cerrados
-    # (ej. Marbrava cierra lunes) y filtrarlos del calculo de ADI/density.
+    # (ej. Marbrava cierra domingos) y filtrarlos del calculo de ADI/density.
     # Sin este filtro, productos como Capuccino, Latte, Cortado quedaban como
-    # "intermittent" por culpa de los gaps de lunes (ADI 2.0 > 1.32) → Croston_SBA
+    # "intermittent" por culpa de los gaps de domingo (ADI 2.0 > 1.32) → Croston_SBA
     # → WAPE 100-450%. Con filtro, esos productos vuelven a smooth → theta/adaptive_ma.
     closed_dows = detect_closed_weekdays(raw_series)
     demand_pattern, adi, cv2 = classify_demand_pattern(raw_series, closed_weekdays=closed_dows)

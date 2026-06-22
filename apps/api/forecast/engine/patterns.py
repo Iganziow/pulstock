@@ -25,7 +25,7 @@ def detect_closed_weekdays(daily_series,
     serie y en menos del sale_threshold (10%) de esas veces hubo venta.
 
     Ejemplos:
-    - Marbrava cierra los lunes → {0}
+    - Marbrava cierra los domingos → {6}
     - Restaurante cierra dom + lun → {0, 6}
 
     Esto se usa para:
@@ -74,7 +74,7 @@ def classify_demand_pattern(daily_series, closed_weekdays=None):
 
     BUGFIX FASE 4 (25/05/26)
     ========================
-    Productos como Capuccino, Latte, Cortado en Marbrava (que cierra lunes)
+    Productos como Capuccino, Latte, Cortado en Marbrava (que cierra domingos)
     quedaban como "intermittent/lumpy" porque el ADI se calculaba en calendar
     days. Con 1 dia cerrado por semana, el gap promedio entre ventas era ~1.5
     calendar days (=14 dias venta / 7 dias real entre vts) — ADI sobre 1.32 →
@@ -101,7 +101,7 @@ def classify_demand_pattern(daily_series, closed_weekdays=None):
         return "insufficient", 0, 0
 
     # ADI: intervalos entre ventas en BUSINESS days (no calendar days).
-    # Asi, lunes cerrado entre dos ventas consecutivas NO infla el ADI.
+    # Asi, domingo cerrado entre dos ventas consecutivas NO infla el ADI.
     intervals = [non_zero_idx[i] - non_zero_idx[i - 1] for i in range(1, len(non_zero_idx))]
     adi = sum(intervals) / len(intervals) if intervals else 1.0
 
