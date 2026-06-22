@@ -401,11 +401,26 @@ def get_sales_summary(t_id, s_id, warehouse_id=None, category_id=None,
     avg_ticket = (total_rev / sale_count) if sale_count > 0 else D0
     margin_pct = _margin_pct(gross, total_rev)
 
-    daily = list(
-        sales_qs.annotate(day=TruncDate("created_at")).values("day")
-        .annotate(revenue=Coalesce(Sum("total"), D0), cost=Coalesce(Sum("total_cost"), D0), count=Count("id"))
-        .order_by("day")
-    )
+    # F: con filtro de categoría el diario debe salir de lines_qs (igual que los
+    # KPIs); antes salía de sales_qs (toda la tienda) y NO cuadraba con la
+    # cabecera filtrada. Sin categoría se mantiene a nivel Sale (incluye el
+    # total real de cada venta, más exacto).
+    if category_id:
+        daily = list(
+            lines_qs.annotate(day=TruncDate("sale__created_at")).values("day")
+            .annotate(
+                revenue=Coalesce(Sum("line_total"), D0),
+                cost=Coalesce(Sum("line_cost"), D0),
+                count=Count("sale_id", distinct=True),
+            )
+            .order_by("day")
+        )
+    else:
+        daily = list(
+            sales_qs.annotate(day=TruncDate("created_at")).values("day")
+            .annotate(revenue=Coalesce(Sum("total"), D0), cost=Coalesce(Sum("total_cost"), D0), count=Count("id"))
+            .order_by("day")
+        )
 
     by_cat = list(
         lines_qs.values("product__category__name")
@@ -902,9 +917,17 @@ def get_audit_trail(t_id, s_id, warehouse_id=None, product_id=None,
             "user": user_name,
         })
 
+    # F: algunos StockMove tienen ref_type NULL/"" (ajustes, data vieja). Si se
+    # cuelan en sorted() con strings → "TypeError: '<' not supported between
+    # NoneType and str" → el reporte entero fallaba ("Dato con formato
+    # incorrecto"). Filtramos falsy ANTES de ordenar (consistente con el
+    # `[r for r in ref_types if r]` del return).
     ref_types = sorted(
-        StockMove.objects.filter(tenant_id=t_id, warehouse__store_id=s_id)
-        .values_list("ref_type", flat=True).distinct()
+        rt for rt in (
+            StockMove.objects.filter(tenant_id=t_id, warehouse__store_id=s_id)
+            .values_list("ref_type", flat=True).distinct()
+        )
+        if rt
     )
 
     return {

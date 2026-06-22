@@ -4,6 +4,7 @@ Uses openpyxl for .xlsx and reportlab for .pdf.
 """
 from io import BytesIO
 from decimal import Decimal
+from xml.sax.saxutils import escape
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -82,13 +83,27 @@ def _parse_dates(request):
     return date_from, date_to
 
 
+def _int_param(request, name):
+    """Parsea un query param entero (warehouse_id, category_id). None si falta/invalid.
+
+    F: los export views NO propagaban los filtros de la pantalla → el archivo
+    descargado traía TODO en vez de lo filtrado. Se usa para pasarlos al servicio.
+    """
+    v = request.query_params.get(name)
+    return int(v) if v and str(v).isdigit() else None
+
+
 class SalesSummaryExportView(APIView):
     permission_classes = [IsAuthenticated, HasTenant, IsManager]
 
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         date_from, date_to = _parse_dates(request)
-        data = services.get_sales_summary(t_id, s_id, date_from=date_from, date_to=date_to)
+        data = services.get_sales_summary(
+            t_id, s_id, date_from=date_from, date_to=date_to,
+            warehouse_id=_int_param(request, "warehouse_id"),
+            category_id=_int_param(request, "category_id"),
+        )
 
         headers = ["Fecha", "Ventas", "Ingresos", "Costo", "Ganancia", "Margen %"]
         rows = []
@@ -263,9 +278,11 @@ def _make_pdf(title, headers, rows, filename, landscape_mode=False):
         s = str(val) if val is not None else ""
         if len(s) > 40:
             s = s[:37] + "..."
-        return Paragraph(s, cell_style)
+        # escape: reportlab Paragraph interpreta mini-HTML (<a>, <font>…). Un
+        # nombre de producto con "<" rompía el render o inyectaba markup.
+        return Paragraph(escape(s), cell_style)
 
-    table_data = [[Paragraph(str(h), cell_style) for h in headers]]
+    table_data = [[Paragraph(escape(str(h)), cell_style) for h in headers]]
     for row in rows[:2000]:  # cap at 2000 rows
         table_data.append([_cell(v) for v in row])
 
@@ -305,7 +322,11 @@ class SalesSummaryPDFView(APIView):
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         date_from, date_to = _parse_dates(request)
-        data = services.get_sales_summary(t_id, s_id, date_from=date_from, date_to=date_to)
+        data = services.get_sales_summary(
+            t_id, s_id, date_from=date_from, date_to=date_to,
+            warehouse_id=_int_param(request, "warehouse_id"),
+            category_id=_int_param(request, "category_id"),
+        )
 
         headers = ["Fecha", "Ventas", "Ingresos", "Costo", "Ganancia", "Margen %"]
         rows = []
@@ -328,9 +349,11 @@ class StockValuedPDFView(APIView):
     def get(self, request):
         t_id, s_id = _require_ctx(request)
         wh_id = request.query_params.get("warehouse_id")
+        q = (request.query_params.get("q") or "").strip() or None
         data = services.get_stock_valued(
             t_id, s_id,
             warehouse_id=int(wh_id) if wh_id and wh_id.isdigit() else None,
+            q=q,
         )
 
         headers = ["Bodega", "SKU", "Producto", "Stock", "Costo prom.", "Valor"]
@@ -425,6 +448,7 @@ class ABCAnalysisPDFView(APIView):
 
         data = services.get_abc_analysis(
             t_id, s_id, criterion=criterion,
+            warehouse_id=_int_param(request, "warehouse_id"),
             date_from=date_from, date_to=date_to,
         )
 

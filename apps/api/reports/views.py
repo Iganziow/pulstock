@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from billing.permissions import RequireFeature
-from core.permissions import HasTenant, IsManager
+from core.permissions import HasTenant, IsManager, IsInventoryOrManager
 from catalog.models import Product
 from core.models import Warehouse
 from inventory.models import StockItem, StockMove
@@ -55,6 +55,19 @@ def _parse_date_or_none(s: str):
     if not d:
         raise ValidationError({"detail": f"Invalid date '{s}'. Use YYYY-MM-DD."})
     return d
+
+
+def _date_range_kwargs(p):
+    """Parsea date_from/date_to y valida el orden. Devuelve dict para **kwargs.
+
+    F: antes un rango invertido (desde > hasta) devolvía resultados vacíos en
+    silencio. Ahora tira 400 claro.
+    """
+    df = _parse_date_or_none(p.get("date_from"))
+    dt = _parse_date_or_none(p.get("date_to"))
+    if df and dt and df > dt:
+        raise ValidationError({"detail": "Rango de fechas inválido: 'desde' es posterior a 'hasta'."})
+    return {"date_from": df, "date_to": dt}
 
 
 def _to_int(s, default=None):
@@ -143,8 +156,7 @@ class LossesReportView(APIView):
             t_id, s_id,
             warehouse_id=_to_int(p.get("warehouse_id")),
             reason=(p.get("reason") or "").strip().upper() or None,
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
         )
         return Response(data)
 
@@ -162,8 +174,7 @@ class SalesSummaryReportView(APIView):
             t_id, s_id,
             warehouse_id=_to_int(p.get("warehouse_id")),
             category_id=_to_int(p.get("category_id")),
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
         )
         return Response(data)
 
@@ -183,8 +194,7 @@ class TopProductsReportView(APIView):
             category_id=_to_int(p.get("category_id")),
             sort_by=(p.get("sort") or "revenue").strip(),
             limit=min(100, max(5, _to_int(p.get("limit"), 20))),
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
         )
         return Response(data)
 
@@ -202,8 +212,7 @@ class ProfitabilityReportView(APIView):
             t_id, s_id,
             warehouse_id=_to_int(p.get("warehouse_id")),
             group_by=(p.get("group_by") or "product").strip(),
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
         )
         return Response(data)
 
@@ -230,7 +239,10 @@ class DeadStockReportView(APIView):
 # 8. HOJA DE CONTEO DE INVENTARIO (TOMA FÍSICA)
 # ══════════════════════════════════════════════════════════════════
 class InventoryCountSheetView(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    # F: la hoja de toma física expone avg_cost y stock_value (datos sensibles
+    # de costo) → mínimo rol inventario/manager, igual que stock-valued. Antes
+    # un cajero podía verla.
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     def get(self, request):
         t_id, s_id = _require_ctx(request)
@@ -251,7 +263,8 @@ class InventoryCountSheetView(APIView):
 # 9. DIFERENCIAS FÍSICO vs SISTEMA
 # ══════════════════════════════════════════════════════════════════
 class InventoryDiffReportView(APIView):
-    permission_classes = [IsAuthenticated, HasTenant]
+    # F: mismo dato sensible que el count-sheet (valorización de diferencias).
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
 
     def post(self, request):
         t_id, s_id = _require_ctx(request)
@@ -279,8 +292,7 @@ class AuditTrailReportView(APIView):
             ref_type=(p.get("ref_type") or "").strip().upper() or None,
             move_type=(p.get("move_type") or "").strip().upper() or None,
             user_id=_to_int(p.get("user_id")),
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
             page=max(1, _to_int(p.get("page"), 1)),
             page_size=min(200, max(10, _to_int(p.get("page_size"), 50))),
         )
@@ -304,8 +316,7 @@ class ABCAnalysisReportView(APIView):
             t_id, s_id,
             warehouse_id=_to_int(p.get("warehouse_id")),
             criterion=criterion,
-            date_from=_parse_date_or_none(p.get("date_from")),
-            date_to=_parse_date_or_none(p.get("date_to")),
+            **_date_range_kwargs(p),
         )
         return Response(data)
 
@@ -334,7 +345,12 @@ class InventoryHealthView(APIView):
         cutoff_dead = now - datetime.timedelta(days=dead_stock_days)
         cutoff_90d = now - datetime.timedelta(days=90)
 
-        base_si = StockItem.objects.filter(tenant_id=t_id, warehouse_id__in=wh_ids)
+        # F: excluir productos inactivos/descontinuados (consistente con los
+        # demás reportes: services.py los filtra). Antes inflaban "dead stock"
+        # y "bajo mínimo" y bajaban el score; además reduce lo cargado a memoria.
+        base_si = StockItem.objects.filter(
+            tenant_id=t_id, warehouse_id__in=wh_ids, product__is_active=True,
+        )
 
         # Count products at DB level first (cheap query)
         total_products = base_si.values("product_id").distinct().count()
