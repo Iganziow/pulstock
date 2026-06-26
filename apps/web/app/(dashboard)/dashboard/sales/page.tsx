@@ -27,6 +27,9 @@ export default function SalesPage() {
 
   const [items, setItems]       = useState<SaleRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  // Totales del RANGO COMPLETO que ahora manda el backend (Ingresos/Utilidad
+  // exactos sobre todo el filtro, no solo la página actual).
+  const [totals, setTotals] = useState<{ revenue: string; cost: string; profit: string; completed_count: number; void_count: number } | null>(null);
   const [loading, setLoading]   = useState(true);
   const [err, setErr]           = useState<string|null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -109,7 +112,8 @@ export default function SalesPage() {
       // Backend DRF devuelve `count` con el total filtrado (no solo de
       // esta página). Lo usamos para mostrar paginación + métricas reales.
       setTotalCount(typeof data?.count === "number" ? data.count : list.length);
-    } catch (e:any) { setErr(e?.message ?? "Error cargando ventas"); setItems([]); setTotalCount(0); }
+      setTotals(data?.totals ?? null);
+    } catch (e:any) { setErr(e?.message ?? "Error cargando ventas"); setItems([]); setTotalCount(0); setTotals(null); }
     finally { setLoading(false); }
   }, [endpoint]);
 
@@ -206,13 +210,26 @@ export default function SalesPage() {
   }, [load, q]);
 
   // ── Metrics ─────────────────────────────────────────────────────────────────
-  // NOTA: las metricas (total, profit, etc.) se calculan SOLO sobre los
-  // items de la pagina actual — no del total filtrado. Para tener metricas
-  // exactas del filtro completo, habria que pedirlas al backend (endpoint
-  // separado) o pre-cargar todas las paginas (caro). Por ahora mostramos
-  // "ventas" con el totalCount real del backend, y los demas con la pagina
-  // (etiquetados claramente para no engañar a Mario).
+  // Ingresos/Utilidad ahora vienen del backend agregados sobre TODO el rango
+  // filtrado (campo `totals`), no sobre la página actual. Antes se sumaban
+  // solo las ~50 ventas de la página → no cambiaban al mover el rango (bug que
+  // reportó Mario). El fallback de página se mantiene por compatibilidad.
   const metrics = useMemo(() => {
+    // Preferimos los totales del RANGO COMPLETO que manda el backend
+    // (Ingresos/Utilidad exactos). Fallback: cálculo sobre la página actual
+    // (endpoint viejo sin `totals`).
+    if (totals) {
+      const total  = toNum(totals.revenue);
+      const profit = toNum(totals.profit);
+      return {
+        ventas:      totalCount,
+        completadas: totals.completed_count ?? 0,
+        total,
+        profit,
+        pct:         total > 0 ? Math.round((profit / total) * 100) : 0,
+        anuladas:    totals.void_count ?? 0,
+      };
+    }
     const completed = items.filter(s => s.status.toUpperCase() === "COMPLETED");
     const total     = completed.reduce((a, s) => a + toNum(s.total), 0);
     const profit    = completed.reduce((a, s) => a + toNum(s.gross_profit), 0);
@@ -225,7 +242,7 @@ export default function SalesPage() {
       pct,
       anuladas:  items.filter(s => s.status.toUpperCase() === "VOID").length,
     };
-  }, [items, totalCount]);
+  }, [items, totalCount, totals]);
 
   // ─────────────────────────────── RENDER ──────────────────────────────────
   return (

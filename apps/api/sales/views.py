@@ -151,7 +151,28 @@ class SaleList(generics.ListAPIView):
         store_id = _active_store_id(request)
         if not store_id:
             return Response({"detail": "User has no active_store"}, status=status.HTTP_400_BAD_REQUEST)
-        return super().list(request, *args, **kwargs)
+        response = super().list(request, *args, **kwargs)
+        # Totales del RANGO COMPLETO (no sólo la página). Mario: las tarjetas
+        # Ingresos/Utilidad no cambiaban al mover el rango de fechas porque el
+        # frontend las sumaba sólo sobre la página actual (las ~50 ventas más
+        # recientes, comunes a varios rangos). Acá agregamos sobre TODO el
+        # queryset filtrado, contando ingresos/utilidad sólo de COMPLETADAS.
+        qs = self.get_queryset()
+        completed = qs.filter(status=Sale.STATUS_COMPLETED)
+        agg = completed.aggregate(
+            revenue=Coalesce(Sum("total"), Decimal("0")),
+            cost=Coalesce(Sum("total_cost"), Decimal("0")),
+            profit=Coalesce(Sum("gross_profit"), Decimal("0")),
+        )
+        if isinstance(response.data, dict):
+            response.data["totals"] = {
+                "revenue": str(agg["revenue"]),
+                "cost": str(agg["cost"]),
+                "profit": str(agg["profit"]),
+                "completed_count": completed.count(),
+                "void_count": qs.filter(status=Sale.STATUS_VOID).count(),
+            }
+        return response
 
     def get_queryset(self):
         user = self.request.user
