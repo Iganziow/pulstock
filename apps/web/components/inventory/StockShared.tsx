@@ -6,7 +6,7 @@ import { Btn, Modal } from "@/components/ui";
 export { Btn, Modal };
 
 export type Warehouse = { id: number; name: string; is_active: boolean; warehouse_type?: string };
-export type StockRow = { product_id: number; sku: string | null; name: string; category: string | null; barcode: string | null; on_hand: string; avg_cost?: string | null };
+export type StockRow = { product_id: number; sku: string | null; name: string; category: string | null; barcode: string | null; on_hand: string; avg_cost?: string | null; unit?: string | null };
 
 export function toNum(v: string | number | null | undefined): number {
   if (v == null) return NaN;
@@ -55,7 +55,8 @@ export function ProductCard({ row }: { row: StockRow }) {
       <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 12, color: C.mute }}>
         {row.sku && <span>SKU: <span style={{ fontFamily: C.mono, color: C.mid }}>{row.sku}</span></span>}
         {row.barcode && <span>Barcode: <span style={{ fontFamily: C.mono, color: C.mid }}>{row.barcode}</span></span>}
-        <span>Stock: <span style={{ fontWeight: 700, color: C.text, fontFamily: C.mono }}>{fQty(row.on_hand)}</span></span>
+        <span>Stock: <span style={{ fontWeight: 700, color: C.text, fontFamily: C.mono }}>{fQty(row.on_hand)}</span>{row.unit ? ` ${row.unit}` : ""}</span>
+        {row.unit && <span>Unidad: <span style={{ fontWeight: 700, color: C.mid }}>{row.unit}</span></span>}
       </div>
     </div>
   );

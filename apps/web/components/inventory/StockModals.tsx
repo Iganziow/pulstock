@@ -37,9 +37,12 @@ export function ReceiveModal({ sel, whName, recQty, setRecQty, recCost, setRecCo
       <ProductCard row={sel} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Cantidad *" err={!isNaN(recQtyN) && recQtyN <= 0 && recQty.trim() ? "Debe ser > 0" : null}>
-          <input value={recQty} onChange={e => setRecQty(sanitizePos(e.target.value))} autoFocus inputMode="decimal"
-            placeholder="Ej: 10" style={iS({ fontFamily: C.mono })} disabled={recBusy}
-            onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+          <div style={{ position: "relative" }}>
+            <input value={recQty} onChange={e => setRecQty(sanitizePos(e.target.value))} autoFocus inputMode="decimal"
+              placeholder="Ej: 10" style={iS({ fontFamily: C.mono, paddingRight: sel.unit ? 48 : 10 })} disabled={recBusy}
+              onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+            {sel.unit && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.mute, fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>{sel.unit}</span>}
+          </div>
         </FieldGroup>
         <FieldGroup label="Costo unitario (opcional)" hint="Usado para costeo promedio ponderado">
           <div style={{ position: "relative" }}>
@@ -87,9 +90,12 @@ export function IssueModal({ sel, whName, issQty, setIssQty, issReason, setIssRe
       <ProductCard row={sel} />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Cantidad *" err={issNeg ? "Stock insuficiente" : (!isNaN(issQtyN) && issQtyN <= 0 && issQty.trim() ? "Debe ser > 0" : null)}>
-          <input value={issQty} onChange={e => setIssQty(sanitizePos(e.target.value))} autoFocus inputMode="decimal"
-            placeholder="Ej: 2" style={iS({ fontFamily: C.mono })} disabled={issBusy}
-            onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+          <div style={{ position: "relative" }}>
+            <input value={issQty} onChange={e => setIssQty(sanitizePos(e.target.value))} autoFocus inputMode="decimal"
+              placeholder="Ej: 2" style={iS({ fontFamily: C.mono, paddingRight: sel.unit ? 48 : 10 })} disabled={issBusy}
+              onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+            {sel.unit && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.mute, fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>{sel.unit}</span>}
+          </div>
         </FieldGroup>
         {!isNaN(issQtyN) && issQtyN > 0 && (
           <div style={{ padding: "8px 12px", borderRadius: C.r, background: C.bg, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -148,9 +154,12 @@ export function AdjustModal({ sel, whName, adjQty, setAdjQty, adjCost, setAdjCos
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <FieldGroup label="Delta de cantidad (opcional)" hint="Ej: 5 para agregar, -3 para descontar. Deja vacio si solo quieres cambiar el costo."
           err={adjNeg ? "Dejaria el stock negativo" : (!isNaN(adjDelta) && adjDelta === 0 && adjQty.trim() ? "Debe ser distinto de 0" : null)}>
-          <input value={adjQty} onChange={e => setAdjQty(sanitizeDelta(e.target.value))} autoFocus inputMode="decimal"
-            placeholder="Ej: 10 o -3" style={iS({ fontFamily: C.mono })} disabled={adjBusy}
-            onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+          <div style={{ position: "relative" }}>
+            <input value={adjQty} onChange={e => setAdjQty(sanitizeDelta(e.target.value))} autoFocus inputMode="decimal"
+              placeholder="Ej: 10 o -3" style={iS({ fontFamily: C.mono, paddingRight: sel.unit ? 48 : 10 })} disabled={adjBusy}
+              onKeyDown={e => { if (e.key === "Enter") onSubmit(); }} />
+            {sel.unit && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: C.mute, fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>{sel.unit}</span>}
+          </div>
         </FieldGroup>
         {!isNaN(adjDelta) && adjDelta !== 0 && (
           <div style={{ padding: "8px 12px", borderRadius: C.r, background: C.bg, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 4 }}>
