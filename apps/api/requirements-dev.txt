@@ -1,0 +1,4 @@
+# Dependencias SOLO para tests / desarrollo (no van a producción).
+# En CI se instalan además de requirements.txt.
+pytest>=8,<9
+pytest-django>=4.11,<5

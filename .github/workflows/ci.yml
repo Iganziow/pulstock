@@ -33,7 +33,7 @@ jobs:
           cache-dependency-path: apps/api/requirements.txt
 
       - name: Instalar dependencias
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: pytest
         run: pytest
@@ -57,7 +57,9 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
 
       - name: Instalar dependencias
-        run: npm ci
+        # npm install (no `npm ci`): el lockfile se genera en Windows y le faltan
+        # deps opcionales linux-only (@emnapi/*), lo que rompe `npm ci` en CI.
+        run: npm install --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
