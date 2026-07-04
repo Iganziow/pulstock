@@ -37,6 +37,19 @@ body{font-family:'DM Sans','Helvetica Neue',system-ui,sans-serif;overscroll-beha
 .sb-item:hover .sb-tooltip{opacity:1;}
 .topbar-btn{background:none;border:1px solid transparent;cursor:pointer;border-radius:8px;display:flex;align-items:center;gap:8px;padding:6px 10px;transition:all 0.12s ease;font-family:inherit;color:${C.mid};}
 .topbar-btn:hover{background:${C.bg};border-color:${C.border};}
+/* ── Impresión ──────────────────────────────────────────────────────────
+   Al imprimir cualquier página del dashboard, ocultar TODO el chrome de la
+   app (sidebar, topbar, navs — marcados con .no-print) y liberar los
+   contenedores flex (que están fijos a 100vh + overflow:auto) para que el
+   contenido fluya en varias hojas en vez de recortarse a una sola. Antes
+   se imprimía la página entera con el menú lateral incluido. */
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  html, body { background: #fff !important; height: auto !important; overflow: visible !important; }
+  .app-shell, .app-main { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  .app-content { height: auto !important; overflow: visible !important; }
+}
 `;
 
 function useLayoutStyles() {
@@ -483,7 +496,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // ── Topbar ─────────────────────────────────────────────────────────────
   const topbar = (
-    <header style={{
+    <header className="no-print" style={{
       height: TOPBAR_H, background: C.surface,
       borderBottom: `1px solid ${C.border}`,
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -615,7 +628,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isMobile) {
     return (
       <div style={{ fontFamily: C.font, minHeight: "100vh", display: "flex", flexDirection: "column", background: C.bg }}>
-        <header className="safe-top" style={{
+        <header className="safe-top no-print" style={{
           height: TOPBAR_H, background: C.surface, borderBottom: `1px solid ${C.border}`,
           display: "flex", alignItems: "center", padding: "0 12px", gap: 10,
           position: "sticky", top: 0, zIndex: 50,
@@ -680,7 +693,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           // Antes era fijo 72px → en algunos phones el contenido se solapaba con el nav.
           paddingBottom: "calc(64px + max(12px, env(safe-area-inset-bottom)))",
         }}><ErrorBoundary>{children}</ErrorBoundary></main>
-        <nav className="safe-bottom" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 50, paddingBottom: "max(4px, env(safe-area-inset-bottom))" }}>
+        <nav className="safe-bottom no-print" style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: C.surface, borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 50, paddingBottom: "max(4px, env(safe-area-inset-bottom))" }}>
           {visibleBottom.map(item => {
             const active = isActive(item.href);
             return (
@@ -697,11 +710,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // ── DESKTOP ────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: C.font, background: C.bg }}>
+    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", fontFamily: C.font, background: C.bg }}>
       {/* Sidebar — height:100vh + overflowY:auto. WebkitOverflowScrolling
           mejora el touch scroll en iOS/macOS Safari. overscrollBehavior
           contiene el scroll en este contenedor (no se filtra al body). */}
-      <aside style={{
+      <aside className="no-print" style={{
         width: sidebarW, background: C.surface,
         borderRight: `1px solid ${C.border}`, flexShrink: 0,
         position: "sticky", top: 0, height: "100vh", overflowY: "auto",
@@ -714,12 +727,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main area */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100vh" }}>
+      <div className="app-main" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100vh" }}>
         {/* Topbar */}
         {topbar}
 
         {/* Content */}
-        <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+        <main className="app-content" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
           <ErrorBoundary>{children}</ErrorBoundary>
         </main>
       </div>
