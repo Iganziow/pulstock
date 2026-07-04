@@ -61,8 +61,8 @@ jobs:
         # deps opcionales linux-only (@emnapi/*), lo que rompe `npm ci` en CI.
         run: npm install --no-audit --no-fund
 
-      - name: Lint
-        run: npm run lint
-
+      # Nota: no corremos `next lint` — el proyecto no tiene config de ESLint
+      # (next lint entra en modo setup interactivo y cuelga en CI). El typecheck
+      # real lo hace `next build` abajo. Configurar ESLint es tarea aparte.
       - name: Build (typecheck incluido)
         run: npm run build
