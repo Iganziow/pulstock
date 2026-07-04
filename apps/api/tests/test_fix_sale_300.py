@@ -72,7 +72,11 @@ def _run_fix_script(sale_id, session_id):
     ]
     script_path = next((p for p in candidates if os.path.exists(p)), None)
     if not script_path:
-        raise FileNotFoundError(f'No encontre _fix_sale_300.py en: {candidates}')
+        pytest.skip(
+            "_fix_sale_300.py es un script de fix puntual NO versionado; este test "
+            "solo corre en local (donde el script existe). En un clon limpio / CI se "
+            "omite en lugar de romper la suite. Ver auditoria: par test-tracked / script-untracked."
+        )
     with open(script_path, encoding='utf-8') as f:
         source = f.read()
 

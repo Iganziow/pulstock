@@ -1697,7 +1697,11 @@ def generate_suggestions(tenant, today, threshold, target_days):
     if products_with_recipe:
         active_models = active_models.exclude(product_id__in=products_with_recipe)
     if not active_models.exists():
-        return 0, 0
+        # Sin modelos de forecast igual cubrimos el reorden por mínimo: hay
+        # insumos (papel higiénico, cloro) que se consumen sin venta → nunca
+        # tienen modelo, pero sí necesitan reposición.
+        reorder = _min_stock_reorder_lines(tenant, today, products_with_recipe, set())
+        return _persist_suggestion_lines(tenant, reorder)
 
     # Build confidence + algorithm lookup: (product_id, warehouse_id) → metadata
     # Necesitamos `algorithm` para detectar `category_prior` (modelo sin
@@ -1787,7 +1791,8 @@ def generate_suggestions(tenant, today, threshold, target_days):
         )
 
     if not daily_forecasts:
-        return 0, 0
+        reorder = _min_stock_reorder_lines(tenant, today, products_with_recipe, set())
+        return _persist_suggestion_lines(tenant, reorder)
 
     # Stock
     product_ids = set(k[0] for k in daily_forecasts)
@@ -2003,10 +2008,21 @@ def generate_suggestions(tenant, today, threshold, target_days):
             ),
         })
 
+    # Reorden por mínimo (insumos sin demanda de venta) — se suma a las líneas
+    # del forecast antes de persistir. `already` evita doble sugerencia.
+    already = {(l["product_id"], l["warehouse_id"]) for l in at_risk_lines}
+    at_risk_lines += _min_stock_reorder_lines(tenant, today, products_with_recipe, already)
+
+    return _persist_suggestion_lines(tenant, at_risk_lines)
+
+
+def _persist_suggestion_lines(tenant, at_risk_lines):
+    """Agrupa por bodega, descarta pendientes viejas y crea las nuevas
+    PurchaseSuggestion + SuggestionLine. Devuelve (n_sugerencias, n_líneas).
+    Extraído de generate_suggestions para reusar en el reorden por mínimo."""
     if not at_risk_lines:
         return 0, 0
 
-    # Group by warehouse
     by_warehouse = {}
     for line in at_risk_lines:
         by_warehouse.setdefault(line["warehouse_id"], []).append(line)
@@ -2018,26 +2034,19 @@ def generate_suggestions(tenant, today, threshold, target_days):
 
     suggestion_count = 0
     line_count = 0
-
     for wid, lines in by_warehouse.items():
         priorities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
         worst = max(lines, key=lambda l: priorities.index(l["priority"]) * -1)
         overall_priority = worst["priority"]
 
         supplier = _find_best_supplier(tenant, [l["product_id"] for l in lines])
-
         total_cost = sum(l["estimated_cost"] for l in lines)
 
         suggestion = PurchaseSuggestion.objects.create(
-            tenant=tenant,
-            warehouse_id=wid,
-            supplier_name=supplier,
-            status="PENDING",
-            priority=overall_priority,
-            total_estimated=total_cost,
-            generated_at=timezone.now(),
+            tenant=tenant, warehouse_id=wid, supplier_name=supplier,
+            status="PENDING", priority=overall_priority,
+            total_estimated=total_cost, generated_at=timezone.now(),
         )
-
         for line in lines:
             SuggestionLine.objects.create(
                 suggestion=suggestion,
@@ -2050,10 +2059,102 @@ def generate_suggestions(tenant, today, threshold, target_days):
                 reasoning=line["reasoning"],
             )
             line_count += 1
-
         suggestion_count += 1
 
     return suggestion_count, line_count
+
+
+def _min_stock_reorder_lines(tenant, today, products_with_recipe, already_keys):
+    """Líneas de reorden para insumos sin demanda de venta (papel higiénico,
+    cloro, servilletas): se consumen por USO (StockMove ISSUE), no por venta,
+    así que no tienen forecast y nunca entran al loop de demanda.
+
+    Regla: si on_hand < min_stock → reponer SOLO hasta el mínimo. El disparador
+    (bajo el mínimo) es un HECHO, no una predicción. El consumo se estima de los
+    últimos 90 días sólo para informar "días restantes" cuando hay señal
+    suficiente (≥4 registros); con menos data se reporta sólo el reorden por
+    mínimo, sin inventar una duración.
+
+    Devuelve lista de dicts compatibles con _persist_suggestion_lines. Muta
+    `already_keys` para evitar duplicados entre bodegas.
+    """
+    from math import ceil
+    from django.db.models import Sum, Count
+    from catalog.models import Product as CatalogProduct
+
+    ZERO = Decimal("0")
+    CONSUMO_WINDOW = 90
+
+    min_stock_map = {
+        p.id: p.min_stock
+        for p in CatalogProduct.objects.filter(
+            tenant=tenant, is_active=True, min_stock__gt=0,
+        ).only("id", "min_stock")
+        if p.id not in products_with_recipe  # los de receta se arman, no se compran
+    }
+    if not min_stock_map:
+        return []
+
+    consumo_rows = (
+        DailySales.objects.filter(
+            tenant=tenant, product_id__in=min_stock_map.keys(),
+            date__gte=today - timedelta(days=CONSUMO_WINDOW), forecast_only=False,
+        )
+        .values("product_id")
+        .annotate(s=Sum("qty_sold"), l=Sum("qty_lost"), n=Count("id"))
+    )
+    consumo_map = {
+        r["product_id"]: (float(r["s"] or 0) + float(r["l"] or 0), r["n"] or 0)
+        for r in consumo_rows
+    }
+
+    lines = []
+    reorder_stock = StockItem.objects.filter(
+        tenant=tenant, product_id__in=min_stock_map.keys(),
+    ).values("product_id", "warehouse_id", "on_hand", "avg_cost")
+    for si in reorder_stock:
+        pid, wid = si["product_id"], si["warehouse_id"]
+        if (pid, wid) in already_keys:
+            continue  # ya sugerido por el forecast
+        on_hand = si["on_hand"] or ZERO
+        min_s = min_stock_map[pid]
+        if on_hand >= min_s:
+            continue
+        avg_cost = si["avg_cost"] or ZERO
+        total_consumo, n_eventos = consumo_map.get(pid, (0.0, 0))
+        avg_daily = (total_consumo / CONSUMO_WINDOW) if total_consumo > 0 else 0.0
+        qty = max(1, ceil(float(min_s) - float(on_hand)))  # SOLO hasta el mínimo
+        days_left = int(float(on_hand) / avg_daily) if avg_daily > 0 else 999
+
+        if on_hand <= 0:
+            priority = "CRITICAL"
+        elif float(on_hand) < float(min_s) * 0.5:
+            priority = "HIGH"
+        else:
+            priority = "MEDIUM"
+
+        if n_eventos >= 4 and avg_daily > 0:
+            extra = (f" Consumís ~{avg_daily:.2f}/día (últimos 90 días) → "
+                     f"te alcanza para ~{days_left} días.")
+        else:
+            extra = " (Reposición por mínimo; sin consumo suficiente para estimar duración.)"
+        reason = (
+            f"Bajo el mínimo: tenés {float(on_hand):g}, el mínimo es {float(min_s):g}. "
+            f"Reponé {qty} para volver al mínimo.{extra}"
+        )
+        lines.append({
+            "product_id": pid,
+            "warehouse_id": wid,
+            "current_stock": on_hand,
+            "avg_daily_demand": Decimal(str(round(avg_daily, 3))),
+            "days_to_stockout": days_left,
+            "suggested_qty": Decimal(str(qty)),
+            "estimated_cost": (Decimal(str(qty)) * avg_cost).quantize(Decimal("0.01")),
+            "priority": priority,
+            "reasoning": reason,
+        })
+        already_keys.add((pid, wid))
+    return lines
 
 
 def _find_best_supplier(tenant, product_ids):
