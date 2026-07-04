@@ -114,7 +114,7 @@ export default function TomaFisicaPage() {
     <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: mob ? "14px 10px" : "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Header */}
       <div>
-        <Link href="/dashboard/reports" style={{ fontSize: 12, color: C.mute, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
+        <Link href="/dashboard/reports" className="no-print" style={{ fontSize: 12, color: C.mute, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg> Reportes
         </Link>
         <h1 style={{ margin: 0, fontSize: mob ? 19 : 23, fontWeight: 800, letterSpacing: "-.04em" }}>📋 Toma física de inventario</h1>
@@ -194,7 +194,7 @@ export default function TomaFisicaPage() {
 
           {/* Products grouped by category */}
           {grouped.map(([cat, items]) => (
-            <div key={cat} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.r, overflow: "hidden", boxShadow: C.sh }}>
+            <div key={cat} className="no-print" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.r, overflow: "hidden", boxShadow: C.sh }}>
               {/* Category header */}
               <div style={{ padding: "8px 16px", background: C.bg, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: C.mid }}>{cat}</span>
@@ -235,12 +235,38 @@ export default function TomaFisicaPage() {
             </div>
           ))}
 
-          {/* Print footer */}
-          <div className="print-only" style={{ display: "none", marginTop: 32, borderTop: `1px solid #000`, paddingTop: 12, fontSize: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Firma: ________________________</span>
-              <span>Fecha: ________________________</span>
+          {/* ── Hoja de conteo dedicada para impresión (full-width, compacta) ──
+              Se muestra SOLO al imprimir (.print-only). La vista interactiva de
+              arriba se oculta (.no-print). Tabla width:100% → llena la página. */}
+          <div className="print-only tf-sheet" style={{ display: "none" }}>
+            <div className="tf-sheet-head">
+              <span>{header?.store_name || "Toma física"}</span>
+              <span>Fecha: ___ / ___ / ______&nbsp;&nbsp;&nbsp;Contó: ____________________</span>
             </div>
+            {grouped.map(([cat, items]) => (
+              <table key={cat} className="tf-tbl">
+                <caption>{cat} <span className="cnt">· {items.length}</span></caption>
+                <thead>
+                  <tr>
+                    <th className="c-prod">Producto</th>
+                    <th className="c-un">Unidad</th>
+                    <th className="c-sys">Sistema</th>
+                    <th className="c-cnt">Conteo físico</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(r => (
+                    <tr key={`${r.product_id}-${(r as any).warehouse_id || 0}`}>
+                      <td className="c-prod">{r.product_name}{r.barcode ? <span className="sku"> · {r.barcode}</span> : null}</td>
+                      <td className="c-un">{r.unit}</td>
+                      <td className="c-sys">{fmt(r.stock_system)}</td>
+                      <td className="c-cnt"></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ))}
+            <div className="tf-sign">Firma responsable: ________________________________</div>
           </div>
         </>)}
 
@@ -349,7 +375,28 @@ export default function TomaFisicaPage() {
       <style>{`
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         .tf-row:hover{background:${C.accentBg}!important}
-        @media print { .no-print { display: none !important; } .print-only { display: block !important; } }
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          .tf-sheet { font-size: 11px; color: #000; }
+          .tf-sheet-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+            border-bottom: 1.5px solid #000; padding-bottom: 5px; margin-bottom: 10px; font-size: 12px; font-weight: 600; }
+          .tf-tbl { width: 100%; border-collapse: collapse; margin: 0 0 14px; }
+          .tf-tbl caption { caption-side: top; text-align: left; font-size: 13px; font-weight: 800; padding: 6px 0 4px; }
+          .tf-tbl caption .cnt { font-weight: 400; font-size: 11px; color: #666; }
+          .tf-tbl thead th { text-align: left; font-size: 9px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .04em; border-bottom: 1.5px solid #000; padding: 3px 6px; }
+          .tf-tbl td { padding: 4px 6px; border-bottom: 1px solid #ccc; vertical-align: middle; }
+          .tf-tbl tr { page-break-inside: avoid; }
+          .tf-tbl .c-un { width: 58px; color: #444; }
+          .tf-tbl .c-sys { width: 70px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+          .tf-tbl .c-cnt { width: 96px; }
+          .tf-tbl td.c-cnt { border: 1px solid #000; }
+          .tf-tbl td.c-prod { font-weight: 600; }
+          .tf-tbl .sku { font-weight: 400; color: #666; font-size: 9px; }
+          .tf-sign { margin-top: 22px; font-size: 11px; }
+          @page { margin: 12mm; }
+        }
       `}</style>
     </div>
   );
