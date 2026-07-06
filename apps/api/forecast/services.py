@@ -943,6 +943,14 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     )
 
 
+# Breaker-streak (jul 2026): si el circuit breaker rescata al MISMO producto
+# N noches consecutivas, el modelo primario está roto de verdad (no fue un
+# blip) → se fuerza reentrenamiento completo saltando el kept-path, igual que
+# pattern_changed. Caso real: Carne Mechada predecía 10.3 vs 465 de demanda
+# real y el breaker lo parchaba cada noche sin que nadie reentrenara.
+BREAKER_STREAK_FORCE_RETRAIN = 3
+
+
 def _collapse_guard(best, raw_series, today, horizon, product=None):
     """CIRCUIT BREAKER anti-colapso (Mario 31/05/26).
 
@@ -1254,6 +1262,14 @@ def train_product_model(tenant, product, warehouse_id, today,
         is_active=True,
     ).first()
 
+    # Breaker-streak: contador de noches consecutivas con circuit breaker,
+    # leído del modelo de ANOCHE. La contabilización (increment/reset) vive
+    # en _regen_from_existing — el último paso de ambos paths (kept y fresh),
+    # que es donde se decide el forecast definitivo de la noche.
+    prev_breaker_streak = 0
+    if existing:
+        prev_breaker_streak = int((existing.model_params or {}).get("circuit_breaker_streak", 0) or 0)
+
     # Bug 1 (22/05/26): comparar por WAPE, no por MAPE. El MAPE de los
     # modelos category_prior/simple_avg es 0 (no hacen backtest); con la
     # logica vieja `new_mape > old_mape*1.1` cualquier modelo nuevo (WAPE
@@ -1282,8 +1298,21 @@ def train_product_model(tenant, product, warehouse_id, today,
         existing is not None
         and not _algo_eligible_for_pattern(existing.algorithm, demand_pattern)
     )
+    # Breaker-streak (jul 2026): si el breaker rescató a este producto N
+    # noches seguidas, el WAPE histórico del modelo viejo ya no describe la
+    # realidad (fue medido en otro régimen) → NO conservarlo por kept aunque
+    # "gane" la comparación. Forzar la selección fresca de esta noche.
+    breaker_forced = prev_breaker_streak >= BREAKER_STREAK_FORCE_RETRAIN
+    if breaker_forced:
+        logger.warning(
+            "Breaker-streak product %s (%s): breaker activo %d noches seguidas "
+            "→ se fuerza reentrenamiento (kept-path bypassed).",
+            getattr(product, "id", "?"), getattr(product, "name", "?"),
+            prev_breaker_streak,
+        )
     if (existing and existing.metrics and existing.metrics.get("wape") is not None
-            and not pattern_changed and not existing_algo_ineligible):
+            and not pattern_changed and not existing_algo_ineligible
+            and not breaker_forced):
         old_err = existing.metrics.get("wape", 999)
         new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
         if new_err > old_err * 1.1 and old_err < 900:
@@ -1292,6 +1321,7 @@ def train_product_model(tenant, product, warehouse_id, today,
                 tenant, product, warehouse_id, existing,
                 today, horizon, window, cleaned, stock_items,
                 stockout_dates=stockout_dates,
+                raw_series=raw_series, prev_breaker_streak=prev_breaker_streak,
             )
             return
 
@@ -1362,10 +1392,17 @@ def train_product_model(tenant, product, warehouse_id, today,
     # antes re-derivaba desde params parciales y rompia theta/croston). Es
     # necesario porque moving_avg/adaptive_ma producen su forecast definitivo
     # via avg_daily×dow_factors, no en best["forecasts"].
+    #
+    # raw_series (jul 2026): CRÍTICO — este regen re-ejecuta el algoritmo
+    # crudo y sobreescribe los forecasts, así que si el modelo colapsa, el
+    # parche del _collapse_guard de más arriba se PERDÍA acá (el rescate del
+    # breaker no llegaba a la DB para modelos recién entrenados). Pasar
+    # raw_series hace que el regen re-aplique el guard al output final.
     _regen_from_existing(
         tenant, product, warehouse_id, fm,
         today, horizon, window, cleaned, stock_items,
         stockout_dates=stockout_dates,
+        raw_series=raw_series, prev_breaker_streak=prev_breaker_streak,
     )
 
 
@@ -1487,7 +1524,8 @@ def train_sparse_product(tenant, product, warehouse_id, today,
 
 def _regen_from_existing(tenant, product, warehouse_id, fm,
                          today, horizon, window, series, stock_items,
-                         stockout_dates=None):
+                         stockout_dates=None, raw_series=None,
+                         prev_breaker_streak=0):
     """Re-generate forecasts using an existing active model.
 
     Bug raiz (22/05/26): antes esta funcion re-derivaba el forecast desde
@@ -1528,6 +1566,34 @@ def _regen_from_existing(tenant, product, warehouse_id, fm,
             ma["avg_daily"], ma["day_of_week_factors"], today, horizon,
         )
         conf = Decimal("70.00")
+
+    # Circuit breaker también en el kept-path (jul 2026). Antes SOLO el
+    # fresh-path pasaba por _collapse_guard → un modelo conservado que
+    # regeneraba forecasts colapsados quedaba sin red. Además acá se lleva
+    # el breaker-streak: N noches consecutivas rescatado → el kept-path se
+    # bypassea en el próximo train (ver BREAKER_STREAK_FORCE_RETRAIN).
+    fired = None
+    if raw_series:
+        _guarded = _collapse_guard(
+            {"forecasts": forecasts, "params": {}},
+            raw_series, today, horizon, product=product,
+        )
+        forecasts = _guarded["forecasts"]
+        fired = _guarded.get("params", {}).get("circuit_breaker")
+
+    # prev_breaker_streak viene del modelo de ANOCHE (lo pasa el caller) —
+    # no se lee de fm.model_params porque en el fresh-path fm es el modelo
+    # recién creado esta noche (leerlo acá contaría doble la misma noche).
+    params = dict(fm.model_params or {})
+    if fired:
+        params["circuit_breaker"] = fired
+        params["circuit_breaker_streak"] = int(prev_breaker_streak or 0) + 1
+    else:
+        params.pop("circuit_breaker", None)
+        params.pop("circuit_breaker_streak", None)
+    if params != (fm.model_params or {}):
+        fm.model_params = params
+        fm.save(update_fields=["model_params"])
 
     save_forecasts(tenant, product, warehouse_id, fm, forecasts, conf, stock_items)
 
@@ -2361,6 +2427,13 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
     ).order_by("-version").first()
     new_version = (existing.version + 1) if existing else 1
 
+    # Breaker-streak (jul 2026): mismo contador que el path organic — noches
+    # consecutivas rescatadas por el guard, para visibilidad y diagnóstico
+    # (el derived se reentrena entero cada noche, así que acá no fuerza nada).
+    _prev_cb_streak = 0
+    if existing:
+        _prev_cb_streak = int((existing.model_params or {}).get("circuit_breaker_streak", 0) or 0)
+
     # Metrics: usa backtest si disponible, sino sentinels (sin historia
     # comparable). F3 (Mario 31/05/26): incluir SIEMPRE las claves nuevas
     # (mase/smape/tracking_signal) para que los derivados no queden con
@@ -2389,7 +2462,8 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
             "backtest_days": len(actual_by_date) if actual_by_date else 0,
             **({"bias_correction": bias_corr} if bias_corr else {}),
-            **({"circuit_breaker": circuit_breaker} if circuit_breaker else {}),
+            **({"circuit_breaker": circuit_breaker,
+                "circuit_breaker_streak": _prev_cb_streak + 1} if circuit_breaker else {}),
         },
         metrics=metrics_to_save,
         trained_at=timezone.now(),
