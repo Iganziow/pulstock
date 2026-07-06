@@ -3,8 +3,36 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import DecimalField, ExpressionWrapper, F, Q
 from django.utils import timezone
+
+
+def stock_value_expr(on_hand_expr):
+    """
+    Invariante de valorización: stock_value = on_hand × avg_cost.
+
+    Devuelve una expresión SQL atómica para usar en .update() junto con el
+    cambio de on_hand (el RHS de un UPDATE ve los valores VIEJOS de la fila,
+    así que hay que pasar la MISMA expresión de on_hand que se está seteando,
+    ej: stock_value=stock_value_expr(F("on_hand") - qty)).
+
+    Historia (jul 2026): stock_value se mantenía por deltas acumulados
+    (F("stock_value") ± valor_del_movimiento). Eso drifteaba del invariante y
+    hasta daba NEGATIVO: al vender un producto con avg_cost=0, el costo de la
+    línea usa el fallback Product.cost (correcto para el margen de la venta),
+    pero restarlo de un stock_value que valía 0 lo dejaba bajo cero (49 ítems
+    corruptos en prod, ej. "Gretel 85 gr" en -4.880). stock_value es un campo
+    DERIVADO: siempre se recalcula, nunca se acumula.
+
+    Solo usable cuando avg_cost NO cambia en el mismo UPDATE (ventas, voids,
+    ajustes de cantidad, salidas, transferencia-origen). Si avg_cost cambia
+    (compras, recepciones, transferencia-destino), calcular en Python:
+    stock_value = v3(new_on_hand * new_avg).
+    """
+    return ExpressionWrapper(
+        on_hand_expr * F("avg_cost"),
+        output_field=DecimalField(max_digits=14, decimal_places=3),
+    )
 
 
 # =========================================================

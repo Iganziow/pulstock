@@ -359,7 +359,9 @@ class PurchasePost(APIView):
 
             new_avg = _weighted_avg_cost(old_qty, old_avg, in_qty, in_cost)
             new_qty = q3(old_qty + in_qty)
-            new_value = v3(old_value + in_value)
+            # invariante new_qty × new_avg (no old_value + in_value, que
+            # arrastraba drift previo del ítem)
+            new_value = v3(new_qty * new_avg)
 
             StockItem.objects.filter(id=si.id).update(
                 on_hand=new_qty,
@@ -501,6 +503,9 @@ class PurchaseVoid(APIView):
                         l.product_id,
                     )
                     new_avg = Decimal("0.000")
+                # invariante: stock_value = new_qty × new_avg (el redondeo de
+                # new_avg a 3dp haría driftear el valor exacto acumulado)
+                new_value = v3(new_qty * new_avg)
             else:
                 new_avg = Decimal("0.000")
                 new_value = Decimal("0.000")  # si qty 0, dejamos valor 0

@@ -18,7 +18,7 @@ from rest_framework.pagination import LimitOffsetPagination, PageNumberPaginatio
 from core.permissions import HasTenant, IsInventoryOrManager
 from core.models import Warehouse
 from catalog.models import Product
-from .models import StockItem, StockMove, StockTransfer, StockTransferLine
+from .models import StockItem, StockMove, StockTransfer, StockTransferLine, stock_value_expr
 from .serializers import (
     StockAdjustSerializer,
     StockMoveListSerializer,
@@ -247,10 +247,12 @@ class StockAdjust(APIView):
                 stock_value=new_stock_value,
             )
         else:
-            # update stock + valor (avg_cost no cambia en ajuste por defecto)
+            # update stock + valor (avg_cost no cambia en ajuste por defecto).
+            # stock_value por invariante on_hand × avg_cost (no por delta) para
+            # que no arrastre drift previo — ver stock_value_expr.
             StockItem.objects.filter(id=si.id).update(
                 on_hand=F("on_hand") + qty,
-                stock_value=F("stock_value") + value_delta,
+                stock_value=stock_value_expr(F("on_hand") + qty),
             )
         si.refresh_from_db(fields=["on_hand", "avg_cost", "stock_value"])
 
@@ -342,9 +344,12 @@ class StockReceive(APIView):
         else:
             new_avg = old_avg
 
+        # stock_value por invariante new_qty × new_avg (la fila está lockeada
+        # por _get_or_create_stockitem_locked, así que los literales son
+        # seguros). Antes sumaba in_value por delta y arrastraba drift.
         StockItem.objects.filter(id=si.id).update(
-            on_hand=F("on_hand") + qty,
-            stock_value=F("stock_value") + in_value,
+            on_hand=new_qty,
+            stock_value=v3(new_qty * new_avg),
             avg_cost=new_avg,
         )
         si.refresh_from_db(fields=["on_hand", "avg_cost", "stock_value"])
@@ -442,9 +447,10 @@ class StockIssue(APIView):
         out_value = v3(qty * cost_snapshot)  # valor absoluto
         value_delta = -out_value
 
+        # stock_value por invariante (no por delta) — ver stock_value_expr.
         StockItem.objects.filter(id=si.id).update(
             on_hand=F("on_hand") - qty,
-            stock_value=F("stock_value") - out_value,
+            stock_value=stock_value_expr(F("on_hand") - qty),
         )
         si.refresh_from_db(fields=["on_hand", "avg_cost", "stock_value"])
 
@@ -798,10 +804,11 @@ class StockTransferCreate(APIView):
             cost_snapshot = c3(si_from.avg_cost or Decimal("0.000"))
             line_value = v3(qty * cost_snapshot)
 
-            # actualizar origen: baja qty y valor (avg_cost no cambia)
+            # actualizar origen: baja qty y valor (avg_cost no cambia).
+            # stock_value por invariante — ver stock_value_expr.
             StockItem.objects.filter(id=si_from.id).update(
                 on_hand=F("on_hand") - qty,
-                stock_value=F("stock_value") - line_value,
+                stock_value=stock_value_expr(F("on_hand") - qty),
             )
 
             # destino: recalcular avg_cost ponderado y subir qty/valor
@@ -812,7 +819,9 @@ class StockTransferCreate(APIView):
 
             new_avg_to = _weighted_avg_cost(old_qty_to, old_avg_to, qty, cost_snapshot)
             new_qty_to = q3(old_qty_to + qty)
-            new_val_to = v3(old_val_to + line_value)
+            # invariante new_qty × new_avg (no old_val + line_value, que
+            # arrastraba drift previo del destino)
+            new_val_to = v3(new_qty_to * new_avg_to)
 
             StockItem.objects.filter(id=si_to.id).update(
                 on_hand=new_qty_to,

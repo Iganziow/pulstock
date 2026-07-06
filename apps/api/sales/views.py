@@ -16,7 +16,7 @@ from rest_framework import status, generics
 from core.permissions import HasTenant, IsManager
 from core.models import Warehouse
 from catalog.models import Product
-from inventory.models import StockItem, StockMove
+from inventory.models import StockItem, StockMove, stock_value_expr
 
 from .models import Sale, SalePayment, SaleLine, SaleTip
 from .serializers import (
@@ -439,9 +439,13 @@ class SaleVoid(APIView):
             value_to_restore = abs(Decimal(str(m_sale.value_delta or 0))).quantize(Decimal("0.000"))
             unit_cost = Decimal(str(m_sale.cost_snapshot or 0)).quantize(Decimal("0.000"))
 
+            # stock_value por invariante (on_hand × avg_cost actual), no por
+            # delta: si el avg_cost cambió entre la venta y el void, sumar el
+            # value_delta original desincronizaba la valorización. El StockMove
+            # de abajo conserva value_to_restore como auditoría del void.
             StockItem.objects.filter(id=si.id).update(
                 on_hand=F("on_hand") + qty_to_restore,
-                stock_value=F("stock_value") + value_to_restore,
+                stock_value=stock_value_expr(F("on_hand") + qty_to_restore),
             )
 
             # IN: value_delta POSITIVO (vuelve al inventario)

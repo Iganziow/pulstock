@@ -16,7 +16,7 @@ from core.models import Warehouse
 
 logger = logging.getLogger(__name__)
 from catalog.models import Product
-from inventory.models import StockItem, StockMove
+from inventory.models import StockItem, StockMove, stock_value_expr
 
 from .models import Sale, SaleLine, SalePayment, SaleTip, TenantSaleCounter
 from .promotions import resolve_active_promotions
@@ -467,9 +467,14 @@ def create_sale(
 
         line_cost_move = (actual_decrement * unit_cost).quantize(Decimal("0.000"))
 
+        # stock_value se RECALCULA (invariante on_hand × avg_cost), NO se
+        # resta line_cost_move: cuando avg_cost=0, unit_cost usa el fallback
+        # Product.cost (correcto para el margen de la venta/StockMove), pero
+        # restarlo de un stock_value=0 lo dejaba NEGATIVO (corrupción real
+        # detectada en prod jul-2026). Ver stock_value_expr en inventory.models.
         StockItem.objects.filter(id=si.id).update(
             on_hand=F("on_hand") - actual_decrement,
-            stock_value=F("stock_value") - line_cost_move,
+            stock_value=stock_value_expr(F("on_hand") - actual_decrement),
         )
 
         # CRÍTICO: el StockMove debe registrar `actual_decrement` (qty REAL

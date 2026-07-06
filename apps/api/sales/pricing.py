@@ -126,6 +126,15 @@ def build_sale_lines(
         else:
             si = stock_map.get(pid)
             unit_cost = (si.avg_cost or Decimal("0.000")).quantize(Decimal("0.000")) if si else Decimal("0.000")
+            if unit_cost <= 0:
+                # Fallback Product.cost cuando avg_cost=0 (nunca hubo compra).
+                # Mismo criterio que _effective_cost en services.py — antes el
+                # fallback solo aplicaba a ingredientes de receta y al descuento
+                # de stock, y las líneas simples quedaban con costo 0 → margen
+                # 100% falso aunque el producto tuviera costo en su ficha
+                # (ej. "Tabla de sushi" jul-2026).
+                pc = getattr(products.get(pid), "cost", None) or Decimal("0.000")
+                unit_cost = Decimal(str(pc)).quantize(Decimal("0.000"))
             line_cost = (qty * unit_cost).quantize(Decimal("0.000"))
 
         line_gp = (line_total - line_cost).quantize(Decimal("1"))
