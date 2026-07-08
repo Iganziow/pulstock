@@ -736,39 +736,28 @@ class TestCancelOrder:
         order = OpenOrder.objects.get(id=order_id)
         assert order.status == OpenOrder.STATUS_CLOSED
 
-    def test_cancel_order_with_paid_lines_returns_409(self, api_client, warehouse, product, tenant):
-        """Cannot cancel an order that has paid lines."""
+    def test_cancel_order_with_only_paid_lines_closes(self, api_client, warehouse, product, tenant):
+        """Orden con líneas COBRADAS y sin pendientes debe cerrarse (libera la
+        mesa); las ventas ya registradas quedan intactas. Antes devolvía 409 y
+        la mesa quedaba trabada para siempre (bug jul-2026 'Para llevar #2')."""
         _ensure_stock(tenant, warehouse, product)
 
-        r = _create_table(api_client, name="Mesa PaidCancel")
+        r = _create_table(api_client, name="Mesa OnlyPaid")
         table_id = r.json()["id"]
         order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
         _add_lines(api_client, order_id, [
-            {"product_id": product.id, "qty": 1, "unit_price": "1000.00"},
-        ])
-
-        # Pay the line via checkout
-        api_client.post(_checkout_url(order_id), {
-            "mode": "all",
-            "payments": [{"method": "cash", "amount": "1000.00"}],
-        }, format="json")
-
-        # Re-open scenario: order is already closed, but let's test the guard directly
-        # Create a new order with a paid line
-        r2 = _create_table(api_client, name="Mesa PaidCancel2")
-        table_id2 = r2.json()["id"]
-        order_id2 = _open_order(api_client, table_id2, warehouse_id=warehouse.id).json()["id"]
-        _add_lines(api_client, order_id2, [
             {"product_id": product.id, "qty": 1, "unit_price": "500.00"},
         ])
 
-        # Manually mark line as paid (simulating partial checkout)
-        line = OpenOrderLine.objects.filter(order_id=order_id2, is_cancelled=False).first()
+        # Simula cobro parcial: la línea queda cobrada, sin pendientes
+        line = OpenOrderLine.objects.filter(order_id=order_id, is_cancelled=False).first()
         line.is_paid = True
         line.save(update_fields=["is_paid"])
 
-        resp = api_client.post(_cancel_url(order_id2))
-        assert resp.status_code == 409
+        resp = api_client.post(_cancel_url(order_id))
+        assert resp.status_code == 200, resp.content
+        assert OpenOrder.objects.get(id=order_id).status == OpenOrder.STATUS_CLOSED
+        assert Table.objects.get(id=table_id).status == Table.STATUS_FREE
 
     def test_cancel_order_with_active_unpaid_items_returns_409(self, api_client, warehouse, product):
         """Cannot cancel an order with active unpaid items (must cancel them first)."""
@@ -963,3 +952,52 @@ class TestEdgeCases:
         sale_id = resp.json()["id"]
         payment = SalePayment.objects.get(sale_id=sale_id)
         assert payment.method == "transfer"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CANCEL / CERRAR MESA — bug jul-2026: orden con parte cobrada quedaba trabada
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestCancelOrderWithPaidLines:
+    """Cerrar una orden totalmente resuelta (todo cobrado o cancelado, 0
+    pendientes) debe liberar la mesa aunque tenga líneas COBRADAS. Antes el
+    guard 'no se puede cancelar con líneas cobradas' la dejaba trabada: no se
+    podía cobrar (nada pendiente) ni cancelar (tenía cobradas)."""
+
+    def test_cancel_with_paid_and_cancelled_lines_closes(self, api_client, warehouse, product, tenant):
+        _ensure_stock(tenant, warehouse, product)
+        table_id = _create_table(api_client, name="Mesa Trabada").json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 1, "unit_price": "800.00"},
+            {"product_id": product.id, "qty": 1, "unit_price": "2500.00"},
+        ])
+        lines = list(OpenOrderLine.objects.filter(order_id=order_id).order_by("id"))
+        # 1 cobrada, 1 cancelada, 0 pendientes (estado del "Para llevar #2")
+        lines[0].is_paid = True
+        lines[0].save(update_fields=["is_paid"])
+        lines[1].is_cancelled = True
+        lines[1].save(update_fields=["is_cancelled"])
+
+        resp = api_client.post(_cancel_url(order_id))
+        assert resp.status_code == 200, resp.content
+
+        order = OpenOrder.objects.get(id=order_id)
+        assert order.status == OpenOrder.STATUS_CLOSED
+        assert Table.objects.get(id=table_id).status == Table.STATUS_FREE
+        # La línea cobrada queda INTACTA (cerrar no descobra ni borra ventas)
+        lines[0].refresh_from_db()
+        assert lines[0].is_paid is True and not lines[0].is_cancelled
+
+    def test_cancel_with_pending_lines_still_blocked(self, api_client, warehouse, product, tenant):
+        _ensure_stock(tenant, warehouse, product)
+        table_id = _create_table(api_client, name="Mesa Pendiente").json()["id"]
+        order_id = _open_order(api_client, table_id, warehouse_id=warehouse.id).json()["id"]
+        _add_lines(api_client, order_id, [
+            {"product_id": product.id, "qty": 1, "unit_price": "800.00"},
+        ])
+        # línea pendiente → cerrar debe seguir bloqueando (409)
+        resp = api_client.post(_cancel_url(order_id))
+        assert resp.status_code == 409
+        assert OpenOrder.objects.get(id=order_id).status == OpenOrder.STATUS_OPEN

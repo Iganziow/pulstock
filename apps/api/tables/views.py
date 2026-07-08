@@ -748,9 +748,15 @@ class CancelOrderView(APIView):
         except OpenOrder.DoesNotExist:
             return Response({"detail": "Open order not found"}, status=404)
 
-        if order.lines.filter(is_paid=True).exists():
-            return Response({"detail": "No se puede cancelar una orden con líneas cobradas"}, status=409)
-
+        # El ÚNICO bloqueo válido para cerrar es que queden ítems PENDIENTES
+        # (sin cobrar y sin cancelar): hay que resolverlos antes. Que existan
+        # líneas ya COBRADAS NO impide cerrar — cerrar solo libera la mesa; las
+        # ventas ya registradas (paid_by_sale) quedan intactas.
+        #
+        # Bug jul-2026 (Marbrava, "Para llevar #2"): una orden con parte cobrada
+        # y el resto cancelado quedaba TRABADA — no se podía cobrar (nada
+        # pendiente) ni cancelar (tenía cobradas → 409), y la mesa quedaba
+        # ocupada para siempre. El chequeo de "líneas cobradas" era el culpable.
         active_unpaid = order.lines.filter(is_paid=False, is_cancelled=False)
         if active_unpaid.exists():
             return Response({"detail": "Hay ítems pendientes. Cancélalos o cóbralos antes de cerrar."}, status=409)
