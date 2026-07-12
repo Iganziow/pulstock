@@ -38,8 +38,17 @@ def _croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
     if not intervals:
         return None
 
-    z_hat = sum(sizes[:3]) / min(3, len(sizes))          # demand size estimate
-    p_hat = sum(intervals[:3]) / min(3, len(intervals))  # interval estimate
+    # Init robusto (Sprint A jul-2026): mediana de TODOS los eventos, no las
+    # primeras 3 observaciones. Con alpha bajo el init pesa mucho, y las
+    # primeras ventas son del régimen más VIEJO de la serie → si el nivel
+    # subió, sub-forecast sistemático (caso Carne Mechada).
+    def _median(vals):
+        s = sorted(vals)
+        m = len(s) // 2
+        return float(s[m]) if len(s) % 2 else (float(s[m - 1]) + float(s[m])) / 2.0
+
+    z_hat = _median(sizes)      # demand size estimate
+    p_hat = _median(intervals)  # interval estimate
 
     # Smooth through the series — weight-adjusted alpha (interpolated data has less influence)
     for i in range(1, len(non_zero)):
@@ -133,7 +142,16 @@ def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
         if not fold_metrics:
             continue
         avg = _average_metrics(fold_metrics)
-        if best_metrics is None or avg["mae"] < best_metrics["mae"]:
+        # Sprint A (jul 2026): elegir alpha por WAPE de TOTALES (la tasa del
+        # período, que es lo que le importa a compras), no por MAE diario —
+        # en intermitente el MAE diario premia sistemáticamente sub-predecir
+        # (predecir ~0 "acierta" los días sin venta). MAE queda de desempate.
+        key = (avg.get("wape_total", 999), avg["mae"])
+        best_key = (
+            (best_metrics.get("wape_total", 999), best_metrics["mae"])
+            if best_metrics is not None else None
+        )
+        if best_key is None or key < best_key:
             best_metrics = avg
             best_alpha = alpha
 
@@ -150,7 +168,14 @@ class CrostonForecast(ForecastAlgorithm):
     demand_patterns = ["intermittent", "lumpy"]
 
     def forecast(self, daily_series, horizon_days=14, **kwargs):
-        return _croston_forecast(daily_series, horizon_days=horizon_days, use_sba=False)
+        # Sprint A (jul 2026): usar el alpha TUNEADO por el grid del backtest
+        # (llega vía kwargs desde selection/regen). Antes se descartaba y se
+        # forecasteaba siempre con el default 0.15 — el tuning era trabajo
+        # muerto y las series con cambio de nivel reaccionaban a la mitad de
+        # velocidad de lo que el backtest había elegido.
+        alpha = kwargs.get("best_alpha") or 0.15
+        return _croston_forecast(daily_series, alpha=alpha,
+                                 horizon_days=horizon_days, use_sba=False)
 
     def backtest(self, daily_series, test_days=7, n_folds=3, **kwargs):
         return _backtest_croston(daily_series, test_days=test_days, use_sba=False,
@@ -164,7 +189,10 @@ class CrostonSBA(ForecastAlgorithm):
     demand_patterns = ["intermittent", "lumpy"]
 
     def forecast(self, daily_series, horizon_days=14, **kwargs):
-        return _croston_forecast(daily_series, horizon_days=horizon_days, use_sba=True)
+        # Sprint A: alpha tuneado (ver CrostonForecast.forecast).
+        alpha = kwargs.get("best_alpha") or 0.15
+        return _croston_forecast(daily_series, alpha=alpha,
+                                 horizon_days=horizon_days, use_sba=True)
 
     def backtest(self, daily_series, test_days=7, n_folds=3, **kwargs):
         return _backtest_croston(daily_series, test_days=test_days, use_sba=True,

@@ -975,8 +975,18 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
     cut = today - timedelta(days=hz)
     recent_total = sum(float(q) for d, q in raw_series if d > cut)
     fc_total = sum(float(f["qty_predicted"]) for f in best["forecasts"][:hz])
-    if recent_total <= 10 or fc_total >= 0.30 * recent_total:
-        return best  # demanda chica o forecast acompaña → no es colapso
+    if recent_total <= 10:
+        return best  # demanda chica → ruido, no rescatar
+
+    # Sprint A (jul 2026): banda SIMÉTRICA. Antes solo rescataba el colapso
+    # (fc < 30% del real): Carne Mechada prediciendo el 42% pasaba "legal", y
+    # el sobre-forecast (Syrup amaretto en 421% tras caer la demanda) no tenía
+    # rescate ninguno. Fuera de [0.5, 2.5] se corrige con un BLEND
+    # 0.7×WMA_reciente + 0.3×modelo — gradual, no switch binario: si solo fue
+    # una semana rara, el 30% del modelo amortigua la sobre-reacción.
+    ratio = fc_total / recent_total
+    if 0.5 <= ratio <= 2.5:
+        return best  # el forecast acompaña a la demanda reciente
 
     recent_series = [(d, q) for d, q in raw_series if d > today - timedelta(days=35)]
     if len(recent_series) < 5:
@@ -985,20 +995,38 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
     ma = weighted_moving_average(recent_series, window=min(21, len(recent_series)))
     if float(ma["avg_daily"]) <= 0:
         return best
-    best["forecasts"] = generate_daily_forecasts(
+    wma_fc = generate_daily_forecasts(
         ma["avg_daily"], ma["day_of_week_factors"], today, horizon,
     )
+    model_fc = best["forecasts"]
+    blended = []
+    for i, wf in enumerate(wma_fc):
+        mf = model_fc[i] if i < len(model_fc) else None
+
+        def _mix(key):
+            mv = float(mf.get(key, 0) or 0) if mf else 0.0
+            return _q3(Decimal(str(0.7 * float(wf[key]) + 0.3 * mv)))
+
+        blended.append({
+            "date": wf["date"],
+            "qty_predicted": _mix("qty_predicted"),
+            "lower_bound": _mix("lower_bound"),
+            "upper_bound": _mix("upper_bound"),
+        })
+    best["forecasts"] = blended
     best.setdefault("params", {})["circuit_breaker"] = {
-        "reason": "collapsed_vs_recent_demand",
+        "reason": ("collapsed_vs_recent_demand" if ratio < 0.5
+                   else "overshoot_vs_recent_demand"),
         "recent_total": round(recent_total, 1),
         "fc_total_before": round(fc_total, 1),
-        "fallback": "wma_recent",
+        "ratio": round(ratio, 2),
+        "fallback": "wma_blend_70_30",
     }
     logger.warning(
-        "Circuit breaker product %s (%s): forecast colapsado (fc_total=%.1f) "
-        "vs demanda reciente (%.1f) → fallback WMA reciente.",
+        "Circuit breaker product %s (%s): forecast desalineado (fc_total=%.1f, "
+        "%.0f%% de la demanda reciente %.1f) → blend 70%% WMA reciente.",
         getattr(product, "id", "?"), getattr(product, "name", "?"),
-        fc_total, recent_total,
+        fc_total, ratio * 100, recent_total,
     )
     return best
 
@@ -1314,6 +1342,18 @@ def train_product_model(tenant, product, warehouse_id, today,
             and not pattern_changed and not existing_algo_ineligible
             and not breaker_forced):
         old_err = existing.metrics.get("wape", 999)
+        # Sprint A (jul 2026): el WAPE del incumbente es un backtest CONGELADO
+        # de la noche en que se entrenó — medido sobre el régimen de entonces,
+        # y nunca se refresca mientras el modelo se conserva. Un modelo pegado
+        # a un nivel viejo tiene WAPE "fósil" bajísimo que ningún candidato
+        # honesto (backtesteado sobre el régimen caótico actual) puede batir
+        # (caso Syrup amaretto: forecast 421% de la demanda real con WAPE
+        # fósil imbatible). Si recalibrate_confidence ya midió wape_real (el
+        # desempeño EN PRODUCCIÓN de los últimos 14 días) con muestras
+        # suficientes, esa es la vara honesta del incumbente.
+        _wr = existing.metrics.get("wape_real")
+        if _wr is not None and (existing.metrics.get("wape_real_samples") or 0) >= 7:
+            old_err = _wr
         new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
         if new_err > old_err * 1.1 and old_err < 900:
             stats["kept"] += 1
@@ -1549,6 +1589,9 @@ def _regen_from_existing(tenant, product, warehouse_id, fm,
             res = algo_cls().forecast(
                 series, horizon_days=horizon,
                 window=window, stockout_dates=stockout_dates,
+                # Sprint A: el alpha tuneado del modelo (Croston) — el regen
+                # re-ejecuta el algoritmo y sin esto usaba el default 0.15.
+                best_alpha=(fm.metrics or {}).get("best_alpha"),
             )
             if res and res.get("forecasts"):
                 forecasts = res["forecasts"]

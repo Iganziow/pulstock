@@ -44,18 +44,36 @@ def _make_smooth_series(n_days=30):
 class TestCrostonPreferenceForIntermittent:
 
     def test_intermittent_pattern_picks_croston_when_available(self):
-        """Producto con demanda intermitente debe terminar con Croston
-        aunque otro algoritmo tenga mejor MAE en backtest."""
+        """Producto con demanda intermitente prefiere Croston, SALVO que otro
+        algoritmo le gane CLARAMENTE por tasa.
+
+        Sprint A (jul 2026): la selección en intermitente/lumpy ahora es por
+        wape_total (la tasa del período — lo que decide compras), no por
+        acierto diario. En esta serie adaptive_ma clava la tasa (wape_total
+        ~25 vs ~66 de Croston) Y vence al naive (MASE<1) mientras Croston no
+        (MASE 1.39) → que gane es correcto. Lo que este test SIGUE prohibiendo
+        es el bug histórico: un ganador que 'promedia a 0' (colapso, tasa
+        desastrosa) — eso daría wape_total ~100 y MASE sin mérito."""
         series = _make_intermittent_series(n_days=30)
         result = select_best_model(series, demand_pattern="intermittent")
 
-        # Si Croston no está entre candidatos (caso muy raro), aceptar otro
-        # con MAE bajo. Pero si fue elegible, debe ganar.
-        # En 30 días con esta forma, Croston debe estar disponible.
-        assert result["algorithm"] in ("croston", "croston_sba", "none"), (
-            f"Esperaba croston/croston_sba para pattern intermittent, "
-            f"obtuvo {result['algorithm']}"
-        )
+        if result["algorithm"] not in ("croston", "croston_sba", "none"):
+            fc_total = sum(
+                float(f.get("qty_predicted", 0) or 0)
+                for f in result.get("forecasts", [])
+            )
+            assert fc_total > 0.5, (
+                f"{result['algorithm']} ganó con forecast colapsado (fc_total={fc_total:.2f})"
+            )
+            assert result["metrics"].get("mase", 999) < 1.0, (
+                f"{result['algorithm']} ganó sin vencer al naive "
+                f"(MASE={result['metrics'].get('mase')})"
+            )
+            assert result["metrics"].get("wape_total", 999) < 45, (
+                f"{result['algorithm']} ganó sin clavar la tasa "
+                f"(wape_total={result['metrics'].get('wape_total')}) — "
+                f"el override exige ventaja CLARA sobre Croston"
+            )
 
     def test_lumpy_pattern_no_colapsa_a_cero(self):
         """Pattern lumpy: el modelo ganador no debe colapsar a forecast ~0.

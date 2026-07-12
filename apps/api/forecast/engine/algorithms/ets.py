@@ -139,7 +139,7 @@ def _backtest_ets(daily_series, test_days=7, stockout_dates=None, n_folds=3):
 class ETSForecast(ForecastAlgorithm):
     name = "ets"
     min_data_points = 28
-    demand_patterns = None  # all
+    demand_patterns = None  # all (restricción a smooth intentada y revertida 01/06 — ver theta.py)
 
     def forecast(self, daily_series, horizon_days=14, stockout_dates=None, **kwargs):
         return _ets_forecast(daily_series, horizon_days=horizon_days,

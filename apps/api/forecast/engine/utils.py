@@ -225,6 +225,20 @@ def _compute_metrics(actuals, predictions):
     # |TS| > 4 ⇒ el modelo se equivoca siempre para el mismo lado. (MAD = MAE.)
     tracking_signal = (abs(sum(errors)) / mae) if mae > 0 else 0.0
 
+    # WAPE de TOTALES (Sprint A jul-2026): |Σpred − Σreal| / Σreal. En demanda
+    # intermitente/lumpy el error día-a-día premia estructuralmente predecir
+    # BAJO (con 2 días de venta en 7, predecir ~0 minimiza el MAE diario, y el
+    # MASE hereda el mismo sesgo). Para compras lo que importa es la TASA del
+    # período — esta métrica la mide directo. Sentinela 999 si el fold no es
+    # evaluable (Σreal=0 con Σpred>0), 0 si ambos son 0.
+    sum_pred = sum(predictions)
+    if sum_act > 0:
+        wape_total = abs(sum_pred - sum_act) / sum_act * 100
+    elif sum_pred == 0:
+        wape_total = 0
+    else:
+        wape_total = 999
+
     return {
         "mae": round(mae, 3),
         "mape": round(mape, 1),
@@ -234,6 +248,7 @@ def _compute_metrics(actuals, predictions):
         "mase": round(mase, 3),
         "smape": round(smape, 1),
         "tracking_signal": round(tracking_signal, 2),
+        "wape_total": round(wape_total, 1),
     }
 
 
@@ -261,7 +276,7 @@ def _average_metrics(fold_metrics):
     n = len(fold_metrics)
     if n == 0:
         return {"mae": 999, "mape": 999, "wape": 999, "rmse": 999, "bias": 0,
-                "mase": 999, "smape": 999, "tracking_signal": 0}
+                "mase": 999, "smape": 999, "tracking_signal": 0, "wape_total": 999}
 
     def _avg_ratio(key):
         """Promedio de la métrica de ratio excluyendo folds centinela."""
@@ -278,6 +293,8 @@ def _average_metrics(fold_metrics):
         "mase": round(_avg_ratio("mase"), 3),
         "smape": round(_avg_ratio("smape"), 1),
         "tracking_signal": round(sum(abs(f.get("tracking_signal", 0)) for f in fold_metrics) / n, 2),
+        # Sprint A: WAPE de totales por fold (tasa del período) — ver _compute_metrics.
+        "wape_total": round(_avg_ratio("wape_total"), 1),
     }
 
 

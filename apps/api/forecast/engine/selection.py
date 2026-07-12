@@ -83,8 +83,14 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if metrics["mae"] >= 998:
             continue
 
-        # Forecast
-        result = algo.forecast(daily_series, horizon_days=horizon, **extra_kwargs)
+        # Forecast — Sprint A (jul 2026): propagar el alpha tuneado por el
+        # grid del backtest de Croston (antes se descartaba y el forecast
+        # final usaba siempre el default). Los demás algoritmos lo ignoran.
+        result = algo.forecast(
+            daily_series, horizon_days=horizon,
+            best_alpha=metrics.get("best_alpha"),
+            **extra_kwargs,
+        )
         if result is None:
             continue
 
@@ -155,6 +161,15 @@ def _mase(c):
     return v if (v is not None and v < 998) else 999.0
 
 
+def _wape_total(c):
+    """WAPE de TOTALES del candidato (|Σpred−Σreal|/Σreal promedio por fold).
+    Sprint A (jul 2026): es la métrica primaria en intermitente/lumpy — mide
+    la TASA del período (lo que le importa a compras), no el acierto diario
+    que premia sub-predecir. Sentinel → fondo del orden."""
+    v = c["metrics"].get("wape_total")
+    return v if (v is not None and v < 998) else 999.0
+
+
 def _fc_total(c):
     """Suma del forecast del candidato sobre el horizonte. ~0 = colapsado."""
     return sum(float(f.get("qty_predicted", 0) or 0) for f in c.get("forecasts", []))
@@ -185,10 +200,13 @@ def choose_best(candidates, demand_pattern):
 
         # F (01/06/26): seleccionar por MASE, no por MAE crudo. MAE crudo premia
         # modelos que "promedian a 0"; MASE escala por el naive → mide aporte real.
+        # Sprint A (jul 2026): wape_total PRIMERO — el acierto día-a-día (MASE
+        # incluido) hereda el sesgo a sub-predecir en lumpy; la tasa del período
+        # es lo que decide compras. MASE queda de segundo criterio/desempate.
         # GUARD operativo: Croston (diseñado para intermitente) gana salvo que un
-        # no-Croston le saque ventaja CLARA en MASE.
+        # no-Croston le saque ventaja CLARA.
         def _key(c):
-            return (_mase(c), _err(c), c["metrics"]["mae"])
+            return (_wape_total(c), _mase(c), _err(c), c["metrics"]["mae"])
 
         best_overall = min(pool, key=_key)
         croston = [
@@ -206,7 +224,12 @@ def choose_best(candidates, demand_pattern):
                 if _mase(best_croston) <= MASE_CROSTON_SPARSE_THRESHOLD
                 else MASE_OVERRIDE_MARGIN_SPARSE
             )
-            if _mase(best_overall) < _mase(best_croston) * effective_margin:
+            # Sprint A: la comparación del override también por wape_total
+            # (con fallback a MASE cuando ninguno tiene folds evaluables).
+            ov, cr = _wape_total(best_overall), _wape_total(best_croston)
+            if ov >= 998 and cr >= 998:
+                ov, cr = _mase(best_overall), _mase(best_croston)
+            if ov < cr * effective_margin:
                 return best_overall
             return best_croston
         return best_overall

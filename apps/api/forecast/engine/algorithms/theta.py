@@ -123,6 +123,12 @@ def _backtest_theta(daily_series, test_days=7, n_folds=3):
 class ThetaForecast(ForecastAlgorithm):
     name = "theta"
     min_data_points = 14
+    # NOTA (Sprint A jul-2026): se consideró restringir a ["smooth"] otra vez,
+    # pero ya se intentó el 01/06/26 y se REVIRTIÓ (theta ajusta bien ~15
+    # intermitentes; sacarlo de todos hundió las métricas — ver
+    # test_algorithm_eligibility). El semi-colapso en lumpy se ataca ahora
+    # quirúrgicamente con wape_total como métrica primaria de selección y la
+    # banda simétrica del circuit breaker, sin vetar el algoritmo.
     demand_patterns = None  # all
 
     def forecast(self, daily_series, horizon_days=14, **kwargs):
