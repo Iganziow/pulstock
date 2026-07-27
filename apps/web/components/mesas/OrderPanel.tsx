@@ -586,8 +586,30 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         </div>
       )}
 
-      {/* Body */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "10px 16px" }}>
+      {/* Agregar productos — PINNED en desktop: siempre visible arriba del
+          listado (el dropdown de resultados abre hacia abajo, sobre las
+          líneas). En móvil va como botón al fondo (abre modal fullscreen). */}
+      {!mob && (
+        <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Agregar productos
+          </div>
+          <AddItemPanel orderId={order.id} onAdded={async () => {
+            try {
+              const updated = await apiFetch(`/tables/orders/${order.id}/`);
+              onOrderUpdate(updated);
+            } catch { /* parent mantiene order anterior */ }
+          }} />
+        </div>
+      )}
+
+      {/* Body — solo las LÍNEAS scrollean; header, Agregar y Cobrar quedan fijos.
+          minHeight:0 = fix flexbox para que el body encoja y scrollee en vez de
+          empujar el footer. */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 16px" }}>
 
         {/* Bloque PENDIENTE — items recién seleccionados desde el
             catálogo que aún no se confirmaron al backend. Se pierden
@@ -881,15 +903,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           </div>
         )}
 
-        {/* Add items — embebido en desktop, botón → modal full-screen en móvil */}
-        <div style={{
-          marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`,
-        }}>
-          {mob ? (
-            // Móvil: botón grande que abre el modal full-screen estilo Wabi.
-            // El modal le da TODA la pantalla al search + lista de productos
-            // sin compartirla con el botón "Cobrar" → resuelve el bug del
-            // dropdown tapado.
+        {/* Add items — SOLO móvil: botón grande que abre el modal full-screen
+            (le da toda la pantalla al search sin competir con "Cobrar"). En
+            desktop el panel de Agregar va pinneado arriba (ver bloque previo). */}
+        {mob && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
             <button
               type="button"
               onClick={() => setShowAddFullscreen(true)}
@@ -907,26 +925,8 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
               </svg>
               Adicionar productos
             </button>
-          ) : (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Agregar productos
-              </div>
-              <AddItemPanel orderId={order.id} onAdded={async () => {
-                // SIN onRefresh: ese causa setOrder(null) en el padre →
-                // desmonta el OrderPanel + cualquier modal abierto. Con
-                // onOrderUpdate alcanza para refrescar la mesa actual.
-                try {
-                  const updated = await apiFetch(`/tables/orders/${order.id}/`);
-                  onOrderUpdate(updated);
-                } catch { /* parent mantiene order anterior */ }
-              }} />
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}

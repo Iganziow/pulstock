@@ -379,11 +379,16 @@ export default function MesasPage() {
             Solo aparece cuando hay selección, ocupando toda la pantalla. */}
         <div style={{
           flex: mob ? undefined : "1 1 45%",
-          overflowY: "auto",
+          // Desktop: overflow hidden → el OrderPanel maneja su propio scroll
+          // interno (header + "Agregar" + "Cobrar" fijos, líneas scrollean).
+          // Antes era overflowY:auto y el panel entero scrolleaba, empujando
+          // el botón Cobrar fuera de pantalla. Móvil sigue con scroll propio.
+          overflowY: mob ? "auto" : "hidden",
           background: C.surface,
           display: mob && !selectedTable ? "none" : "flex",
           flexDirection: "column",
           minHeight: mob ? "calc(100vh - 60px)" : undefined,
+          minWidth: 0,
         }}>
           {selectedTable ? (
             selectedTable.status === "FREE" ? (
