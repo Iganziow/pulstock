@@ -13,12 +13,16 @@ export function Modal({ onClose, width = 560, accentColor, title, subtitle, foot
   }, [onClose]);
 
   return (
-    <div className="bd-in" onClick={onClose} style={{
+    // Nota: NO cerramos al hacer click en el fondo (backdrop). Mario reportó
+    // que las ventanas "se cierran fácilmente" al apuntar el scroll o
+    // clickear al lado. Se cierra solo con la ✕ o Escape (acciones
+    // deliberadas) para no perder lo escrito.
+    <div className="bd-in" style={{
       position: "fixed", inset: 0, zIndex: 60,
       background: "rgba(12,12,20,0.5)", backdropFilter: "blur(3px)",
       display: "grid", placeItems: "center", padding: 16,
     }}>
-      <div className="m-in" onClick={(e) => e.stopPropagation()} style={{
+      <div className="m-in" style={{
         width: `min(${width}px, 96vw)`,
         background: C.surface, borderRadius: C.rLg,
         border: `1px solid ${C.border}`, boxShadow: C.shLg,

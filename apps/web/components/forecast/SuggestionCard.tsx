@@ -150,7 +150,7 @@ interface ConfirmModalProps {
 export function SuggestionConfirmModal({ suggestion, action, mob, acting, onClose, onApprove, onDismiss }: ConfirmModalProps) {
   const isApprove = action === "approve";
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, animation: "fadeIn .2s ease-out" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, animation: "fadeIn .2s ease-out" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 16, padding: mob ? "24px" : "32px", maxWidth: 400, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,.1)", animation: "slideUp .2s ease-out" }}>
         <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 12, color: C.text }}>
           {isApprove ? "Aprobar pedido" : "Descartar sugerencia"}

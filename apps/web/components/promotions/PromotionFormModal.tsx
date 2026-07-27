@@ -51,7 +51,7 @@ export function PromotionFormModal({
       position: "fixed", inset: 0, zIndex: 1000,
       background: "rgba(0,0,0,0.4)", display: "flex",
       alignItems: "center", justifyContent: "center",
-    }} onClick={onClose}>
+    }}>
       <div style={{
         background: C.surface, borderRadius: C.rMd,
         width: 620, maxWidth: "95vw", maxHeight: "90vh",

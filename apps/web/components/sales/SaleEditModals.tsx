@@ -82,7 +82,6 @@ function ModalShell({
   if (!open) return null;
   return (
     <div
-      onClick={() => !busy && onClose()}
       style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
         display: "flex", alignItems: "center", justifyContent: "center",

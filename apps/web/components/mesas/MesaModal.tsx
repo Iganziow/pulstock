@@ -17,7 +17,7 @@ export function MesaModal({ title, onClose, children, width = 500 }: MesaModalPr
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: C.surface, borderRadius: C.rMd, width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto", boxShadow: C.shMd, animation: "fadeIn 0.15s ease" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: C.text }}>{title}</span>

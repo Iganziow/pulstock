@@ -72,7 +72,7 @@ export function BarcodeAssignModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="bd-in" onClick={onClose} style={{
+    <div className="bd-in" style={{
       position: "fixed", inset: 0, zIndex: 60,
       background: "rgba(12,12,20,0.5)", backdropFilter: "blur(3px)",
       display: "grid", placeItems: "center", padding: 16,
