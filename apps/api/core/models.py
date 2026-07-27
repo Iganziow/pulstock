@@ -57,6 +57,12 @@ class Tenant(models.Model):
         help_text="Tipo de negocio — ajusta parámetros del modelo de forecast automáticamente",
     )
 
+    # Permisos por rol editables por el dueño (estilo Fudo). JSON
+    # {role: {perm_key: bool}} que SOBRESCRIBE los defaults de fábrica para
+    # los roles editables (manager/cashier/inventory). Vacío = usar defaults.
+    # Ver core/role_permissions.py.
+    role_permissions_overrides = models.JSONField(default=dict, blank=True)
+
     # ── Configuración general ──
     currency = models.CharField(max_length=3, default="CLP")
     timezone = models.CharField(max_length=50, default="America/Santiago")

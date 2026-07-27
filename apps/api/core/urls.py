@@ -11,7 +11,7 @@ from api.http_cache import browser_cache
 from stores.services import ensure_user_tenant_and_store
 from core.permissions import HasTenant, IsOwner, IsManager
 from core.models import Warehouse, User, AlertPreference
-from core.views import MeView
+from core.views import MeView, RolePermissionsView
 
 logger = logging.getLogger(__name__)
 
@@ -993,6 +993,7 @@ urlpatterns = [
     path("health/", HealthView.as_view()),
     path("health/deep/", DeepHealthView.as_view()),
     path("me/", MeView.as_view()),
+    path("role-permissions/", RolePermissionsView.as_view(), name="role-permissions"),
     path("warehouses/", WarehousesView.as_view()),
     path("warehouses/<int:wh_id>/", WarehouseDetailView.as_view()),
     path("bootstrap/", BootstrapView.as_view(), name="bootstrap"),

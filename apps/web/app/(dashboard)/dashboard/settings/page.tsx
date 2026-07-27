@@ -12,6 +12,7 @@ import CompanyTab from "@/components/settings/CompanyTab";
 import ReceiptTab from "@/components/settings/ReceiptTab";
 import StoresTab from "@/components/settings/StoresTab";
 import UsersTab from "@/components/settings/UsersTab";
+import PermissionsTab from "@/components/settings/PermissionsTab";
 import AlertsTab from "@/components/settings/AlertsTab";
 import PrintersTab from "@/components/settings/PrintersTab";
 import StationsTab from "@/components/settings/StationsTab";
@@ -124,6 +125,7 @@ export default function SettingsPage() {
     { key: "boleta",   label: "Boleta",      icon: "🧾" },
     { key: "tiendas",  label: "Tiendas",     icon: "🏪" },
     ...(isOwner ? [{ key: "usuarios" as Tab, label: "Usuarios", icon: "👥" }] : []),
+    ...(isOwner ? [{ key: "permisos" as Tab, label: "Permisos", icon: "🔑" }] : []),
     { key: "alertas",  label: "Alertas",     icon: "🔔" },
     { key: "impresoras", label: "Impresoras", icon: "🖨️" },
     { key: "estaciones", label: "Estaciones", icon: "🏷️" },
@@ -279,6 +281,10 @@ export default function SettingsPage() {
 
       {tab === "usuarios" && isOwner && me && (
         <UsersTab users={users} me={me} stores={stores} onRefresh={reloadUsers} flash={flash} />
+      )}
+
+      {tab === "permisos" && isOwner && (
+        <PermissionsTab flash={flash} mob={mob} />
       )}
 
       {tab === "alertas" && (
