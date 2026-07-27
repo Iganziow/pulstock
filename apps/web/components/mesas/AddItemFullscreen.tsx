@@ -274,6 +274,12 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
       return newQty <= 0 ? [] : [{ ...c, qty: newQty }];
     }));
   };
+  // Nota de cocina por ítem (ej. "s/jamón", "s/azúcar") — viaja a la comanda.
+  const updateNote = (productId: number, note: string) => {
+    setCart(prev => prev.map(c =>
+      c.product.id === productId ? { ...c, note } : c
+    ));
+  };
 
   // Mapa de productId → cantidad en carrito (para mostrar badges en la lista)
   const cartQtyMap = useMemo(() => {
@@ -647,6 +653,43 @@ export function AddItemFullscreen({ orderId, tableName, onConfirm, onClose }: Ad
               {err}
             </div>
           )}
+          {/* Carrito con nota por ítem (viaja a la comanda: "s/jamón"…). */}
+          <div style={{ maxHeight: 168, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {cart.map(c => (
+              <div key={c.product.id} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: C.bg, borderRadius: 8, padding: "6px 8px",
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, minWidth: 22, textAlign: "center" }}>{c.qty}×</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {c.product.name}
+                  </div>
+                  <input
+                    type="text"
+                    value={c.note || ""}
+                    onChange={e => updateNote(c.product.id, e.target.value)}
+                    placeholder="Nota: s/azúcar, s/jamón…"
+                    maxLength={120}
+                    style={{
+                      width: "100%", marginTop: 2, padding: "4px 6px",
+                      fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 6,
+                      background: C.surface, color: C.text, fontFamily: C.font,
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(c.product.id)}
+                  aria-label={`Quitar ${c.product.name}`}
+                  style={{
+                    border: "none", background: "transparent", color: C.red,
+                    fontSize: 18, lineHeight: 1, cursor: "pointer", padding: "0 4px",
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
           <button
             type="button"
             onClick={save}

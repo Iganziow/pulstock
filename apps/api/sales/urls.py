@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     SaleCreate, SaleList, SaleDetail, SaleVoid,
     TipsSummaryView, TipsListView,
-    SaleEditPayments, SaleEditTip,
+    SaleEditPayments, SaleEditTip, SaleEditWaiter,
 )
 
 urlpatterns = [
@@ -14,6 +14,7 @@ urlpatterns = [
     # cantidades requiere anular la venta y crear una nueva (anti-fraude).
     path("sales/<int:pk>/payments/", SaleEditPayments.as_view(), name="sale-edit-payments"),
     path("sales/<int:pk>/tip/", SaleEditTip.as_view(), name="sale-edit-tip"),
+    path("sales/<int:pk>/waiter/", SaleEditWaiter.as_view(), name="sale-edit-waiter"),
     path("tips-summary/", TipsSummaryView.as_view(), name="tips-summary"),       # GET resumen propinas
     path("tips-list/", TipsListView.as_view(), name="tips-list"),                # GET lista detallada (tabla)
 ]

@@ -60,7 +60,32 @@ class SaleCreateSerializer(serializers.Serializer):
 # OUTPUT (LIST)
 # =========================
 
-class SaleListSerializer(serializers.ModelSerializer):
+def _effective_waiter(obj):
+    """Garzón efectivo de una venta: Sale.waiter (fuente de verdad) con
+    fallback a open_order.waiter por robustez ante ventas previas al backfill.
+    Compartido entre el serializer de lista y el de detalle."""
+    if getattr(obj, "waiter_id", None):
+        return getattr(obj, "waiter", None)
+    if obj.open_order_id:
+        try:
+            return obj.open_order.waiter
+        except (AttributeError, ObjectDoesNotExist):
+            return None
+    return None
+
+
+class _WaiterSerializerMixin:
+    """Expone waiter_id / waiter_name derivados de Sale.waiter."""
+    def get_waiter_id(self, obj):
+        w = _effective_waiter(obj)
+        return w.id if w else None
+
+    def get_waiter_name(self, obj):
+        from .models import waiter_display_name
+        return waiter_display_name(_effective_waiter(obj))
+
+
+class SaleListSerializer(_WaiterSerializerMixin, serializers.ModelSerializer):
     """
     Listado de ventas (store-aware desde la view).
     Incluye campos de costo para reportes.
@@ -76,29 +101,6 @@ class SaleListSerializer(serializers.ModelSerializer):
             except (AttributeError, ObjectDoesNotExist):
                 return None
         return None
-
-    def get_waiter_id(self, obj):
-        if not obj.open_order_id:
-            return None
-        try:
-            return obj.open_order.waiter_id
-        except (AttributeError, ObjectDoesNotExist):
-            return None
-
-    def get_waiter_name(self, obj):
-        if not obj.open_order_id:
-            return None
-        try:
-            w = obj.open_order.waiter
-        except (AttributeError, ObjectDoesNotExist):
-            return None
-        if not w:
-            return None
-        full = " ".join(filter(None, [
-            getattr(w, "first_name", "") or "",
-            getattr(w, "last_name", "") or "",
-        ])).strip()
-        return full or getattr(w, "username", "") or None
 
     class Meta:
         model = Sale
@@ -260,10 +262,24 @@ class SaleTipSerializer(serializers.ModelSerializer):
         fields = ["id", "method", "amount"]
 
 
-class SaleDetailSerializer(serializers.ModelSerializer):
+class SaleDetailSerializer(_WaiterSerializerMixin, serializers.ModelSerializer):
     lines    = SaleLineSerializer(many=True, read_only=True)
     payments = SalePaymentSerializer(many=True, read_only=True)
     tips     = SaleTipSerializer(many=True, read_only=True)
+    # Quién atendió (garzón) y quién cobró (cajero) — la ficha los mostraba
+    # como IDs crudos o no los mostraba. waiter_id/name para poder mostrar +
+    # editar el garzón desde el detalle (mesa o mostrador).
+    waiter_id = serializers.SerializerMethodField()
+    waiter_name = serializers.SerializerMethodField()
+    table_name = serializers.SerializerMethodField()
+
+    def get_table_name(self, obj):
+        if obj.open_order_id:
+            try:
+                return obj.open_order.table.name
+            except (AttributeError, ObjectDoesNotExist):
+                return None
+        return None
 
     class Meta:
         model = Sale
@@ -281,6 +297,11 @@ class SaleDetailSerializer(serializers.ModelSerializer):
             "gross_profit",
             "status",
             "sale_type",
+            "created_by_id",
+            "open_order_id",
+            "table_name",
+            "waiter_id",
+            "waiter_name",
             "payments",
             "tips",
             "lines",

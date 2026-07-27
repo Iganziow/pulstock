@@ -6,6 +6,21 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+def waiter_display_name(user):
+    """Nombre legible de un garzón/usuario para reportes y fichas.
+
+    Único helper para no duplicar el mismo formateo en serializers, tips y
+    detalle de venta. Devuelve None si el usuario es falsy.
+    """
+    if not user:
+        return None
+    full = " ".join(filter(None, [
+        getattr(user, "first_name", "") or "",
+        getattr(user, "last_name", "") or "",
+    ])).strip()
+    return full or getattr(user, "username", "") or None
+
+
 class Sale(models.Model):
     STATUS_COMPLETED = "COMPLETED"
     STATUS_VOID = "VOID"
@@ -29,6 +44,16 @@ class Sale(models.Model):
 
     created_by = models.ForeignKey("core.User", on_delete=models.PROTECT)
     created_at = models.DateTimeField(default=timezone.now)
+
+    # Garzón/mesero que ATENDIÓ la venta. Fuente de verdad única para
+    # reportes/propinas por garzón. Se denormaliza desde open_order.waiter al
+    # cobrar una mesa (ver tables/services.py); en ventas de mostrador queda
+    # null y el admin puede asignarlo/corregirlo vía PATCH .../waiter/.
+    # SET_NULL: desactivar un usuario no borra sus ventas ni su historial.
+    waiter = models.ForeignKey(
+        "core.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="sales_as_waiter",
+    )
 
     # Totales venta (precio de venta)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
@@ -90,6 +115,7 @@ class Sale(models.Model):
             models.Index(fields=["tenant", "created_at"]),
             models.Index(fields=["tenant", "status"]),
             models.Index(fields=["tenant", "sale_type"]),
+            models.Index(fields=["tenant", "waiter"]),
         ]
         constraints = [
             models.UniqueConstraint(

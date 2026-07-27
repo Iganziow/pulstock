@@ -7,7 +7,8 @@ import { C } from "@/lib/theme";
 import { Btn, Spinner } from "@/components/ui";
 import { SaleStatusBadge } from "./SaleStatusBadge";
 import { VoidModal } from "./VoidModal";
-import { EditPaymentsModal, EditTipModal } from "./SaleEditModals";
+import { EditPaymentsModal, EditTipModal, EditWaiterModal } from "./SaleEditModals";
+import { fetchMe } from "@/lib/me";
 import { toNum, fCLP, fDateTime, profitPct } from "./helpers";
 import type { SaleDetail, Warehouse } from "./types";
 
@@ -29,6 +30,19 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
   // comentario en la tabla de líneas).
   const [showEditPayments, setShowEditPayments] = useState(false);
   const [showEditTip, setShowEditTip]           = useState(false);
+  const [showEditWaiter, setShowEditWaiter]     = useState(false);
+
+  // Rol para gatear la edición de garzón (solo admin: owner/manager).
+  // Evita el 403 frustrante de mostrar el botón a un cajero.
+  const [canEditWaiter, setCanEditWaiter] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await fetchMe();
+        setCanEditWaiter(me.role === "owner" || me.role === "manager");
+      } catch { /* si falla, no mostramos el editor (fail-safe) */ }
+    })();
+  }, []);
 
   function refresh() { setRefreshKey(k => k + 1); }
 
@@ -440,6 +454,23 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                 }}>
                   <span><span style={{ color: C.mute }}>Fecha · </span><span style={{ color: C.mid, fontWeight: 600 }}>{fDateTime(sale.created_at)}</span></span>
                   <span><span style={{ color: C.mute }}>Bodega · </span><span style={{ color: C.mid, fontWeight: 600 }}>{whName ?? `#${sale.warehouse_id}`}</span></span>
+                  {sale.table_name && (
+                    <span><span style={{ color: C.mute }}>Mesa · </span><span style={{ color: C.mid, fontWeight: 600 }}>{sale.table_name}</span></span>
+                  )}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ color: C.mute }}>Garzón · </span>
+                    <span style={{ color: C.mid, fontWeight: 600 }}>{sale.waiter_name ?? "—"}</span>
+                    {!isVoid && canEditWaiter && (
+                      <button
+                        onClick={() => setShowEditWaiter(true)}
+                        title="Corregir garzón"
+                        style={{
+                          border: "none", background: "transparent", color: C.accent,
+                          cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "0 2px",
+                        }}
+                      >Editar</button>
+                    )}
+                  </span>
                 </div>
               </>
             );
@@ -452,6 +483,16 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
           saleId={sale.id}
           onClose={() => setShowVoid(false)}
           onDone={() => { setShowVoid(false); onVoided(); }}
+        />
+      )}
+
+      {sale && (
+        <EditWaiterModal
+          open={showEditWaiter}
+          saleId={sale.id}
+          currentWaiterId={sale.waiter_id ?? null}
+          onClose={() => setShowEditWaiter(false)}
+          onSaved={refresh}
         />
       )}
 

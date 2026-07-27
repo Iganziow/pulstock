@@ -12,6 +12,9 @@ export interface ReceiptLine {
   qty: number | string;
   unitPrice?: number | string;
   total: number | string;
+  /** Nota de cocina del ítem (ej. "s/jamón", "s/azúcar"). Solo se imprime
+   *  en la comanda (cocina/bar), no en la pre-cuenta ni la boleta. */
+  note?: string;
 }
 
 export interface PreCuentaData {
@@ -118,6 +121,11 @@ export function buildComanda(data: ComandaData, paperWidth: 58 | 80 = 80): Uint8
     p.bold(true).fontSize(1, 2);
     p.text(`${qtyStr}x ${l.name}`).nl();
     p.fontSize(1, 1).bold(false);
+    // Nota de cocina del ítem (ej. "s/jamón") — resaltada bajo el producto.
+    const note = (l.note || "").trim();
+    if (note) {
+      p.bold(true).text(`   >> ${note}`).nl().bold(false);
+    }
   }
 
   p.separator("-", cols);
@@ -131,7 +139,11 @@ export function buildComandaHTML(data: ComandaData): string {
   const lines = data.lines.map(l => {
     const qty = typeof l.qty === "string" ? parseFloat(l.qty) : l.qty;
     const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(1);
-    return `<div class="row" style="padding:6px 0;font-size:18px;font-weight:700"><span>${qtyStr}x ${esc(l.name)}</span></div>`;
+    const note = (l.note || "").trim();
+    const noteHtml = note
+      ? `<div style="padding:0 0 4px 18px;font-size:15px;font-weight:700">&raquo; ${esc(note)}</div>`
+      : "";
+    return `<div class="row" style="padding:6px 0 0;font-size:18px;font-weight:700"><span>${qtyStr}x ${esc(l.name)}</span></div>${noteHtml}`;
   }).join("");
   return `
     <div class="title" style="font-size:24px;font-weight:900">${esc((data.stationName || "COMANDA").toUpperCase())}</div>

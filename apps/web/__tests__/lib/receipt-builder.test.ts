@@ -80,6 +80,35 @@ describe("buildComanda (ESC/POS)", () => {
     expect(text).toContain("Sin cebolla");
   });
 
+  it("prints per-line kitchen note under the item", () => {
+    const data: ComandaData = {
+      ...baseData,
+      lines: [
+        // Nota ASCII: el helper decode() del test es ASCII-only. Los acentos
+        // se codifican bien en CP437 (ó=0xa2) e imprimen correctamente en la
+        // impresora real; acá basta verificar que la nota fluye a la comanda.
+        { name: "Completo", qty: 1, total: 3000, note: "sin tomate" },
+        { name: "Cafe", qty: 2, total: 4000 },
+      ],
+    };
+    const text = decode(buildComanda(data));
+    // La nota del ítem aparece resaltada bajo el producto.
+    expect(text).toContain("1x Completo");
+    expect(text).toContain("sin tomate");
+    // El ítem sin nota no inventa una.
+    expect(text).toContain("2x Cafe");
+  });
+
+  it("HTML comanda includes per-line note", () => {
+    const data: ComandaData = {
+      ...baseData,
+      lines: [{ name: "Completo", qty: 1, total: 3000, note: "s/mayo" }],
+    };
+    const html = buildComandaHTML(data);
+    expect(html).toContain("Completo");
+    expect(html).toContain("s/mayo");
+  });
+
   it("uses 'COMANDA' as fallback when stationName is missing", () => {
     const data = { ...baseData, stationName: undefined };
     const result = buildComanda(data);

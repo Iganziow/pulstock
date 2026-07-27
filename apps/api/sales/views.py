@@ -18,7 +18,7 @@ from core.models import Warehouse
 from catalog.models import Product
 from inventory.models import StockItem, StockMove, stock_value_expr
 
-from .models import Sale, SalePayment, SaleLine, SaleTip
+from .models import Sale, SalePayment, SaleLine, SaleTip, waiter_display_name
 from .serializers import (
     SaleCreateSerializer,
     SaleDetailSerializer,
@@ -33,6 +33,42 @@ def _tenant_id(request):
 
 def _active_store_id(request):
     return getattr(request.user, "active_store_id", None)
+
+
+def _apply_waiter_filter(qs, waiter):
+    """Filtra ventas por garzón EFECTIVO: Sale.waiter (fuente de verdad,
+    denormalizado y editable) con fallback a open_order.waiter cuando la venta
+    aún no tiene waiter denormalizado (legacy / creada fuera del checkout).
+
+    El fallback hace que filtro y display coincidan siempre (el serializer usa
+    la misma lógica de garzón efectivo). Único punto para el filtro por garzón
+    (lista, export, propinas) — antes estaba duplicado y filtraba solo por
+    open_order__waiter, que quedaba desfasado al corregir el garzón.
+    Acepta id numérico o texto (username/email/nombre). Mario (16/05/26):
+    filtrar por QUIÉN ATENDIÓ.
+    """
+    waiter = (waiter or "").strip()
+    if not waiter:
+        return qs
+    if waiter.isdigit():
+        wid = int(waiter)
+        return qs.filter(
+            Q(waiter_id=wid)
+            | Q(waiter__isnull=True, open_order__waiter_id=wid)
+        )
+    direct = (
+        Q(waiter__username__icontains=waiter)
+        | Q(waiter__email__icontains=waiter)
+        | Q(waiter__first_name__icontains=waiter)
+        | Q(waiter__last_name__icontains=waiter)
+    )
+    fallback = Q(waiter__isnull=True) & (
+        Q(open_order__waiter__username__icontains=waiter)
+        | Q(open_order__waiter__email__icontains=waiter)
+        | Q(open_order__waiter__first_name__icontains=waiter)
+        | Q(open_order__waiter__last_name__icontains=waiter)
+    )
+    return qs.filter(direct | fallback)
 
 
 def _model_has_field(model_cls, field_name: str) -> bool:
@@ -197,7 +233,7 @@ class SaleList(generics.ListAPIView):
                 tenant_id=t_id,
                 store_id=store_id,
             )
-            .select_related("warehouse", "created_by", "store", "open_order__table", "open_order__waiter")
+            .select_related("warehouse", "created_by", "store", "waiter", "open_order__table", "open_order__waiter")
             .order_by(ordering)
         )
 
@@ -273,21 +309,9 @@ class SaleList(generics.ListAPIView):
         elif has_tip in ("false", "0", "no"):
             qs = qs.filter(Q(tip__isnull=True) | Q(tip=0))
 
-        # Garzón / Mesero (waiter del OpenOrder) — Mario lo pidió (16/05/26):
-        # poder filtrar ventas por QUIÉN ATENDIÓ la mesa, no por quién cobró.
-        # Crítico para que cada garzón vea SUS propinas reales.
-        # Acepta id numérico o username/email (igual que cashier).
-        waiter = (self.request.query_params.get("waiter") or "").strip()
-        if waiter:
-            if waiter.isdigit():
-                qs = qs.filter(open_order__waiter_id=int(waiter))
-            else:
-                qs = qs.filter(
-                    Q(open_order__waiter__username__icontains=waiter) |
-                    Q(open_order__waiter__email__icontains=waiter) |
-                    Q(open_order__waiter__first_name__icontains=waiter) |
-                    Q(open_order__waiter__last_name__icontains=waiter)
-                )
+        # Garzón / Mesero — filtrar ventas por QUIÉN ATENDIÓ (no por quién cobró).
+        # Usa Sale.waiter (denormalizado + editable), no open_order.waiter.
+        qs = _apply_waiter_filter(qs, self.request.query_params.get("waiter"))
 
         return qs
 
@@ -312,7 +336,10 @@ class SaleDetail(generics.RetrieveAPIView):
                 tenant_id=t_id,
                 store_id=store_id,
             )
-            .select_related("warehouse", "created_by", "store")
+            .select_related(
+                "warehouse", "created_by", "store",
+                "waiter", "open_order__table", "open_order__waiter",
+            )
             .prefetch_related(
                 Prefetch(
                     "lines",
@@ -754,6 +781,95 @@ class SaleEditTip(APIView):
         }, status=200)
 
 
+class SaleEditWaiter(APIView):
+    """PATCH /api/sales/sales/<pk>/waiter/
+
+    Corrige el garzón/mesero de una venta COMPLETED. Solo manager/owner.
+
+    Caso de uso: al abrir la mesa se eligió el garzón equivocado, o una venta
+    de mostrador quedó sin garzón asignado. Funciona para mesa Y mostrador.
+
+    Body:
+        {"waiter_id": 5}     → asigna el usuario 5 como garzón
+        {"waiter_id": null}  → deja la venta sin garzón
+
+    Comportamiento:
+    - Si la venta es de mesa (open_order), corrige TODAS las ventas de esa
+      misma comanda (el garzón atendió toda la mesa) + el open_order.waiter,
+      para que quede consistente. Si es mostrador, corrige solo esa venta.
+    - Sale.waiter es la fuente de verdad: reportes de ventas y propinas por
+      garzón se recalculan solos (leen Sale.waiter).
+    - NO toca stock, montos ni pagos. Queda auditado (log_audit).
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsManager]
+
+    @transaction.atomic
+    def patch(self, request, pk: int):
+        from core.models import User, log_audit
+
+        t_id = _tenant_id(request)
+        s_id = _active_store_id(request)
+        if not s_id:
+            return Response({"detail": "User has no active_store"}, status=400)
+
+        sale = get_object_or_404(
+            Sale.objects.select_for_update().select_related("open_order", "waiter"),
+            tenant_id=t_id, store_id=s_id, pk=pk,
+        )
+        if sale.status != Sale.STATUS_COMPLETED:
+            return Response(
+                {"detail": f"Solo se puede editar el garzón en ventas COMPLETED (estado: {sale.status})"},
+                status=400,
+            )
+
+        # waiter_id debe venir en el body (null para desasignar).
+        if "waiter_id" not in request.data:
+            return Response({"detail": "waiter_id es requerido (usá null para quitar el garzón)"}, status=400)
+        waiter_id = request.data.get("waiter_id")
+
+        new_waiter = None
+        if waiter_id not in (None, "", 0, "0"):
+            try:
+                new_waiter = User.objects.get(id=int(waiter_id), tenant_id=t_id, is_active=True)
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {"detail": "Garzón inválido: debe ser un usuario activo de tu negocio"},
+                    status=400,
+                )
+
+        old_waiter_id = sale.waiter_id
+        new_waiter_id = new_waiter.id if new_waiter else None
+
+        # Mesa: corregir todas las ventas de la misma comanda + el open_order.
+        # Mostrador: solo esta venta.
+        affected_ids = [sale.id]
+        if sale.open_order_id:
+            affected_ids = list(
+                Sale.objects.select_for_update().filter(
+                    tenant_id=t_id, open_order_id=sale.open_order_id,
+                ).values_list("id", flat=True)
+            )
+            Sale.objects.filter(id__in=affected_ids).update(waiter=new_waiter)
+            # open_order.waiter también, para que la mesa quede consistente.
+            type(sale.open_order).objects.filter(id=sale.open_order_id).update(waiter=new_waiter)
+        else:
+            Sale.objects.filter(id=sale.id).update(waiter=new_waiter)
+
+        log_audit(request, "sale_edit_waiter", "sale", sale.id, {
+            "old_waiter_id": old_waiter_id,
+            "new_waiter_id": new_waiter_id,
+            "affected_sale_ids": affected_ids,
+            "open_order_id": sale.open_order_id,
+        })
+
+        return Response({
+            "id": sale.id,
+            "waiter_id": new_waiter_id,
+            "waiter_name": waiter_display_name(new_waiter),
+            "affected_sale_ids": affected_ids,
+        }, status=200)
+
+
 
 class TipsSummaryView(APIView):
     """GET /sales/tips-summary/?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
@@ -793,16 +909,7 @@ class TipsSummaryView(APIView):
 
         # Filtros opcionales (Mario 16/05/26 — para ver TUS propinas
         # como garzón, no las del cajero que cobró).
-        waiter = (request.query_params.get("waiter") or "").strip()
-        if waiter:
-            if waiter.isdigit():
-                qs = qs.filter(open_order__waiter_id=int(waiter))
-            else:
-                qs = qs.filter(
-                    Q(open_order__waiter__username__icontains=waiter) |
-                    Q(open_order__waiter__first_name__icontains=waiter) |
-                    Q(open_order__waiter__last_name__icontains=waiter)
-                )
+        qs = _apply_waiter_filter(qs, request.query_params.get("waiter"))
         cashier = (request.query_params.get("cashier") or "").strip()
         if cashier:
             if cashier.isdigit():
@@ -1038,21 +1145,13 @@ class TipsListView(APIView):
             # venta es split — eso lo informamos pero filtramos amplio.
             qs = qs.filter(payments__method=payment_method).distinct()
 
-        # Garzón (waiter del OpenOrder) — Mario 16/05/26
+        # Garzón — Mario 16/05/26. Usa Sale.waiter (denormalizado + editable).
         waiter = (p.get("waiter") or "").strip()
-        if waiter:
-            if waiter.isdigit():
-                qs = qs.filter(open_order__waiter_id=int(waiter))
-            else:
-                qs = qs.filter(
-                    Q(open_order__waiter__username__icontains=waiter) |
-                    Q(open_order__waiter__first_name__icontains=waiter) |
-                    Q(open_order__waiter__last_name__icontains=waiter)
-                )
+        qs = _apply_waiter_filter(qs, waiter)
 
         # Optimización: traer todo en 1 query con joins
         qs = qs.select_related(
-            "created_by", "cash_session__register",
+            "created_by", "cash_session__register", "waiter",
             "open_order__table", "open_order__waiter",
         ).prefetch_related("payments", "tips").order_by("-created_at")
 
@@ -1140,21 +1239,13 @@ class TipsListView(APIView):
             ])).strip()
             cashier_name = full_name or getattr(user, "username", "") or "—"
 
-            # Garzon/mozo: viene de open_order.waiter (Fudo-style). Mario
-            # pidio (16/05/26) que las propinas se filtren por garzon, no
-            # por cajero — porque el garzon es quien atendio. Fallback a
-            # null si no hay waiter (POS directo, ventas legacy).
-            waiter_id = None
-            waiter_name = None
-            if sale.open_order_id and getattr(sale.open_order, "waiter_id", None):
-                w = sale.open_order.waiter
-                if w:
-                    waiter_id = w.id
-                    waiter_full = " ".join(filter(None, [
-                        getattr(w, "first_name", "") or "",
-                        getattr(w, "last_name", "") or "",
-                    ])).strip()
-                    waiter_name = waiter_full or getattr(w, "username", "") or None
+            # Garzon/mozo: Sale.waiter (denormalizado + editable). Mario
+            # pidio (16/05/26) que las propinas se atribuyan al garzon (quien
+            # atendio), no al cajero. Fallback a open_order.waiter por si la
+            # venta es previa al backfill; null en mostrador sin garzon.
+            w = sale.waiter or (sale.open_order.waiter if sale.open_order_id else None)
+            waiter_id = w.id if w else None
+            waiter_name = waiter_display_name(w)
 
             # Caja
             register_name = None

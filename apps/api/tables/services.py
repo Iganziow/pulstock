@@ -150,10 +150,17 @@ def checkout_order(
 
     sale = result["sale"]
 
-    # Link sale to order (if Sale model has open_order field)
+    # Link sale to order (if Sale model has open_order field) + denormalizar
+    # el garzón: sale.waiter es la fuente de verdad para reportes/propinas por
+    # garzón. Se copia desde order.waiter al cobrar; luego el admin puede
+    # corregirlo por venta sin depender de la mesa (ver SaleEditWaiter).
     try:
         sale.open_order = order
-        sale.save(update_fields=["open_order"])
+        update_fields = ["open_order"]
+        if hasattr(sale, "waiter_id"):
+            sale.waiter_id = order.waiter_id
+            update_fields.append("waiter")
+        sale.save(update_fields=update_fields)
     except (AttributeError, ValueError) as e:
         logger.warning("No se pudo vincular sale con open_order: %s", e)
 

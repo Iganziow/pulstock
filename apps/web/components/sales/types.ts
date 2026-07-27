@@ -64,6 +64,12 @@ export type SaleDetail = {
   /** Lista relacional de propinas split. Cada fila = monto + método. */
   tips?: SaleTip[];
   status: string;
+  created_by_id?: number | null;
+  open_order_id?: number | null;
+  table_name?: string | null;
+  /** Garzón que atendió (Sale.waiter). Editable por admin. */
+  waiter_id?: number | null;
+  waiter_name?: string | null;
   payments: SalePayment[];
   lines: SaleLine[];
 };

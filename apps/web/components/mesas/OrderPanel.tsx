@@ -268,6 +268,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
           product_name: l.product_name,
           qty: parseFloat(l.qty),
           line_total: parseFloat(l.line_total),
+          note: l.note || "",
           print_station_id: (l as any).print_station_id ?? null,
         }))
       );
@@ -281,7 +282,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         const data = {
           reference: ref,
           stationName: stationName || (g.stationId ? `Estación #${g.stationId}` : "Comanda"),
-          lines: g.lines.map(l => ({ name: l.product_name, qty: l.qty, total: l.line_total })),
+          lines: g.lines.map(l => ({ name: l.product_name, qty: l.qty, total: l.line_total, note: l.note })),
           // En comanda/pre-cuenta lo importante es quien ATIENDE
           // (garzon). Si no hay garzon asignado, fallback al opened_by.
           attendedBy: order.waiter?.name || order.opened_by,

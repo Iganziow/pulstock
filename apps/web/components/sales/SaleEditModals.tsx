@@ -13,7 +13,7 @@
  * Sale.total ni en gross_profit).
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ApiError, apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
 
@@ -438,6 +438,100 @@ export function EditTipModal({
           background: C.accent, color: "#fff",
           cursor: busy ? "not-allowed" : "pointer",
           opacity: busy ? 0.5 : 1, fontWeight: 600,
+        }}>{busy ? "Guardando..." : "Guardar"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+
+// ─── EditWaiterModal ─────────────────────────────────────────────────────
+// Corregir el garzón de una venta cerrada (mesa o mostrador). Solo admin.
+// Sale.waiter es la fuente de verdad → reportes y propinas por garzón lo
+// siguen automáticamente. En mesa corrige toda la comanda (backend).
+
+type Staff = { id: number; username: string; display_name?: string; first_name?: string; last_name?: string };
+
+export function EditWaiterModal({
+  open, saleId, currentWaiterId, onClose, onSaved,
+}: {
+  open: boolean;
+  saleId: number;
+  currentWaiterId: number | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [sel, setSel] = useState<string>(currentWaiterId != null ? String(currentWaiterId) : "");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Cargar staff al abrir.
+  useEffect(() => {
+    if (!open) return;
+    setSel(currentWaiterId != null ? String(currentWaiterId) : "");
+    setErr(null);
+    setLoading(true);
+    (async () => {
+      try {
+        const data = (await apiFetch("/core/staff/")) as Staff[];
+        setStaff(data || []);
+      } catch (e: any) {
+        setErr(e?.message ?? "No se pudo cargar el personal");
+      } finally { setLoading(false); }
+    })();
+  }, [open, currentWaiterId]);
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      await apiFetch(`/sales/sales/${saleId}/waiter/`, {
+        method: "PATCH",
+        body: JSON.stringify({ waiter_id: sel ? Number(sel) : null }),
+      });
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e instanceof ApiError ? (e.data?.detail ?? e.message) : (e?.message ?? "Error al guardar"));
+    } finally { setBusy(false); }
+  }
+
+  const nameOf = (s: Staff) =>
+    s.display_name || [s.first_name, s.last_name].filter(Boolean).join(" ") || s.username;
+
+  return (
+    <ModalShell open={open} title="Corregir garzón" onClose={onClose} busy={busy}>
+      <ErrorBanner msg={err} />
+      <div style={{ fontSize: 12, color: C.mute, marginBottom: 10, lineHeight: 1.5 }}>
+        Reasigna quién atendió esta venta. Los reportes y las propinas por garzón
+        se actualizan solos. En una mesa con varios cobros, corrige toda la comanda.
+      </div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: C.mid, display: "block", marginBottom: 6 }}>
+        Garzón
+      </label>
+      <select
+        value={sel}
+        onChange={e => setSel(e.target.value)}
+        disabled={loading || busy}
+        style={{ ...inputStyle }}
+      >
+        <option value="">— Sin garzón —</option>
+        {staff.map(s => (
+          <option key={s.id} value={String(s.id)}>{nameOf(s)}</option>
+        ))}
+      </select>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button onClick={onClose} disabled={busy} style={{
+          padding: "8px 16px", border: `1px solid ${C.border}`, borderRadius: 6,
+          background: C.surface, color: C.mid, cursor: "pointer",
+        }}>Cancelar</button>
+        <button onClick={save} disabled={busy || loading} style={{
+          padding: "8px 16px", border: "none", borderRadius: 6,
+          background: C.accent, color: "#fff",
+          cursor: busy ? "not-allowed" : "pointer",
+          opacity: (busy || loading) ? 0.5 : 1, fontWeight: 600,
         }}>{busy ? "Guardando..." : "Guardar"}</button>
       </div>
     </ModalShell>
