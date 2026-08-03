@@ -125,34 +125,79 @@ function KPICard({ title, value, subtitle, icon, bgColor, borderColor, href, ani
 
 // ─── Simple Bar Chart (pure CSS, no deps) ─────────────────────────────────────
 
+// Alto del área de barras y espacio reservado arriba para la cifra.
+// En píxeles a propósito: el `height: X%` anterior no resolvía porque la
+// columna quedaba con alto automático (el contenedor usaba alignItems
+// "flex-end", que no estira los hijos) → las 7 barras colapsaban al
+// minHeight y el gráfico se veía como 7 rayitas iguales.
+const CHART_TRACK = 132;
+const CHART_LABEL_GAP = 20;
+
+// En teléfono cada columna mide ~32px y "$170.230" ocupa ~44px: las cifras se
+// pisaban entre sí. Abreviado entra cómodo y se sigue leyendo de un vistazo.
+function formatCLPCompact(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    const m = v / 1_000_000;
+    return "$" + (Math.abs(m) < 10 ? m.toFixed(1).replace(".", ",") : String(Math.round(m))) + "M";
+  }
+  if (abs >= 1_000) return "$" + Math.round(v / 1_000) + "k";
+  return "$" + _formatCLP(v);
+}
+
 function BarChart({ data }: { data: ChartDay[] }) {
+  const mob = useIsMobile();
   const values = data.map(d => Number(d.total));
-  const maxVal = Math.max(...values, 1);
+  const maxVal = Math.max(...values, 0);
+  const usable = CHART_TRACK - CHART_LABEL_GAP;
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 160, padding: "0 4px" }}>
+    <div style={{ display: "flex", gap: 8, padding: "0 4px" }}>
       {data.map((d, i) => {
         const val = Number(d.total);
-        const pct = Math.max((val / maxVal) * 100, 2);
         const isToday = i === data.length - 1;
+        const sinVentas = !(val > 0);
+        // Barra proporcional al máximo de la semana. Mínimo 6px para que un
+        // día flojo se vea igual (pero distinto de "sin ventas", que es 3px gris).
+        const barH = sinVentas || maxVal <= 0
+          ? 3
+          : Math.max(Math.round((val / maxVal) * usable), 6);
+
         return (
-          <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.mid, fontFamily: C.mono }}>
-              {val > 0 ? formatCLP(val) : ""}
+          <div key={d.date} style={{
+            flex: 1, minWidth: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+          }}>
+            <div style={{ height: CHART_TRACK, width: "100%", position: "relative" }}>
+              {/* La cifra va pegada encima de SU barra, no flotando arriba. */}
+              <div style={{
+                position: "absolute", bottom: barH + 4, left: 0, right: 0,
+                textAlign: "center", fontSize: 10, fontWeight: 600,
+                color: isToday ? C.accent : C.mid,
+                fontFamily: C.mono, whiteSpace: "nowrap",
+              }}>
+                {sinVentas ? "—" : mob ? formatCLPCompact(val) : formatCLP(val)}
+              </div>
+              <div
+                style={{
+                  position: "absolute", bottom: 0, left: "50%",
+                  transform: "translateX(-50%)",
+                  width: "100%", maxWidth: 56, height: barH,
+                  background: sinVentas ? C.border : isToday ? C.accent : "#C7D2FE",
+                  borderRadius: sinVentas ? 2 : "6px 6px 2px 2px",
+                  transition: "height 0.4s ease",
+                }}
+                title={
+                  sinVentas
+                    ? `${dayLabel(d.date)}: sin ventas`
+                    : `${dayLabel(d.date)}: ${formatCLP(val)} (${d.count} ventas)`
+                }
+              />
             </div>
-            <div
-              style={{
-                width: "100%", maxWidth: 56,
-                height: `${pct}%`, minHeight: 4,
-                background: isToday ? C.accent : "#C7D2FE",
-                borderRadius: "6px 6px 2px 2px",
-                transition: "height 0.4s ease",
-              }}
-              title={`${dayLabel(d.date)}: ${formatCLP(val)} (${d.count} ventas)`}
-            />
+
             <div style={{
               fontSize: 11, fontWeight: isToday ? 700 : 500,
-              color: isToday ? C.accent : C.mute,
+              color: isToday ? C.accent : C.mute, whiteSpace: "nowrap",
             }}>
               {dayLabel(d.date)}
             </div>
