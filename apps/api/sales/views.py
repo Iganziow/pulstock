@@ -910,7 +910,12 @@ class TipsSummaryView(APIView):
         # Filtros opcionales (Mario 16/05/26 — para ver TUS propinas
         # como garzón, no las del cajero que cobró).
         qs = _apply_waiter_filter(qs, request.query_params.get("waiter"))
-        cashier = (request.query_params.get("cashier") or "").strip()
+        # `cashier` (texto o id) + alias `cashier_id` para que este resumen
+        # acepte EXACTAMENTE los mismos filtros que /tips-list/ (la tabla manda
+        # cashier_id y register_id). Si no coincidieran, el "total por garzón"
+        # mostraría más plata que la tabla filtrada → cuadre confuso.
+        cashier = (request.query_params.get("cashier")
+                   or request.query_params.get("cashier_id") or "").strip()
         if cashier:
             if cashier.isdigit():
                 qs = qs.filter(created_by_id=int(cashier))
@@ -920,6 +925,9 @@ class TipsSummaryView(APIView):
                     Q(created_by__first_name__icontains=cashier) |
                     Q(created_by__last_name__icontains=cashier)
                 )
+        register_id = (request.query_params.get("register_id") or "").strip()
+        if register_id.isdigit():
+            qs = qs.filter(cash_session__register_id=int(register_id))
         payment_method = (request.query_params.get("payment_method") or "").strip().lower()
         if payment_method:
             from .models import SalePayment
@@ -967,6 +975,41 @@ class TipsSummaryView(APIView):
                 "total":   str(r["total"].quantize(Decimal("1"))),
                 "count":   r["count"],
             })
+
+        # Breakdown por GARZÓN (Sale.waiter). Mario (03/08/26): "se puede
+        # cambiar el garzón por venta, pero no cambia el monto de propinas
+        # según garzón corregido". Faltaba esta agrupación — solo existía
+        # by_cashier (quien COBRÓ), y el reparto se hace por quien ATENDIÓ.
+        # Usa el garzón efectivo: Sale.waiter con fallback a open_order.waiter
+        # (ventas previas al backfill), igual que el filtro y los serializers.
+        by_waiter_map = {}
+        waiter_rows = (
+            qs.filter(tip__gt=0)
+              .values(
+                  "waiter_id", "waiter__first_name", "waiter__last_name", "waiter__username",
+                  "open_order__waiter_id", "open_order__waiter__first_name",
+                  "open_order__waiter__last_name", "open_order__waiter__username",
+                  "tip",
+              )
+        )
+        for r in waiter_rows:
+            wid = r["waiter_id"] or r["open_order__waiter_id"]
+            if wid == r["waiter_id"] and r["waiter_id"]:
+                fn, ln, un = r["waiter__first_name"], r["waiter__last_name"], r["waiter__username"]
+            else:
+                fn, ln, un = (r["open_order__waiter__first_name"], r["open_order__waiter__last_name"],
+                              r["open_order__waiter__username"])
+            name = " ".join(filter(None, [fn, ln])).strip() or un or "Sin garzón"
+            b = by_waiter_map.setdefault(wid, {"user_id": wid, "name": name if wid else "Sin garzón",
+                                               "total": Decimal("0"), "count": 0})
+            b["total"] += r["tip"] or Decimal("0")
+            b["count"] += 1
+        by_waiter = sorted(by_waiter_map.values(), key=lambda x: -x["total"])
+        by_waiter = [
+            {"user_id": b["user_id"], "name": b["name"],
+             "total": str(b["total"].quantize(Decimal("1"))), "count": b["count"]}
+            for b in by_waiter
+        ]
 
         # Breakdown por MÉTODO DE PAGO. Mario quiere ver "cuanto hicieron
         # divididos en débito, crédito, efectivo, etc." porque cada método
@@ -1060,6 +1103,7 @@ class TipsSummaryView(APIView):
             "avg_tip":           str(agg["avg_tip"].quantize(Decimal("1"))),
             "by_day":            by_day,
             "by_cashier":        by_cashier,
+            "by_waiter":         by_waiter,
             "by_payment_method": by_payment_method,
         })
 

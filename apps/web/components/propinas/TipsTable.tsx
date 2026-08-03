@@ -118,6 +118,7 @@ export function TipsTable({
   // Cualquier usuario activo puede ser garzón (mismos roles que cajero,
   // por eso reusamos la misma lista cuando no hay un endpoint dedicado).
   const [waiters, setWaiters] = useState<{ id: number; name: string }[]>([]);
+  const [byWaiter, setByWaiter] = useState<{ user_id: number | null; name: string; total: string; count: number }[]>([]);
   const [registers, setRegisters] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -151,6 +152,29 @@ export function TipsTable({
     u.set("page_size", String(pageSize));
     return u.toString();
   }, [dateFrom, dateTo, cashierId, waiterId, paymentMethod, registerId, page, pageSize]);
+
+  // Total por garzón — viene del SERVIDOR (tips-summary) con los mismos
+  // filtros, no de sumar las filas visibles: la tabla está paginada y
+  // sumarla en el cliente daría solo la página actual (Mario ya reportó ese
+  // bug en Ventas). Mario 03/08/26: necesita ver cuánto le toca a cada uno.
+  const summaryParams = useMemo(() => {
+    const u = new URLSearchParams();
+    if (dateFrom) u.set("date_from", dateFrom);
+    if (dateTo) u.set("date_to", dateTo);
+    if (cashierId) u.set("cashier_id", cashierId);
+    if (waiterId) u.set("waiter", waiterId);
+    if (paymentMethod) u.set("payment_method", paymentMethod);
+    if (registerId) u.set("register_id", registerId);
+    return u.toString();
+  }, [dateFrom, dateTo, cashierId, waiterId, paymentMethod, registerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/sales/tips-summary/?${summaryParams}`)
+      .then((d: any) => { if (!cancelled) setByWaiter(d?.by_waiter ?? []); })
+      .catch(() => { if (!cancelled) setByWaiter([]); });
+    return () => { cancelled = true; };
+  }, [summaryParams]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -272,6 +296,50 @@ export function TipsTable({
           </div>
         </div>
       </div>
+
+      {/* Total POR GARZÓN — para repartir. Server-side (respeta los filtros y
+          todo el período, no solo la página visible). */}
+      {byWaiter.length > 0 && (
+        <div style={{
+          background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 8, padding: compact ? "10px 12px" : "12px 16px",
+        }}>
+          <div style={{
+            fontSize: 10, color: C.mute, fontWeight: 700, textTransform: "uppercase",
+            letterSpacing: "0.05em", marginBottom: 8,
+          }}>
+            Total por garzón · para repartir
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+            gap: 8,
+          }}>
+            {byWaiter.map(w => (
+              <div key={w.user_id ?? "sin"} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "baseline",
+                gap: 8, padding: "8px 10px", background: C.bg, borderRadius: 6,
+                border: `1px solid ${C.border}`,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{
+                    fontSize: fontCell, fontWeight: 700,
+                    color: w.user_id ? C.text : C.mute,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  }}>{w.name}</div>
+                  <div style={{ fontSize: 10, color: C.mute }}>
+                    {w.count} venta{w.count !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: fontCell + 2, fontWeight: 800, color: C.amber,
+                  fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+                }}>{fmtCLP(w.total)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {err && (
         <div style={{ padding: "10px 14px", background: C.redBg, border: `1px solid ${C.redBd}`, borderRadius: 8, color: C.red, fontSize: 13 }}>
