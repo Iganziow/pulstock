@@ -12,6 +12,8 @@ y volver a cambiarlo a otro (ida y vuelta) sin perder montos.
 import pytest
 from decimal import Decimal
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from core.models import User
@@ -196,6 +198,36 @@ def test_filtro_por_garzon_coincide_con_su_total(api_client, tenant, store, ware
     tot, _ = _by_waiter(api_client)
     r = api_client.get(f"{URL_SUMMARY}?waiter={a.id}")
     assert Decimal(r.json()["total_tips"]) == tot["Ana A"] == Decimal("700")
+
+
+@pytest.mark.django_db
+def test_el_lock_no_usa_outer_join_regresion_postgres(api_client, tenant, store, warehouse, owner):
+    """Regresión del 500 en prod (03/08/26).
+
+    PostgreSQL rechaza el lock con "FOR UPDATE cannot be applied to the nullable
+    side of an outer join". `Sale.open_order` y `Sale.waiter` son FK nullable →
+    agregarles select_related() al queryset que lleva select_for_update() genera
+    LEFT OUTER JOIN y revienta SOLO en producción: SQLite ignora el FOR UPDATE,
+    así que los tests pasaban igual y el endpoint estuvo caído desde el 26-jul.
+
+    SQLite sí emite el JOIN de select_related, así que acá detectamos la FORMA
+    peligrosa aunque el motor local no valide el FOR UPDATE.
+    """
+    gar = _mk_user(tenant, store, "gar_lock", first="Ana", last="Alfa")
+    venta = _sale_con_propina(tenant, store, warehouse, owner, gar, 100)
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = api_client.patch(_waiter_url(venta.id), {"waiter_id": None}, format="json")
+    assert r.status_code == 200, r.content
+
+    riesgosas = [
+        q["sql"] for q in ctx.captured_queries
+        if "sales_sale" in q["sql"] and "LEFT OUTER JOIN" in q["sql"].upper()
+    ]
+    assert not riesgosas, (
+        "El queryset con select_for_update() trae un OUTER JOIN sobre una FK "
+        f"nullable → PostgreSQL devuelve 500. SQL: {riesgosas[0][:300]}"
+    )
 
 
 @pytest.mark.django_db

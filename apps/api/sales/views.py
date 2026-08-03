@@ -812,8 +812,12 @@ class SaleEditWaiter(APIView):
         if not s_id:
             return Response({"detail": "User has no active_store"}, status=400)
 
+        # SIN select_related(): `open_order` y `waiter` son FK nullable, así que
+        # select_related genera LEFT OUTER JOIN y PostgreSQL rechaza el lock con
+        # "FOR UPDATE cannot be applied to the nullable side of an outer join".
+        # SQLite ignora select_for_update() → en local pasaba y en prod era 500.
         sale = get_object_or_404(
-            Sale.objects.select_for_update().select_related("open_order", "waiter"),
+            Sale.objects.select_for_update(),
             tenant_id=t_id, store_id=s_id, pk=pk,
         )
         if sale.status != Sale.STATUS_COMPLETED:
@@ -851,7 +855,9 @@ class SaleEditWaiter(APIView):
             )
             Sale.objects.filter(id__in=affected_ids).update(waiter=new_waiter)
             # open_order.waiter también, para que la mesa quede consistente.
-            type(sale.open_order).objects.filter(id=sale.open_order_id).update(waiter=new_waiter)
+            # Import local: evita el ciclo sales <-> tables a nivel de módulo.
+            from tables.models import OpenOrder
+            OpenOrder.objects.filter(id=sale.open_order_id).update(waiter=new_waiter)
         else:
             Sale.objects.filter(id=sale.id).update(waiter=new_waiter)
 
