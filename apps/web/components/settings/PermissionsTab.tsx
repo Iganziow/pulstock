@@ -4,27 +4,42 @@
  * PermissionsTab — matriz de permisos por rol editable por el dueño (Fudo-style).
  * El dueño activa/desactiva qué puede hacer cada rol. Owner = todo (bloqueado).
  * `settings`/`users` no aparecen (solo dueño; el backend los bloquea).
+ *
+ * Segunda mitad: quién está en cada rol, y mover personas entre roles sin salir
+ * de acá. Como cada persona tiene UN solo rol, "quitar de un rol" = moverla a
+ * otro; por eso no hay botón de quitar suelto (dejaría a alguien sin permisos
+ * de ningún tipo y sin forma de volver a entrar).
  */
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
-import { Spinner } from "@/components/settings/SettingsUI";
+import { Spinner, ROLES } from "@/components/settings/SettingsUI";
 
 type PermMeta = { key: string; label: string; group: string };
 type RoleRow = { role: string; role_label: string; permissions: Record<string, boolean> };
+type RoleUser = { id: number; name: string; email?: string };
 type Payload = {
   permission_meta: PermMeta[];
   editable_roles: string[];
   roles: RoleRow[];
-  users_by_role: Record<string, { id: number; name: string }[]>;
+  users_by_role: Record<string, RoleUser[]>;
 };
 
-export default function PermissionsTab({ flash, mob }: { flash: (type: "ok" | "err", text: string) => void; mob?: boolean }) {
+export default function PermissionsTab({ flash, mob, meId, onUsersChanged }: {
+  flash: (type: "ok" | "err", text: string) => void;
+  mob?: boolean;
+  meId?: number | null;
+  onUsersChanged?: () => void;
+}) {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Estado editable: {role: {key: bool}}
   const [matrix, setMatrix] = useState<Record<string, Record<string, boolean>>>({});
+  // Persona cuyo rol se está guardando (para bloquear el select mientras tanto).
+  const [movingId, setMovingId] = useState<number | null>(null);
+  // Card que tiene abierto el selector de "agregar persona".
+  const [addingTo, setAddingTo] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -42,6 +57,31 @@ export default function PermissionsTab({ flash, mob }: { flash: (type: "ok" | "e
 
   function toggle(role: string, key: string) {
     setMatrix(prev => ({ ...prev, [role]: { ...prev[role], [key]: !prev[role]?.[key] } }));
+  }
+
+  /** Mueve una persona a otro rol.
+   *
+   * Refresca SOLO la lista de usuarios: si volviéramos a derivar `matrix` del
+   * payload, se perderían los toggles de permisos que el dueño todavía no
+   * guardó. Son dos cosas independientes en la misma pantalla.
+   */
+  async function changeRole(userId: number, newRole: string, personName: string) {
+    setMovingId(userId);
+    try {
+      await apiFetch(`/core/users/${userId}/`, {
+        method: "PATCH", body: JSON.stringify({ role: newRole }),
+      });
+      const d = (await apiFetch("/core/role-permissions/")) as Payload;
+      setData(d);
+      const label = ROLES.find(r => r.value === newRole)?.label ?? newRole;
+      flash("ok", `${personName} ahora es ${label}`);
+      onUsersChanged?.();
+    } catch (e: any) {
+      flash("err", e?.data?.detail ?? e?.message ?? "No se pudo cambiar el rol");
+    } finally {
+      setMovingId(null);
+      setAddingTo(null);
+    }
   }
 
   async function save() {
@@ -66,6 +106,17 @@ export default function PermissionsTab({ flash, mob }: { flash: (type: "ok" | "e
   if (!data) return null;
 
   const roles = data.roles; // editables (sin owner)
+  // Tarjetas de personas: el dueño primero, después los roles editables.
+  const allRoles = [
+    { role: "owner", label: ROLES.find(r => r.value === "owner")?.label ?? "Dueño" },
+    ...roles.map(r => ({ role: r.role, label: r.role_label })),
+  ];
+  // Gente que hoy NO está en ese rol (candidatos a moverse a él).
+  const otrosRoles = (role: string) =>
+    allRoles
+      .filter(x => x.role !== role)
+      .flatMap(x => (data.users_by_role[x.role] || []).map(u => ({ ...u, role: x.role })))
+      .filter(u => meId == null || u.id !== meId);
   // Agrupar permisos por "group" preservando orden.
   const groups: { group: string; items: PermMeta[] }[] = [];
   for (const m of data.permission_meta) {
@@ -100,7 +151,7 @@ export default function PermissionsTab({ flash, mob }: { flash: (type: "ok" | "e
       <div>
         <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Permisos por rol</div>
         <div style={{ fontSize: 12, color: C.mute, marginTop: 3, lineHeight: 1.5 }}>
-          Elegí qué puede hacer cada rol. El <b>Dueño</b> siempre tiene acceso total.
+          Elige qué puede hacer cada rol. El <b>Dueño</b> siempre tiene acceso total.
           Los cambios se aplican al menú y a las páginas de cada usuario según su rol.
         </div>
       </div>
@@ -147,22 +198,137 @@ export default function PermissionsTab({ flash, mob }: { flash: (type: "ok" | "e
         }}>{saving ? <Spinner size={14} /> : null}{saving ? "Guardando…" : "Guardar permisos"}</button>
       </div>
 
-      {/* Usuarios por rol */}
-      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>Usuarios por rol</div>
-        <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-          {[{ role: "owner", label: "Dueño" }, ...roles.map(r => ({ role: r.role, label: r.role_label }))].map(({ role, label }) => (
-            <div key={role} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", background: C.surface }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 6 }}>{label}</div>
-              {(data.users_by_role[role] || []).length === 0 ? (
-                <div style={{ fontSize: 12, color: C.mute }}>— Sin usuarios —</div>
-              ) : (
-                (data.users_by_role[role] || []).map(u => (
-                  <div key={u.id} style={{ fontSize: 12, color: C.mid, padding: "2px 0" }}>{u.name}</div>
-                ))
-              )}
-            </div>
-          ))}
+      {/* ── Personas en cada rol ─────────────────────────────────────────── */}
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>Personas en cada rol</div>
+        <div style={{ fontSize: 12, color: C.mute, marginTop: 3, marginBottom: 12, lineHeight: 1.5 }}>
+          Cambia el rol de una persona y sus permisos pasan a ser los de arriba.
+          Cada persona tiene un solo rol, así que moverla a otro la saca del anterior.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {allRoles.map(({ role, label }) => {
+            const gente = data.users_by_role[role] || [];
+            const rc = ROLES.find(r => r.value === role);
+            const fuera = otrosRoles(role);
+
+            return (
+              <div key={role} style={{
+                border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface,
+                display: "flex", flexDirection: "column",
+              }}>
+                <div style={{
+                  padding: "9px 12px", borderBottom: `1px solid ${C.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                  background: rc?.bg ?? C.bg, borderRadius: "10px 10px 0 0",
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: rc?.color ?? C.accent }}>{label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, fontFamily: C.mono }}>{gente.length}</span>
+                </div>
+
+                <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                  {gente.length === 0 && (
+                    <div style={{ fontSize: 12, color: C.mute, padding: "4px 2px" }}>— Nadie en este rol —</div>
+                  )}
+
+                  {gente.map(u => {
+                    const soyYo = meId != null && u.id === meId;
+                    // El backend rechaza dejar el negocio sin dueño; lo avisamos acá
+                    // en vez de esperar el 400.
+                    const ultimoDueno = role === "owner" && (data.users_by_role["owner"] || []).length <= 1;
+                    const bloqueado = soyYo || ultimoDueno;
+                    const motivo = soyYo
+                      ? "No puedes cambiar tu propio rol"
+                      : "Es el único dueño — asigna otro dueño antes de moverlo";
+
+                    return (
+                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 12, fontWeight: 600, color: C.text,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }} title={u.email || u.name}>
+                            {u.name}{soyYo ? " (tú)" : ""}
+                          </div>
+                        </div>
+                        {bloqueado ? (
+                          <span data-testid={`lock-${u.id}`} title={motivo} style={{ fontSize: 13, color: C.mute, cursor: "help", flexShrink: 0 }}>🔒</span>
+                        ) : (
+                          <select
+                            data-testid={`role-select-${u.id}`}
+                            value={role}
+                            disabled={movingId === u.id}
+                            onChange={e => {
+                              const nuevo = e.target.value;
+                              if (nuevo !== role) changeRole(u.id, nuevo, u.name);
+                            }}
+                            title={`Mover a ${u.name} a otro rol`}
+                            style={{
+                              fontSize: 11, padding: "3px 5px", borderRadius: 6,
+                              border: `1px solid ${C.border}`, background: C.bg, color: C.mid,
+                              cursor: movingId === u.id ? "wait" : "pointer",
+                              maxWidth: 118, flexShrink: 0,
+                            }}
+                          >
+                            {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Agregar alguien que hoy está en otro rol */}
+                  <div style={{ marginTop: "auto", paddingTop: 4 }}>
+                    {addingTo === role ? (
+                      <select
+                        data-testid={`add-picker-${role}`}
+                        autoFocus
+                        defaultValue=""
+                        disabled={movingId != null}
+                        onChange={e => {
+                          const uid = Number(e.target.value);
+                          const p = fuera.find(x => x.id === uid);
+                          if (p) changeRole(p.id, role, p.name);
+                        }}
+                        onBlur={() => setAddingTo(null)}
+                        style={{
+                          width: "100%", fontSize: 12, padding: "5px 6px", borderRadius: 6,
+                          border: `1px solid ${C.accent}`, background: C.surface, color: C.text,
+                        }}
+                      >
+                        <option value="" disabled>Elige a quién mover…</option>
+                        {fuera.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} · {ROLES.find(r => r.value === p.role)?.label ?? p.role}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button
+                        data-testid={`add-to-${role}`}
+                        onClick={() => setAddingTo(role)}
+                        disabled={fuera.length === 0}
+                        title={fuera.length === 0 ? "No hay nadie más para mover a este rol" : `Mover a alguien a ${label}`}
+                        style={{
+                          width: "100%", padding: "5px 8px", fontSize: 11, fontWeight: 700,
+                          borderRadius: 6, border: `1px dashed ${C.border}`, background: "none",
+                          color: fuera.length === 0 ? C.mute : C.accent,
+                          cursor: fuera.length === 0 ? "not-allowed" : "pointer",
+                          opacity: fuera.length === 0 ? 0.5 : 1,
+                        }}
+                      >
+                        + Agregar persona
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ fontSize: 11, color: C.mute, marginTop: 10, lineHeight: 1.5 }}>
+          Para crear una persona nueva o desactivar a alguien, ve a la pestaña <b>Usuarios</b>.
         </div>
       </div>
     </div>

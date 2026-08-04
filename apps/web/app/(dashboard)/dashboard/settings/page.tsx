@@ -284,7 +284,7 @@ export default function SettingsPage() {
       )}
 
       {tab === "permisos" && isOwner && (
-        <PermissionsTab flash={flash} mob={mob} />
+        <PermissionsTab flash={flash} mob={mob} meId={me?.id ?? null} onUsersChanged={reloadUsers} />
       )}
 
       {tab === "alertas" && (
