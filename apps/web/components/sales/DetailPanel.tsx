@@ -10,6 +10,7 @@ import { VoidModal } from "./VoidModal";
 import { EditPaymentsModal, EditTipModal, EditWaiterModal } from "./SaleEditModals";
 import { fetchMe } from "@/lib/me";
 import { toNum, fCLP, fDateTime, profitPct } from "./helpers";
+import { PayMethodIcon, BanknoteIcon, UserIcon, InfoIcon, XIcon, ArrowLeftIcon } from "./icons";
 import type { SaleDetail, Warehouse } from "./types";
 
 export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
@@ -112,9 +113,11 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
               Imprimir
             </Link>
             <button type="button" aria-label="Cerrar" onClick={onClose} className="xb" style={{
-              width:mob?36:30, height:mob?36:30, borderRadius:C.r, border:`1px solid ${C.border}`,
-              background:C.bg, color:C.mute, fontSize:mob?20:16, display:"flex", alignItems:"center", justifyContent:"center",
-            }}>{mob?"← Volver":"✕"}</button>
+              height:mob?36:30, width:mob?undefined:30, padding:mob?"0 12px":0,
+              borderRadius:C.r, border:`1px solid ${C.border}`,
+              background:C.bg, color:C.mute, fontSize:12, fontWeight:600,
+              display:"flex", alignItems:"center", justifyContent:"center", gap:6, whiteSpace:"nowrap",
+            }}>{mob ? <><ArrowLeftIcon size={14} /> Volver</> : <XIcon size={14} />}</button>
           </div>
         </div>
 
@@ -141,9 +144,6 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
 
             const payLabels: Record<string, string> = {
               cash: "Efectivo", debit: "Débito", card: "Crédito", transfer: "Transferencia",
-            };
-            const payIcons: Record<string, string> = {
-              cash: "💵", debit: "💳", card: "💳", transfer: "🏦",
             };
 
             // Tip rows (relacional con fallback legacy)
@@ -345,8 +345,8 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     <div style={{ background: C.bg, borderRadius: C.r, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
                       {netPayments.map((p, i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.mid }}>
-                            <span style={{ fontSize: 14 }}>{payIcons[p.method] ?? "💰"}</span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: C.mid }}>
+                            <PayMethodIcon method={p.method} size={14} />
                             {payLabels[p.method] ?? p.method}
                           </span>
                           <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>${fCLP(p.amount)}</span>
@@ -368,7 +368,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                         borderRadius: 6, fontSize: 11, color: C.amber, lineHeight: 1.4,
                         display: "flex", alignItems: "flex-start", gap: 6,
                       }}>
-                        <span style={{ fontSize: 12 }}>ⓘ</span>
+                        <InfoIcon size={13} style={{ flexShrink: 0, marginTop: 1 }} />
                         <span>
                           <b>Venta antigua:</b> el pago original venía con la propina sumada (${fCLP(totalPaymentsRaw)}).
                           Mostramos sólo la parte de venta para que sea claro qué editar.
@@ -385,9 +385,9 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     display: "flex", justifyContent: "space-between", alignItems: "center",
                     border: `1px dashed ${C.border}`,
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14 }}>💵</span>
-                      <span style={{ fontSize: 12, color: C.mute }}>Sin propina</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.mute }}>
+                      <BanknoteIcon size={14} />
+                      <span style={{ fontSize: 12 }}>Sin propina</span>
                     </div>
                     <button
                       type="button"
@@ -407,7 +407,7 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 14 }}>💵</span>
+                        <BanknoteIcon size={13} />
                         Propina <span style={{ color: C.mute, fontWeight: 600 }}>· ${fCLP(sale.tip)}</span>
                       </div>
                       {!isVoid && (
@@ -433,8 +433,8 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     <div style={{ background: C.amberBg, border: `1px solid ${C.amberBd}`, borderRadius: C.r, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
                       {tipRows.map((row, idx) => (
                         <div key={`${row.method}-${idx}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.mid }}>
-                            <span style={{ fontSize: 14 }}>{payIcons[row.method] || "💰"}</span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: C.mid }}>
+                            <PayMethodIcon method={row.method} size={14} />
                             {payLabels[row.method] || row.method}
                           </span>
                           <span style={{ fontSize: 13, fontWeight: 700, color: C.amber, fontVariantNumeric: "tabular-nums" }}>
@@ -445,6 +445,68 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                     </div>
                   </div>
                 )}
+
+                {/* ───────── GARZÓN (sección propia, misma jerarquía que pagos) ─────────
+                    Antes vivía como texto suelto en la metadata del pie con un
+                    "Editar" plano — invisible, y justo ahora que las propinas
+                    se reparten por garzón, corregirlo es una acción frecuente. */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.mute, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      Garzón
+                    </div>
+                    {!isVoid && canEditWaiter && (
+                      <button
+                        type="button"
+                        onClick={() => setShowEditWaiter(true)}
+                        title={sale.waiter_name ? "Corregir garzón" : "Asignar garzón"}
+                        className="xb"
+                        style={{
+                          background: "transparent", border: `1px solid ${C.border}`,
+                          borderRadius: 4, padding: "3px 8px", cursor: "pointer",
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          color: C.mid, fontSize: 11, fontWeight: 600,
+                        }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                        </svg>
+                        {sale.waiter_name ? "Editar" : "Asignar"}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{
+                    background: C.bg, borderRadius: C.r, padding: "10px 12px",
+                    display: "flex", alignItems: "center", gap: 10,
+                    border: sale.waiter_name ? "none" : `1px dashed ${C.border}`,
+                  }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                      background: sale.waiter_name ? C.accentBg : C.surface,
+                      border: `1px solid ${sale.waiter_name ? C.accentBd : C.border}`,
+                      color: sale.waiter_name ? C.accent : C.mute,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <UserIcon size={15} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: 700,
+                        color: sale.waiter_name ? C.text : C.mute,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {sale.waiter_name ?? "Sin garzón asignado"}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.mute, marginTop: 1 }}>
+                        {sale.table_name
+                          ? `Atendió la mesa ${sale.table_name}`
+                          : sale.waiter_name
+                            ? "Venta de mostrador"
+                            : "Las propinas de esta venta quedan en “Sin garzón”"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* ───────── METADATA (al final, compacta) ───────── */}
                 <div style={{
@@ -457,20 +519,6 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                   {sale.table_name && (
                     <span><span style={{ color: C.mute }}>Mesa · </span><span style={{ color: C.mid, fontWeight: 600 }}>{sale.table_name}</span></span>
                   )}
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ color: C.mute }}>Garzón · </span>
-                    <span style={{ color: C.mid, fontWeight: 600 }}>{sale.waiter_name ?? "—"}</span>
-                    {!isVoid && canEditWaiter && (
-                      <button
-                        onClick={() => setShowEditWaiter(true)}
-                        title="Corregir garzón"
-                        style={{
-                          border: "none", background: "transparent", color: C.accent,
-                          cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "0 2px",
-                        }}
-                      >Editar</button>
-                    )}
-                  </span>
                 </div>
               </>
             );

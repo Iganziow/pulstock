@@ -16,6 +16,7 @@
 import { useState, useEffect } from "react";
 import { ApiError, apiFetch } from "@/lib/api";
 import { C } from "@/lib/theme";
+import { InfoIcon } from "./icons";
 
 type Method = "cash" | "card" | "debit" | "transfer";
 type Payment = { method: Method; amount: string };
@@ -189,7 +190,9 @@ export function EditPaymentsModal({
           padding: "10px 12px", background: C.amberBg, border: `1px solid ${C.amberBd}`,
           borderRadius: 6, color: C.amber, fontSize: 12, marginBottom: 12, lineHeight: 1.5,
         }}>
-          <div style={{ fontWeight: 700, marginBottom: 2 }}>ⓘ Venta antigua</div>
+          <div style={{ fontWeight: 700, marginBottom: 2, display: "flex", alignItems: "center", gap: 5 }}>
+            <InfoIcon size={13} /> Venta antigua
+          </div>
           El pago original venía con la propina sumada (${legacyRawTotal.toLocaleString("es-CL")}).
           Mostramos sólo el <b>monto de venta</b> (${total.toLocaleString("es-CL")}) para evitar
           confusión. Al guardar, la propina queda guardada por separado (${tip.toLocaleString("es-CL")}).
