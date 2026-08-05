@@ -874,6 +874,145 @@ def get_suggestions(tenant_id, status_filter=None, warehouse_id=None):
 # TRAINING PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── Calendario del negocio ───────────────────────────────────────────────────
+
+# Ventana para decidir qué días de la semana opera el local.
+BUSINESS_CLOSED_LOOKBACK_WEEKS = 8
+# Mínimo de veces que tiene que aparecer un día-de-semana para juzgarlo.
+BUSINESS_CLOSED_MIN_OCCURRENCES = 4
+# Si operó en menos de este % de esas veces, lo damos por cerrado.
+BUSINESS_CLOSED_THRESHOLD = 0.10
+
+# Cache por proceso: el entrenamiento nocturno recorre cientos de productos del
+# MISMO local, y el calendario es idéntico para todos. Sin esto haríamos la
+# misma consulta una vez por producto. La clave incluye la fecha, así que se
+# renueva solo cada día.
+_CLOSED_DOW_CACHE: dict = {}
+
+
+def get_business_closed_weekdays(tenant_id, warehouse_id, today=None,
+                                 lookback_weeks=BUSINESS_CLOSED_LOOKBACK_WEEKS):
+    """Días de la semana (0=lunes … 6=domingo) en que el NEGOCIO no opera.
+
+    Se mide sobre TODOS los productos juntos, a propósito. El detector por
+    producto que ya existe (`detect_closed_weekdays`) sirve para clasificar una
+    serie, pero NO para borrar pronósticos: un insumo que rota dos veces por
+    semana haría que marcáramos como "cerrados" días en que el local sí abrió,
+    y ahí estaríamos borrando demanda real.
+
+    Un día se considera cerrado si aparece al menos MIN_OCCURRENCES veces en la
+    ventana y en menos del 10% de esas veces hubo movimiento.
+    """
+    today = today or date.today()
+    key = (tenant_id, warehouse_id, today, lookback_weeks)
+    if key in _CLOSED_DOW_CACHE:
+        return _CLOSED_DOW_CACHE[key]
+
+    start = today - timedelta(days=lookback_weeks * 7)
+    operados = set(
+        DailySales.objects.filter(
+            tenant_id=tenant_id, warehouse_id=warehouse_id,
+            date__gte=start, date__lt=today, qty_sold__gt=0,
+        ).values_list("date", flat=True).distinct()
+    )
+
+    por_dow: dict[int, list[int]] = {}
+    for i in range((today - start).days):
+        d = start + timedelta(days=i)
+        cell = por_dow.setdefault(d.weekday(), [0, 0])
+        cell[0] += 1
+        if d in operados:
+            cell[1] += 1
+
+    closed = {
+        dow for dow, (n, oper) in por_dow.items()
+        if n >= BUSINESS_CLOSED_MIN_OCCURRENCES
+        and (oper / n) < BUSINESS_CLOSED_THRESHOLD
+    }
+    # Guarda: un local "cerrado" 6 o 7 días es un problema de datos (bodega sin
+    # movimientos, tenant recién creado), no un calendario. Preferimos no
+    # enmascarar nada antes que vaciar el pronóstico entero.
+    if len(closed) >= 6:
+        closed = set()
+
+    _CLOSED_DOW_CACHE[key] = closed
+    return closed
+
+
+def business_operated_on(tenant_id, target_date, warehouse_id=None):
+    """¿El negocio operó ese día?
+
+    Distinguir "no abrió" de "abrió y no vendió nada de este producto" importa:
+    lo primero NO es un fallo del modelo (no se puede acertar demanda de un día
+    que no existió), lo segundo SÍ lo es (predijo 50, se vendieron 0).
+
+    Tres señales, en orden:
+      1. Alguna fila con qty_sold > 0  → operó, seguro.
+      2. Ninguna fila para esa fecha   → no operó. `aggregate_daily_sales` sólo
+         escribe filas de días con actividad; los domingos de Marbrava no
+         tienen ni una.
+      3. Hay filas pero todas en 0     → ambiguo. Si TODAS están marcadas como
+         no operativas (lo que deja `mark_closed_day` para un cierre puntual,
+         como el bloqueo del servidor del 28-jul), no operó. Si no, fue un día
+         abierto en que no se vendió, y eso sí se puntúa.
+    """
+    qs = DailySales.objects.filter(tenant_id=tenant_id, date=target_date)
+    if warehouse_id is not None:
+        qs = qs.filter(warehouse_id=warehouse_id)
+
+    if qs.filter(qty_sold__gt=0).exists():
+        return True
+    if not qs.exists():
+        return False
+    return qs.filter(is_stockout=False).exists()
+
+
+def _apply_closed_weekdays(daily_forecasts, closed_dows):
+    """Pone en 0 los días cerrados y reparte esa demanda en los días abiertos.
+
+    PRESERVA LA MASA a propósito. Los algoritmos que no saben de día-de-semana
+    (ingredient_derived, theta, croston) se entrenan sobre una serie donde el
+    domingo vale 0, sacan un promedio diario = total_semanal/7 y lo reparten en
+    los 7 días. Si sólo pusiéramos el domingo en 0 sin repartir, la semana
+    quedaría en 6/7 del total y pasaríamos a SUB-comprar un 14%.
+
+    Es idempotente para los algoritmos que ya predicen 0 en días cerrados
+    (adaptive_ma, weighted_ma): no hay sobrante que repartir.
+
+    Devuelve la cantidad redistribuida (para tests y logging).
+    """
+    if not closed_dows or not daily_forecasts:
+        return D0
+
+    cerrados = [f for f in daily_forecasts if f["date"].weekday() in closed_dows]
+    abiertos = [f for f in daily_forecasts if f["date"].weekday() not in closed_dows]
+    if not cerrados or not abiertos:
+        return D0  # sin días abiertos no hay dónde repartir
+
+    sobrante = sum((f["qty_predicted"] for f in cerrados), D0)
+    for f in cerrados:
+        f["qty_predicted"] = D0
+        f["lower_bound"] = D0
+        f["upper_bound"] = D0
+
+    if sobrante <= 0:
+        return D0
+
+    base = sum((f["qty_predicted"] for f in abiertos), D0)
+    n = len(abiertos)
+    for f in abiertos:
+        # Reparto proporcional al peso de cada día abierto (respeta la forma
+        # semanal que encontró el algoritmo). Si todos son 0, reparto parejo.
+        share = (f["qty_predicted"] / base) if base > 0 else (Decimal(1) / n)
+        extra = sobrante * share
+        # Las bandas se desplazan con el punto: el ancho del intervalo no cambia.
+        f["qty_predicted"] = _q3(f["qty_predicted"] + extra)
+        f["lower_bound"] = _q3(f["lower_bound"] + extra)
+        f["upper_bound"] = _q3(f["upper_bound"] + extra)
+
+    return sobrante
+
+
 def _load_holidays_for_horizon(tenant, daily_forecasts):
     """Load holidays that fall within the forecast horizon."""
     from forecast.models import Holiday
@@ -901,6 +1040,15 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     if holidays:
         btype = getattr(tenant, "business_type", None) or None
         apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
+
+    # Días cerrados del negocio. Va acá y no dentro de cada algoritmo porque
+    # este es el ÚNICO punto por el que pasan todos: hoy sólo adaptive_ma y
+    # weighted_ma sabían de días cerrados, y los que mueven el volumen
+    # (ingredient_derived, theta, croston) pronosticaban demanda para días con
+    # el local cerrado. Antes de calculate_days_to_stockout, para que la
+    # proyección de stock tampoco descuente consumo en esos días.
+    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
+    _apply_closed_weekdays(daily_forecasts, closed_dows)
 
     # Apply confidence decay for stale models
     confidence_base = compute_confidence_decay(fm.trained_at, confidence_base)

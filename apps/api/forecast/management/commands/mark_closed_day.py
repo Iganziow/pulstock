@@ -106,7 +106,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  motivo: {reason}")
 
         if not apply:
-            self.stdout.write(self.style.WARNING("\n  DRY-RUN — no se escribió nada. Usá --apply."))
+            self.stdout.write(self.style.WARNING("\n  DRY-RUN — no se escribió nada. Usa --apply."))
             return
 
         with transaction.atomic():

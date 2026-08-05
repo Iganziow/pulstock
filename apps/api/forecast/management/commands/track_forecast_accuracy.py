@@ -97,6 +97,27 @@ class Command(BaseCommand):
             )
         }
 
+        # Día no operativo: el local no abrió (domingo, feriado, caída del
+        # sistema). Sin este corte, cada producto suma un "predijo X, real 0"
+        # que NO es un error del modelo — es un día que no existió. Medido el
+        # 04/08/26 en Marbrava: los domingos metían 3.812 unidades fantasma en
+        # 30 días (10,9 puntos de sesgo) y el 28-jul (bloqueo del servidor)
+        # otros 5,7. Juntos, más de la mitad del sesgo medido.
+        #
+        # Además de ensuciar la métrica, esos falsos errores alimentan el
+        # breaker (que fuerza reentrenamientos) y la recalibración de
+        # confidence_label, o sea le bajaban la confianza al modelo por días
+        # en que era imposible vender.
+        #
+        # OJO: "abrió y no vendió nada de este producto" SÍ se puntúa — eso es
+        # un error real del modelo. La distinción la hace business_operated_on.
+        from forecast.services import business_operated_on
+        if not business_operated_on(tenant.id, target_date):
+            self.stdout.write(
+                f"  {target_date}: el negocio no operó — no se puntúa"
+            )
+            return 0
+
         created = 0
         for fc in forecasts:
             key = (fc.product_id, fc.warehouse_id)
