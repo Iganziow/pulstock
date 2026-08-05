@@ -124,4 +124,4 @@ class Command(BaseCommand):
                 f"{label}"
             )
 
-        self.stdout.write(f"\n  ✅ {len(models_list)} productos ajustados")
+        self.stdout.write(f"\n   {len(models_list)} productos ajustados")

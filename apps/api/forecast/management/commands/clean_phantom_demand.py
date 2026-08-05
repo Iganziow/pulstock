@@ -130,7 +130,7 @@ class Command(BaseCommand):
                 for r, q, c, _, _ in fixes:
                     DailySales.objects.filter(id=r.id).update(qty_sold=c)
 
-        mode = "APLICADO ✅" if apply else "DRY-RUN (no escribió nada)"
+        mode = "APLICADO " if apply else "DRY-RUN (no escribió nada)"
         self.stdout.write(self.style.SUCCESS(
             f"\n[tenant {tenant.id}] {mode} — {len(fixes)} filas fantasma, "
             f"{phantom_total:.0f} unidades de demanda fantasma removidas.\n"

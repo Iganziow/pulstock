@@ -288,7 +288,7 @@ class Command(BaseCommand):
             total_revenue += sale_total
 
         # ── Summary ──
-        self.stdout.write(f"\n  ✅ Created:")
+        self.stdout.write(f"\n   Created:")
         self.stdout.write(f"     {total_sales} sales")
         self.stdout.write(f"     {total_lines} sale lines")
         self.stdout.write(f"     ${total_revenue:,.0f} revenue total")

@@ -9,11 +9,19 @@ Problema que resuelve
 abrió (domingo, feriado, caída del sistema), cada producto quedaba con un
 "predijo X, real 0". Eso no es un error del modelo — es un día que no existió.
 
-Medido en Marbrava el 04/08/26 sobre 30 días:
-  - error real medido:              71,9% WAPE, sesgo +30,7%
-  - sin domingos (local cerrado):   61,0% WAPE, sesgo +19,8%
-  - sin domingos ni el 28-jul:      55,3% WAPE, sesgo +14,1%
-O sea más de la mitad del sesgo eran días no operativos.
+Probado sobre una copia de la base de Marbrava (04/08/26), corriendo la purga
+y reentrenando:
+                        antes    después
+  WAPE real 30d         70,7%     50,5%
+  sesgo                +27,0%     +6,7%
+  domingo 9-ago      995 uds         0
+
+Los 20 días no operativos que encontró en 180 días: 13 domingos, el 28-jul
+(bloqueo del servidor), tres sábados y el 1-may, 21-may y 29-jun — los tres
+feriados chilenos, detectados sin consultar tabla de feriados.
+
+O sea: casi todo el sesgo que veníamos midiendo era artefacto de puntuar días
+que no existieron. La sobre-predicción genuina es +6,7%, no +27%.
 
 Además de ensuciar la métrica, esos falsos errores alimentan el breaker (que
 fuerza reentrenamientos) y la recalibración de `confidence_label`: al modelo
@@ -113,7 +121,7 @@ class Command(BaseCommand):
 
         qs.delete()
         self.stdout.write(self.style.SUCCESS(
-            f"\n  APLICADO ✅ — {n} registros borrados. "
+            f"\n  APLICADO — {n} registros borrados. "
             f"El WAPE real y la recalibración de confianza dejan de contar días "
             f"en que el local no abrió.\n"
             f"  (No se tocaron ventas, stock ni modelos.)"

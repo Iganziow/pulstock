@@ -116,7 +116,7 @@ class Command(BaseCommand):
                 DailySales.objects.filter(id__in=to_flag).update(is_stockout=True)
 
         self.stdout.write(self.style.SUCCESS(
-            f"\n  APLICADO ✅ — {len(to_create)} creadas + {len(to_flag)} marcadas. "
+            f"\n  APLICADO — {len(to_create)} creadas + {len(to_flag)} marcadas. "
             f"El próximo entrenamiento interpolará {target} en vez de aprender 0.\n"
             f"  (No se tocaron ventas, stock ni movimientos.)"
         ))
