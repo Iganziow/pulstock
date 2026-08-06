@@ -182,7 +182,7 @@ class Command(BaseCommand):
                         metrics_changed = True
 
                 if new_label != old_label:
-                    transition = f"{old_label}→{new_label}"
+                    transition = f"{old_label} -> {new_label}"
                     changes_by_label[transition] = changes_by_label.get(transition, 0) + 1
                     if not dry_run:
                         fm.confidence_label = new_label
