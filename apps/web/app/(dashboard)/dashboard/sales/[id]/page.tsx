@@ -9,6 +9,7 @@ import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
 import { EditPaymentsModal, EditTipModal } from "@/components/sales/SaleEditModals";
+import { PayMethodIcon, BanknoteIcon } from "@/components/sales/icons";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -326,10 +327,13 @@ export default function SaleDetailPage() {
               </div>
               <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:10 }}>
                 {sale.payments.map((p, i) => {
-                  const labels: Record<string, string> = { cash:"💵 Efectivo", debit:"💳 Tarj. Débito", card:"💳 Tarj. Crédito", transfer:"🏦 Transferencia" };
+                  const labels: Record<string, string> = { cash:"Efectivo", debit:"Tarj. Débito", card:"Tarj. Crédito", transfer:"Transferencia" };
                   return (
-                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8 }}>
-                      <span style={{ fontSize:13, color:C.mid }}>{labels[p.method] ?? p.method}</span>
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:13, color:C.mid, display:"flex", alignItems:"center", gap:7 }}>
+                        <PayMethodIcon method={p.method} size={14} />
+                        {labels[p.method] ?? p.method}
+                      </span>
                       <span style={{ fontSize:14, fontWeight:700, fontVariantNumeric:"tabular-nums" }}>${fCLP(p.amount)}</span>
                     </div>
                   );
@@ -349,7 +353,7 @@ export default function SaleDetailPage() {
           {/* Tip — sección separada porque la propina es del equipo, no del local */}
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.rMd, overflow:"hidden", boxShadow:C.sh }}>
             <div style={{ padding:"12px 16px", background:C.bg, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em" }}>💵 Propina</div>
+              <div style={{ fontSize:11, fontWeight:700, color:C.mute, textTransform:"uppercase", letterSpacing:"0.07em", display:"flex", alignItems:"center", gap:6 }}><BanknoteIcon size={13} /> Propina</div>
               {!isVoid && (
                 <button
                   type="button"
