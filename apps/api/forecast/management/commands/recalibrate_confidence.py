@@ -12,12 +12,23 @@ entrenamiento que no refleja cómo le va al modelo en producción.
 Ahora usamos el WAPE de los últimos 14 días desde ForecastAccuracy
 (comparación real predicho vs vendido). Más honesto y operacional.
 
-Política nueva:
+Política:
   WAPE < 30%      → high       (predicciones confiables)
   WAPE 30-50%     → medium     (Mario revisa antes de comprar)
   WAPE 50-80%     → low        (referencia visual, no decisión)
   WAPE >= 80%     → very_low   (poco fiable, no usar)
-  Sin datos       → low        (default conservador)
+  Sin datos       → NO SE TOCA (conserva la etiqueta del entrenamiento)
+
+ORDEN EN EL PIPELINE (importante)
+---------------------------------
+Este comando debe correr DESPUÉS de `train_forecast_models`, que lo invoca al
+final. Durante meses corrió antes (desde `track_forecast_accuracy`, 01:30) y el
+entrenamiento de las 02:30 lo pisaba con la etiqueta del backtest: cada
+madrugada se calculaba la calibración honesta y una hora después se descartaba.
+Mario venía viendo las etiquetas optimistas del backtest.
+
+La llamada desde `track_forecast_accuracy` se mantiene como red de seguridad
+por si el entrenamiento falla esa noche.
 
 Usage:
     python manage.py recalibrate_confidence              # todos los tenants
@@ -78,6 +89,7 @@ class Command(BaseCommand):
 
         total_updated = 0
         total_unchanged = 0
+        sin_datos = 0
         changes_by_label = {}
 
         for tenant in tenants:
@@ -103,8 +115,24 @@ class Command(BaseCommand):
                         f"({wape_data['n']} comparaciones)"
                     )
                 else:
-                    wape = None
-                    new_reason = f"Sin comparaciones reales en últimos {days} días — calibración default"
+                    # SIN EVIDENCIA REAL → no tocamos la etiqueta.
+                    #
+                    # Este comando existe para CORREGIR la calibración del
+                    # entrenamiento con datos de producción. Sin datos no hay
+                    # nada que corregir, y pisar la etiqueta con un "low"
+                    # por defecto castigaría injustamente:
+                    #   - modelos recién entrenados (aún sin días medidos),
+                    #   - productos de rotación lenta que no vendieron en la
+                    #     ventana,
+                    #   - tenants nuevos, donde TODO quedaría en "low" aunque
+                    #     el backtest sea bueno.
+                    #
+                    # Antes daba igual porque este comando corría ANTES del
+                    # entrenamiento y quedaba pisado. Ahora corre DESPUÉS y
+                    # tiene la última palabra, así que el default silencioso
+                    # sí haría daño.
+                    sin_datos += 1
+                    continue
 
                 # Mario (15/06/26): para demanda intermitente/lumpy el WAPE real
                 # día-a-día es estructuralmente alto aunque la TASA esté bien
@@ -177,7 +205,8 @@ class Command(BaseCommand):
         # Resumen
         verb = "Cambiarían" if dry_run else "Cambiaron"
         self.stdout.write(self.style.SUCCESS(
-            f"{verb} {total_updated} modelos. {total_unchanged} sin cambio."
+            f"{verb} {total_updated} modelos. {total_unchanged} sin cambio. "
+            f"{sin_datos} sin datos reales (conservan la etiqueta del entrenamiento)."
         ))
         if changes_by_label:
             self.stdout.write("Transiciones:")

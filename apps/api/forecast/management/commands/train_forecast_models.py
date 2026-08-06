@@ -13,6 +13,7 @@ Usage:
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db.models import Sum, Q
 
@@ -136,6 +137,31 @@ class Command(BaseCommand):
             f"{stats['kept']} kept, {stats['skipped']} skipped. "
             f"Algorithms: {algo_summary or 'none'}"
         ))
+
+        # Recalibrar la confianza con el WAPE REAL, al final y no antes.
+        #
+        # El entrenamiento acaba de escribir confidence_label a partir del
+        # BACKTEST. `recalibrate_confidence` la corrige con lo que realmente
+        # pasó en producción (ForecastAccuracy). Tiene que correr DESPUÉS o su
+        # trabajo se pierde: hasta el 06/08/26 corría a las 01:30 (desde
+        # track_forecast_accuracy) y el entrenamiento de las 02:30 la pisaba,
+        # así que Mario veía las etiquetas optimistas del backtest.
+        #
+        # Va acá y no en el crontab para que el orden viva en el código: vale
+        # también cuando alguien corre el entrenamiento a mano.
+        try:
+            self.stdout.write("Recalibrando confianza con el WAPE real…")
+            recal_opts = {"days": 14, "verbosity": 0}
+            if options.get("tenant"):
+                recal_opts["tenant"] = options["tenant"]
+            call_command("recalibrate_confidence", **recal_opts)
+        except Exception as e:
+            # No romper el entrenamiento por esto: los pronósticos ya están
+            # guardados y son lo crítico. La etiqueta se recalibra la próxima
+            # noche (track_forecast_accuracy también la invoca).
+            self.stderr.write(self.style.WARNING(
+                f"Recalibración de confianza falló (no crítico): {e}"
+            ))
 
     def _process_tenant(self, tenant, today, min_days, horizon, window,
                         product_id, stats, shrinkage_k=14, seasonal_prior=None):

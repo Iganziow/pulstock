@@ -125,14 +125,23 @@ class TestRecalibrationCommand:
         model.refresh_from_db()
         assert model.confidence_label == "very_low"
 
-    def test_default_low_when_no_accuracy_data(self, setup):
-        """Sin ForecastAccuracy → defaultea a 'low' (conservador).
-        Importante porque productos nuevos no tienen historia para WAPE."""
+    def test_sin_accuracy_conserva_la_etiqueta_del_entrenamiento(self, setup):
+        """Sin ForecastAccuracy → NO se toca la etiqueta.
+
+        Cambio de contrato (06/08/26). Antes defaulteaba a 'low' por ser
+        conservador, y daba igual porque este comando corría ANTES del
+        entrenamiento, que después pisaba la etiqueta igual.
+
+        Ahora la recalibración corre AL FINAL y tiene la última palabra, así
+        que ese default sí haría daño: un modelo recién entrenado con buen
+        backtest todavía no tiene días medidos, y quedaría en 'low' sin
+        ninguna evidencia en contra. Sin datos no hay nada que corregir.
+        """
         tenant, product, warehouse, model = setup
         # NO seed accuracy
         call_command("recalibrate_confidence", tenant=tenant.id, verbosity=0)
         model.refresh_from_db()
-        assert model.confidence_label == "low"
+        assert model.confidence_label == "medium"  # la que puso el entrenamiento
 
     def test_dry_run_does_not_modify(self, setup):
         """--dry-run muestra cambios sin aplicar."""
