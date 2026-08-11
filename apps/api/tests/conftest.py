@@ -9,6 +9,29 @@ from stores.models import Store
 from catalog.models import Product
 
 
+@pytest.fixture(autouse=True)
+def _limpiar_caches_de_forecast():
+    """Vacía los cachés por-proceso del motor entre tests.
+
+    `get_business_closed_weekdays` y `demand_stopped` cachean el historial del
+    negocio para no repetir la misma consulta por cada uno de los cientos de
+    productos que recorre el entrenamiento nocturno. Ese caché vive en el
+    módulo, así que SOBREVIVE al rollback de la base entre tests: el historial
+    de ventas de un test se filtraba al siguiente y le cambiaba el resultado.
+
+    Encontrado el 11/08/26: un test de regresión de theta empezó a fallar en la
+    suite completa y pasaba aislado. La clave del caché incluye la fecha, así
+    que en producción (un proceso por corrida nocturna) no aplica — es un
+    problema de aislamiento entre tests.
+    """
+    from forecast import services as _svc
+    _svc._CLOSED_DOW_CACHE.clear()
+    _svc._STOPPED_CACHE.clear()
+    yield
+    _svc._CLOSED_DOW_CACHE.clear()
+    _svc._STOPPED_CACHE.clear()
+
+
 @pytest.fixture
 def tenant(db):
     # Skip auto-subscription so billing tests can control subscription state themselves

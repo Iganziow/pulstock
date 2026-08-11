@@ -939,6 +939,119 @@ def get_business_closed_weekdays(tenant_id, warehouse_id, today=None,
     return closed
 
 
+# ── Demanda detenida ─────────────────────────────────────────────────────────
+#
+# Medido en Marbrava el 11/08/26: de 4.931 unidades de sobre-predicción en 7
+# días, 1.642 eran HELADO — con CERO ventas. Es agosto, pleno invierno; el
+# helado dejó de venderse hace meses y el modelo seguía anclado al verano.
+# Lo mismo, más caro, vía recetas: Milkshake, Café Helado y Latte avellana con
+# 0 ventas arrastraban ~1.300 ml de leche fantasma al pedido de compra.
+
+STOPPED_LOOKBACK_DAYS = 120
+# Racha seca mínima (en días que el negocio SÍ operó) cuando HAY stock: si el
+# producto estuvo disponible y aun así no se vendió, la señal es limpia.
+STOPPED_MIN_DRY_DAYS = 10
+# Sin stock la sequía es AMBIGUA: puede ser que nadie lo quiera, o que se hayan
+# quedado sin él. Exigimos una racha mucho más larga antes de darlo por muerto.
+#
+# Sin esta distinción hay una espiral que se retroalimenta: sin stock → no hay
+# consumo → "demanda detenida" → no se pide → sigue sin stock, para siempre.
+# Encontrado el 11/08/26 probando contra la copia real: `Jamon granel` tenía
+# stock 0 y 10 días secos, pero había consumido 90 unidades dos semanas antes.
+# No dejó de venderse: se quedaron sin jamón. En cambio `helado ingrediente`
+# llevaba 55 días operativos sin moverse — eso sí es una temporada terminada.
+STOPPED_MIN_DRY_DAYS_NO_STOCK = 30
+# La racha tiene que superar este múltiplo del ritmo propio del producto.
+STOPPED_ADI_MULTIPLIER = 3.0
+
+_STOPPED_CACHE: dict = {}
+
+
+def _demand_history(tenant_id, today, lookback=STOPPED_LOOKBACK_DAYS):
+    """(días operativos del negocio, {(producto, bodega): días con venta}).
+
+    Una sola consulta por tenant y día, cacheada: el entrenamiento nocturno
+    recorre cientos de productos del mismo local y el historial es el mismo.
+    """
+    key = (tenant_id, today, lookback)
+    if key in _STOPPED_CACHE:
+        return _STOPPED_CACHE[key]
+
+    start = today - timedelta(days=lookback)
+    rows = list(
+        DailySales.objects.filter(
+            tenant_id=tenant_id, date__gte=start, date__lt=today, qty_sold__gt=0,
+        ).values_list("product_id", "warehouse_id", "date")
+    )
+    operativos = sorted({d for _, _, d in rows})
+    por_producto: dict = {}
+    for pid, wid, d in rows:
+        por_producto.setdefault((pid, wid), set()).add(d)
+
+    val = (operativos, por_producto)
+    _STOPPED_CACHE[key] = val
+    return val
+
+
+def demand_stopped(tenant_id, product_id, warehouse_id, today=None, on_hand=None):
+    """¿Este producto dejó de venderse?
+
+    Compara la racha seca actual contra el RITMO PROPIO del producto, no contra
+    un umbral fijo. Un helado que vendía a diario y lleva 60 días seco PARÓ; uno
+    que siempre vendió cada 10 días, no — y ese matiz es la diferencia entre
+    ahorrar compra fantasma y dejar a Mario sin stock.
+
+    `on_hand` (stock actual) decide cuán exigentes somos: con stock disponible
+    la sequía es evidencia limpia de que nadie lo quiere; sin stock puede ser
+    simplemente un quiebre, y ahí pedimos una racha mucho más larga para no
+    entrar en la espiral de "no lo pido porque no se vende porque no lo tengo".
+
+    Medido sobre 14 días reales de Marbrava, contra un corte fijo a 7 días secos:
+
+        regla              deja de predecir   corta y el producto SÍ vendió
+        corte fijo 7d          2.515 uds        31 casos / 87 uds  ← riesgoso
+        esta (3x el ritmo)     1.980 uds         2 casos /  2 uds
+
+    El corte fijo baja más el WAPE, pero parte de esa "mejora" es tramposa:
+    anula productos vivos de rotación lenta (Preparado chai, Syrup menta). La
+    métrica se ve mejor y el negocio peor. En un café, que sobre leche un día
+    cuesta plata quieta; que falte el chai cuesta la venta.
+
+    Los días se cuentan sobre días OPERATIVOS (el negocio abierto), así que los
+    domingos cerrados no inflan la racha.
+    """
+    today = today or date.today()
+    operativos, por_producto = _demand_history(tenant_id, today)
+    if not operativos:
+        return False  # sin historial no juzgamos nada
+
+    dias_venta = por_producto.get((product_id, warehouse_id), set())
+
+    # Racha seca: días operativos consecutivos, hacia atrás, sin una sola venta.
+    racha = 0
+    for d in reversed(operativos):
+        if d in dias_venta:
+            break
+        racha += 1
+
+    hay_stock = on_hand is not None and Decimal(str(on_hand)) > 0
+    minimo = STOPPED_MIN_DRY_DAYS if hay_stock else STOPPED_MIN_DRY_DAYS_NO_STOCK
+    if racha < minimo:
+        return False
+
+    # Ritmo propio (ADI): promedio de días operativos entre ventas.
+    posiciones = sorted(i for i, d in enumerate(operativos) if d in dias_venta)
+    if len(posiciones) < 2:
+        # Nunca vendió (o una sola vez) en 120 días y lleva >= 10 días secos.
+        # Sin ritmo con qué comparar, pero la evidencia de que está muerto es
+        # más fuerte, no más débil. Este era el agujero de la primera versión:
+        # dejaba pasar justo a los más muertos, el helado entre ellos.
+        return True
+
+    adi = (posiciones[-1] - posiciones[0]) / (len(posiciones) - 1)
+    return racha >= STOPPED_ADI_MULTIPLIER * adi
+
+
 def business_operated_on(tenant_id, target_date, warehouse_id=None):
     """¿El negocio operó ese día?
 
@@ -1055,6 +1168,21 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
 
     si = stock_items.get((warehouse_id, product.id))
     current_stock = si.on_hand if si else Decimal("0")
+
+    # Demanda detenida: el helado en invierno. Si el producto lleva una racha
+    # seca muy por encima de su propio ritmo, dejamos de pedirlo en vez de
+    # seguir proyectando la temporada pasada.
+    #
+    # Va DESPUÉS de la máscara de días cerrados (que redistribuye masa) para que
+    # no quede nada que redistribuir, y ANTES de calculate_days_to_stockout: un
+    # producto que no se vende no se va a quebrar y no debe generar alertas.
+    # Necesita `current_stock`: sin stock la sequía puede ser un quiebre y no el
+    # fin de la demanda (ver demand_stopped).
+    if demand_stopped(tenant.id, product.id, warehouse_id, on_hand=current_stock):
+        for fc in daily_forecasts:
+            fc["qty_predicted"] = D0
+            fc["lower_bound"] = D0
+            fc["upper_bound"] = D0
     # Low-confidence models use upper_bound for stockout → alerts fire earlier
     conservative = fm.confidence_label in ("very_low", "low")
     days_out = calculate_days_to_stockout(
