@@ -1921,22 +1921,40 @@ def _regen_from_existing(tenant, product, warehouse_id, fm,
 # PURCHASE SUGGESTION GENERATION
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Cada cuánto compra el negocio. Con compra semanal, R = 7.
+#
+# TODO: debería ser configuración del tenant (Mario compra semanal; otro local
+# podría comprar lunes y jueves, y ahí R alterna 3 y 4). Como constante mientras
+# no exista el campo, que es mejor que inferirlo por margen.
+DEFAULT_PURCHASE_CYCLE_DAYS = 7
+
+
 def _compute_target_days(margin_per_unit, avg_daily, median_margin, median_daily):
-    """Compute reorder coverage days based on margin and rotation.
+    """Días de cobertura del pedido: el CICLO DE COMPRA, no el margen.
 
-    High-margin slow-movers deserve more stock (21d).
-    Low-margin fast-movers should minimize tied-up capital (10d).
+    Política (R,S) — la fórmula estándar para comprar en días fijos:
+
+        cobertura = R + L    (R = cada cuánto compras, L = lead time)
+
+    O sea: el pedido tiene que alcanzar hasta que llegue EL SIGUIENTE pedido,
+    no hasta que llegue este. Acá devolvemos R; quien llama suma L y el stock
+    de seguridad encima (ver `coverage_days` y `lead_time_demand`).
+
+    QUÉ HACÍA ANTES Y POR QUÉ ESTABA MAL
+    Infería la cobertura del margen y la rotación: 21 días para un producto de
+    alto margen y baja rotación, 14 para alto margen y alta rotación, 10, 7.
+    Con lead time encima eso daba hasta 24 días de cobertura a alguien que
+    compra todas las semanas — más de 3 ciclos de compra en una sola orden.
+
+    Caso real (11/08/26, Marbrava): la sugerencia pedía 24 tortas de murta
+    ($64.800) para cubrir 14 días, a 1,6 unidades por día. Una torta fresca no
+    dura 14 días, y de todos modos el jueves siguiente hay otra compra.
+
+    El margen y la rotación SÍ importan, pero para decidir cuánto colchón de
+    seguridad llevar (nivel de servicio por producto), no para estirar el ciclo.
+    Ese colchón ya se calcula aparte con z × σ × √(cobertura).
     """
-    high_margin = margin_per_unit > median_margin if median_margin > 0 else False
-    high_rotation = avg_daily > median_daily if median_daily > 0 else False
-
-    if high_margin and not high_rotation:
-        return 21   # worth keeping extra stock
-    if high_margin and high_rotation:
-        return 14   # standard coverage
-    if not high_margin and high_rotation:
-        return 10   # minimize capital
-    return 7        # low margin, low rotation — minimal stock
+    return DEFAULT_PURCHASE_CYCLE_DAYS
 
 
 def _natural_reasoning(
@@ -1989,29 +2007,13 @@ def _natural_reasoning(
         )
 
     # ── Frase 2: por qué la cobertura elegida ────────────────────────
-    if target_days == 21:
-        explicacion = (
-            f"¿Por qué {target_days} días? Sale lento pero te deja buen margen, "
-            "así que vale la pena tener stock suficiente para no perder ventas."
-        )
-    elif target_days == 14:
-        explicacion = (
-            f"¿Por qué {target_days} días? Es un producto que te deja buen margen "
-            "y se vende con frecuencia: tener stock para dos semanas sin "
-            "inmovilizar dinero de más es lo ideal."
-        )
-    elif target_days == 10:
-        explicacion = (
-            f"¿Por qué solo {target_days} días? Te deja poco margen, así que "
-            "pedir mucho de una vez inmoviliza dinero sin generar mucha ganancia. "
-            "Es mejor reponer con más frecuencia."
-        )
-    else:  # 7 días — bajo margen, baja rotación
-        explicacion = (
-            f"¿Por qué solo {target_days} días? Te deja poco margen y se vende "
-            "lento, así que conviene mantener apenas lo justo para no inmovilizar "
-            "dinero ni acumular producto que no rota."
-        )
+    # La cobertura es el CICLO DE COMPRA (más el tiempo que tarda en llegar el
+    # pedido), no una función del margen: alcanza hasta la próxima compra.
+    explicacion = (
+        f"¿Por qué {target_days} días? Es lo que necesitas hasta tu próxima "
+        "compra, más los días que tarda en llegar. Pedir para más tiempo "
+        "inmoviliza dinero y arriesga que se te venza el producto."
+    )
 
     # ── Frase 3 (opcional): colchón de seguridad ─────────────────────
     buffer_note = ""
