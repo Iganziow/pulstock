@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from core.heartbeat import with_heartbeat
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 
@@ -29,6 +30,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=1, help="Number of days to backfill (default: 1 = yesterday)")
         parser.add_argument("--tenant", type=int, help="Specific tenant ID (default: all)")
 
+    @with_heartbeat("aggregate_daily_sales")
     def handle(self, *args, **options):
         target_date = None
         if options["date"]:

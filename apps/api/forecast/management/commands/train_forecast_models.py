@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
+from core.heartbeat import with_heartbeat
 from django.db.models import Sum, Q
 
 from core.models import Tenant
@@ -60,6 +61,7 @@ class Command(BaseCommand):
         "other":       {"window": 21, "min_days": 14, "horizon": 30, "shrinkage_k": 14},
     }
 
+    @with_heartbeat("train_forecast_models")
     def handle(self, *args, **options):
         import traceback
         from django.utils import timezone as tz

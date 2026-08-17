@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from core.heartbeat import with_heartbeat
 
 from core.models import Tenant
 from forecast.models import DailySales, Forecast, ForecastAccuracy, Holiday
@@ -44,6 +45,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=1, help="Days to backfill")
         parser.add_argument("--tenant", type=int, help="Specific tenant ID")
 
+    @with_heartbeat("track_forecast_accuracy")
     def handle(self, *args, **options):
         if options["date"]:
             days_to_process = [date.fromisoformat(options["date"])]

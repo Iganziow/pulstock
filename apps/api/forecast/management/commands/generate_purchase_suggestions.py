@@ -13,6 +13,7 @@ Usage:
 from datetime import date
 
 from django.core.management.base import BaseCommand
+from core.heartbeat import with_heartbeat
 
 from core.models import Tenant
 from forecast.services import generate_suggestions
@@ -26,6 +27,7 @@ class Command(BaseCommand):
         parser.add_argument("--threshold", type=int, default=14, help="Alert if stockout within N days (default: 14)")
         parser.add_argument("--target-days", type=int, default=14, help="Order enough to cover N days (default: 14)")
 
+    @with_heartbeat("generate_purchase_suggestions")
     def handle(self, *args, **options):
         threshold = max(1, options["threshold"])
         target_days = max(1, options["target_days"])

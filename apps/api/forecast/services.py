@@ -2246,14 +2246,37 @@ def generate_suggestions(tenant, today, threshold, target_days):
         # Sum demand for this product's target window only
         # For low-confidence models use upper_bound (pessimistic) to avoid stockouts
         cutoff = today + timedelta(days=product_target)
+        point_total = sum(
+            (Decimal(str(f[1])) for f in forecasts if f[0] <= cutoff),
+            Decimal("0"),
+        )
         if is_low_confidence:
-            total_demand = sum(
-                f[2] for f in forecasts if f[0] <= cutoff  # f[2] = upper_bound
+            upper_total = sum(
+                (Decimal(str(f[2])) for f in forecasts if f[0] <= cutoff),
+                Decimal("0"),
             )
+            # TOPE AL PESIMISMO (17/08/26). El "por si acaso" de un modelo low
+            # no puede ser cualquier número: en Marbrava, Chocolate Premium
+            # consumía 48/día, el modelo predecía 29/día... y la banda superior
+            # decía 177/día. Como el modelo estaba en "low", la sugerencia
+            # usaba la banda → pedir 1.400 unidades teniendo 1.300 en stock.
+            #
+            # Regla: el escenario pesimista se acota a 1,5× el consumo REAL
+            # reciente (margen para crecer 50% en un ciclo), pero NUNCA por
+            # debajo del pronóstico puntual del modelo — solo recortamos el
+            # exceso de la banda, no al modelo. Sin consumo reciente no hay
+            # base para acotar (producto nuevo) y se respeta la banda.
+            real_daily = max(
+                float(real_sales_30d.get(pid, 0.0)),
+                float(real_consumption_30d.get(pid, 0.0)),
+            ) / 30.0
+            if real_daily > 0:
+                banda_cap = Decimal(str(real_daily * 1.5)) * Decimal(product_target)
+                total_demand = max(point_total, min(upper_total, banda_cap))
+            else:
+                total_demand = upper_total
         else:
-            total_demand = sum(
-                f[1] for f in forecasts if f[0] <= cutoff  # f[1] = qty_predicted
-            )
+            total_demand = point_total
         if not isinstance(total_demand, Decimal):
             total_demand = Decimal(str(total_demand))
 
@@ -2447,10 +2470,15 @@ def _find_best_supplier(tenant, product_ids):
     """Find the most frequent supplier for a set of products."""
     from purchases.models import PurchaseLine
 
+    # B2 (auditoría jul-2026): esto filtraba por estados CONFIRMED/RECEIVED
+    # que JAMÁS existieron en PurchaseOrder (los reales son DRAFT/POSTED/VOID).
+    # El lookup devolvía siempre vacío → proveedor "" → el motor de sugerencias
+    # corría con lead times por defecto para todos los productos, ignorando los
+    # tiempos reales de cada proveedor. POSTED = compra efectivamente recibida.
     result = (
         PurchaseLine.objects.filter(
             tenant=tenant, product_id__in=product_ids,
-            purchase__status__in=["CONFIRMED", "RECEIVED"],
+            purchase__status="POSTED",
         )
         .values("purchase__supplier_name")
         .annotate(count=Sum("qty"))
