@@ -223,11 +223,15 @@ export default function ReportsHome() {
     ]).then(([salesR, stockR, abcR, forecastR]) => {
       const stats: QuickStats = {};
 
+      // Los nombres de estos campos venian mal: el frontend leia `summary` y
+      // `total_revenue` a nivel raiz, pero la API devuelve `kpis` y `totals`.
+      // Resultado: los 4 pills del indice de reportes nunca mostraron nada
+      // (verificado contra la API el 17/08/26).
       if (salesR.status === "fulfilled" && salesR.value) {
-        stats.sales_today = salesR.value.summary?.total_revenue ?? salesR.value.total_revenue;
+        stats.sales_today = salesR.value.kpis?.total_revenue;
       }
       if (stockR.status === "fulfilled" && stockR.value) {
-        stats.stock_value = stockR.value.summary?.total_value ?? stockR.value.total_value;
+        stats.stock_value = stockR.value.totals?.total_value;
       }
       if (abcR.status === "fulfilled" && abcR.value) {
         const summary = abcR.value.class_summary;
@@ -236,7 +240,7 @@ export default function ReportsHome() {
         }
       }
       if (forecastR.status === "fulfilled" && forecastR.value) {
-        stats.forecast_alerts = forecastR.value.stockout_alerts ?? forecastR.value.alerts_count;
+        stats.forecast_alerts = forecastR.value.kpis?.at_risk_7d;
       }
 
       setQuickStats(stats);

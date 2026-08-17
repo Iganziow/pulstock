@@ -6,6 +6,7 @@ import { C } from "@/lib/theme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Spinner } from "@/components/ui";
 import { humanizeError } from "@/lib/errors";
+import ExportButtons, { buildExportConfig } from "@/components/ExportButtons";
 
 
 
@@ -58,6 +59,12 @@ export default function LossesPage() {
         <h1 style={{ margin: 0, fontSize: mob ? 19 : 23, fontWeight: 800, letterSpacing: "-.04em" }}>⚠️ Mermas y pérdidas</h1>
         <p style={{ margin: "4px 0 0", fontSize: 13, color: C.mute }}>Productos perdidos por vencimiento, daño, robo u otros motivos</p>
       </div>
+
+      {details.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <ExportButtons {...buildExportConfig("losses", details)} compact={!mob} />
+        </div>
+      )}
 
       {err && <div style={{margin:"0 0 16px",padding:"10px 16px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBd}`,color:C.red,fontSize:13,fontWeight:500}}>{err}</div>}
 
