@@ -88,10 +88,23 @@ def process_renewals(self):
                 invoice = create_invoice(sub)
                 result = charge_subscription(sub, invoice)
 
-                if result["success"]:
+                # B20: `success` solo dice que la operación con Flow salió
+                # bien. Si no había tarjeta (o el cargo fue rechazado), Flow
+                # devuelve un LINK DE PAGO — operación exitosa, cobro
+                # PENDIENTE. Activar el período ahí regalaba 30 días sin haber
+                # cobrado un peso. Solo `paid` autoriza a activar.
+                if result.get("paid"):
                     from .services import activate_period
                     activate_period(sub, invoice)
-                    logger.info("Renovación exitosa: tenant=%s", sub.tenant_id)
+                    logger.info("Renovación cobrada: tenant=%s", sub.tenant_id)
+                elif result.get("success") and result.get("payment_url"):
+                    # Cobro pendiente: la factura queda esperando el webhook y
+                    # se le manda el link al cliente. NO se activa el período.
+                    _notify_payment_link(sub, invoice, result["payment_url"])
+                    logger.info(
+                        "Renovación con link pendiente: tenant=%s invoice=%s",
+                        sub.tenant_id, invoice.pk,
+                    )
                 else:
                     register_payment_failure(
                         sub, invoice,
@@ -291,10 +304,18 @@ def retry_failed_payments(self):
                 invoice = create_invoice(sub)
                 result  = charge_subscription(sub, invoice)
 
-                if result["success"]:
+                # B20: `success` solo dice que la operación con Flow salió
+                # bien. Si no había tarjeta (o el cargo fue rechazado), Flow
+                # devuelve un LINK DE PAGO — operación exitosa, cobro
+                # PENDIENTE. Activar el período ahí regalaba 30 días sin haber
+                # cobrado un peso. Solo `paid` autoriza a activar.
+                if result.get("paid"):
                     activate_period(sub, invoice)
                     _send_payment_recovered_notice(sub)
-                    logger.info("Reintento exitoso: tenant=%s", sub.tenant_id)
+                    logger.info("Reintento cobrado: tenant=%s", sub.tenant_id)
+                elif result.get("success") and result.get("payment_url"):
+                    _notify_payment_link(sub, invoice, result["payment_url"])
+                    logger.info("Reintento con link pendiente: tenant=%s", sub.tenant_id)
                 else:
                     register_payment_failure(
                         sub, invoice,
@@ -395,10 +416,18 @@ def expire_trials(self):
                 invoice = create_invoice(sub)
                 result  = charge_subscription(sub, invoice)
 
-                if result["success"]:
+                # B20: `success` solo dice que la operación con Flow salió
+                # bien. Si no había tarjeta (o el cargo fue rechazado), Flow
+                # devuelve un LINK DE PAGO — operación exitosa, cobro
+                # PENDIENTE. Activar el período ahí regalaba 30 días sin haber
+                # cobrado un peso. Solo `paid` autoriza a activar.
+                if result.get("paid"):
                     activate_period(sub, invoice)
                     _send_trial_converted_notice(sub)
                     logger.info("Trial convertido a activo: tenant=%s", sub.tenant_id)
+                elif result.get("success") and result.get("payment_url"):
+                    _notify_payment_link(sub, invoice, result["payment_url"])
+                    logger.info("Trial con link pendiente: tenant=%s", sub.tenant_id)
                 else:
                     # Tarjeta registrada pero el cobro falló → entra al ciclo
                     # de retries (PAST_DUE) en lugar de cancelar de inmediato.
@@ -503,6 +532,38 @@ def _send_payment_failed_notice(sub):
         payment_method=_sub_payment_method(sub),
     )
     _send_email_safe(email, subject, plain, html)
+
+
+def _notify_payment_link(sub, invoice, payment_url: str):
+    """Le manda al cliente el link para pagar.
+
+    B20: antes el link se generaba, se guardaba en Invoice.payment_url... y
+    nadie se enteraba. El sistema activaba el período igual, así que tampoco
+    hacía falta. Ahora que un link NO activa el período, mandarlo es
+    obligatorio: si no, el cliente se queda sin servicio sin saber por qué.
+
+    No usa un template nuevo para no bloquear el fix; el asunto y el cuerpo
+    son explícitos y llevan el link. Si más adelante se quiere un HTML de
+    marca, va en billing/email_renderers.py como los demás.
+    """
+    email = _get_owner_email(sub)
+    plan = getattr(sub.plan, "name", "tu plan")
+    monto = f"${int(invoice.amount_clp):,}".replace(",", ".")
+    subject = "Pulstock — tu pago está pendiente"
+    lineas = [
+        "Hola,",
+        "",
+        f"No pudimos cobrar automaticamente la renovacion de {plan} ({monto}).",
+        "",
+        "Puedes pagar desde este link:",
+        payment_url,
+        "",
+        "Apenas se confirme el pago, tu cuenta queda activa por 30 dias mas.",
+        "",
+        "- Pulstock",
+    ]
+    plain = "\n".join(lineas)
+    _send_email_safe(email, subject, plain)
 
 
 def _send_suspension_notice(sub):

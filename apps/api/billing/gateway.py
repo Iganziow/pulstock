@@ -222,6 +222,7 @@ def _charge_mock(subscription: Subscription, invoice: Invoice) -> dict:
 
     return {
         "success": True,
+        "paid": True,   # mock de cobro efectivo (entorno dev)
         "gateway_order_id": order_id,
         "gateway_tx_id": tx_id,
         "payment_url": None,
@@ -237,7 +238,10 @@ def _create_mock_payment_link(subscription: Subscription, invoice: Invoice) -> d
     invoice.payment_url = url
     invoice.gateway_order_id = order_id
     invoice.save(update_fields=["payment_url", "gateway_order_id"])
-    return {"success": True, "payment_url": url, "order_id": order_id}
+    # Un link es un cobro PENDIENTE, no un pago (ver B20 en gateway/tasks).
+    return {"success": True, "paid": False, "payment_url": url,
+            "order_id": order_id, "gateway_order_id": order_id,
+            "gateway_tx_id": "", "error": ""}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -278,7 +282,12 @@ def _create_flow_payment_link(subscription: Subscription, invoice: Invoice) -> d
                 invoice.pk, payment_url[:80]
             )
             return {
+                # B20: `success` significa "la operacion con Flow salio bien",
+                # NO "cobramos". Crear un link de pago es un exito tecnico y un
+                # cobro pendiente. `paid` es la unica llave que autoriza a
+                # activar el periodo — ver charge_subscription y tasks.py.
                 "success": True,
+                "paid": False,
                 "payment_url": payment_url,
                 "gateway_order_id": str(invoice.pk),
                 "gateway_tx_id": "",
@@ -370,7 +379,10 @@ def _flow_charge_customer(subscription: Subscription, invoice: Invoice) -> dict:
             invoice.save(update_fields=["gateway_order_id", "gateway_tx_id"])
             logger.info("Flow auto-charge OK: invoice=%d flowOrder=%s", invoice.pk, flow_order)
             return {
+                # Unico camino con plata efectivamente cobrada: Flow confirmo
+                # el cargo en la tarjeta registrada (status=2).
                 "success": True,
+                "paid": True,
                 "gateway_order_id": str(invoice.pk),
                 "gateway_tx_id": str(flow_order),
                 "payment_url": None,
