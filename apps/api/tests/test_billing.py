@@ -421,7 +421,17 @@ class TestServices:
         assert sub.current_period_end is None
 
     def test_cancel_subscription(self, active_subscription):
+        """B21: con período pagado vigente la baja se AGENDA; cortar el acceso
+        el mismo día le quita al cliente un mes que ya pagó."""
         sub = cancel_subscription(active_subscription, reason="Muy caro")
+        assert sub.status == Subscription.Status.ACTIVE
+        assert sub.cancel_at_period_end is True
+        assert sub.cancelled_at is not None
+        assert sub.is_access_allowed is True
+
+    def test_cancel_subscription_immediate(self, active_subscription):
+        """Soporte sí puede cortar en el momento."""
+        sub = cancel_subscription(active_subscription, reason="fraude", immediate=True)
         assert sub.status == Subscription.Status.CANCELLED
         assert sub.cancelled_at is not None
 
@@ -852,9 +862,14 @@ class TestAPIEndpoints:
         )
         assert resp.status_code == 200
         assert resp.data["ok"] is True
-        assert "access_until" in resp.data
+        assert resp.data["cancel_at_period_end"] is True
+        assert resp.data["access_until"] is not None
         active_subscription.refresh_from_db()
-        assert active_subscription.status == Subscription.Status.CANCELLED
+        # B21: este test pedia "access_until" Y estado CANCELLED a la vez —
+        # justo la contradiccion del bug. La baja se agenda; el estado sigue
+        # ACTIVE hasta que venza el periodo pagado.
+        assert active_subscription.status == Subscription.Status.ACTIVE
+        assert active_subscription.cancel_at_period_end is True
 
     def test_cancel_already_cancelled(self, auth_client, subscription):
         subscription.status = Subscription.Status.CANCELLED

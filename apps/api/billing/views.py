@@ -212,10 +212,49 @@ class CancelSubscriptionView(APIView):
         reason = request.data.get("reason", "")
         sub = cancel_subscription(sub, reason=reason)
 
+        # B21: el mensaje decía "tu acceso continúa hasta el fin del período"
+        # y el código cortaba de inmediato. Ahora la baja se agenda de verdad,
+        # así que el mensaje refleja lo que pasa — y cuando NO queda período
+        # por delante (trial, período vencido) lo dice en vez de prometer algo
+        # que no va a ocurrir.
+        agendada = sub.cancel_at_period_end and sub.current_period_end
+        if agendada:
+            msg = ("Suscripción cancelada. Tu acceso continúa hasta el fin del "
+                   "período actual y no se hará un nuevo cobro.")
+        else:
+            msg = "Suscripción cancelada. El acceso finaliza ahora."
+
         return Response({
             "ok": True,
-            "message": "Suscripción cancelada. Tu acceso continúa hasta el fin del período actual.",
-            "access_until": sub.current_period_end.isoformat() if sub.current_period_end else None,
+            "message": msg,
+            "cancel_at_period_end": bool(agendada),
+            "access_until": sub.current_period_end.isoformat() if agendada else None,
+        })
+
+
+# ─────────────────────────────────────────────────────────────
+# REVERTIR UNA BAJA AGENDADA (B21)
+# ─────────────────────────────────────────────────────────────
+class ResumeSubscriptionView(APIView):
+    """El dueño se arrepintió antes de que venza el período."""
+    permission_classes = [IsAuthenticated, HasTenant, IsOwner]
+
+    def post(self, request):
+        try:
+            sub = Subscription.objects.get(tenant_id=request.user.tenant_id)
+        except Subscription.DoesNotExist:
+            return Response({"detail": "Sin suscripción."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not sub.cancel_at_period_end:
+            return Response({"detail": "No hay una baja agendada."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        from .services import resume_subscription
+        sub = resume_subscription(sub)
+        return Response({
+            "ok": True,
+            "message": "Listo, tu suscripción sigue activa. Se renovará normalmente.",
+            "cancel_at_period_end": False,
         })
 
 

@@ -213,12 +213,55 @@ def register_payment_failure(
 # CANCELAR SUSCRIPCIÓN
 # ─────────────────────────────────────────────────────────────
 @transaction.atomic
-def cancel_subscription(subscription: Subscription, reason: str = "") -> Subscription:
-    subscription.status       = Subscription.Status.CANCELLED
-    subscription.cancelled_at = timezone.now()
-    subscription.save(update_fields=["status", "cancelled_at"])
+def cancel_subscription(subscription: Subscription, reason: str = "",
+                        immediate: bool = False) -> Subscription:
+    """Agenda la baja para el fin del período (B21).
+
+    ANTES ponía status=CANCELLED al instante e invalidaba el caché, así que el
+    402 llegaba de inmediato — mientras la API le respondía al cliente "tu
+    acceso continúa hasta el fin del período actual". El cliente pagaba el mes
+    y perdía el servicio el mismo día.
+
+    Ahora la suscripción queda ACTIVE con `cancel_at_period_end=True`: sigue
+    funcionando lo que ya pagó, no se renueva, y `expire_cancelled` la pasa a
+    CANCELLED cuando corresponde. Es el patrón de Stripe/Paddle, y permite
+    arrepentirse (ver `resume_subscription`).
+
+    `immediate=True` queda para soporte/superadmin, que sí necesita cortar ya.
+    """
+    now = timezone.now()
+    if immediate or not subscription.current_period_end or subscription.current_period_end <= now:
+        # Sin período vigente que respetar (trial sin pagar, ya vencido, o
+        # corte administrativo): la baja es efectiva ahora.
+        subscription.status       = Subscription.Status.CANCELLED
+        subscription.cancelled_at = now
+        subscription.cancel_at_period_end = False
+        subscription.save(update_fields=["status", "cancelled_at", "cancel_at_period_end"])
+        invalidate_sub_cache(subscription.tenant_id)
+        logger.info("Suscripción cancelada YA: tenant=%s reason=%s",
+                    subscription.tenant_id, reason)
+        return subscription
+
+    subscription.cancel_at_period_end = True
+    subscription.cancelled_at = now
+    subscription.save(update_fields=["cancel_at_period_end", "cancelled_at"])
     invalidate_sub_cache(subscription.tenant_id)
-    logger.info("Suscripción cancelada: tenant=%s reason=%s", subscription.tenant_id, reason)
+    logger.info("Baja agendada al fin del período: tenant=%s fin=%s reason=%s",
+                subscription.tenant_id, subscription.current_period_end, reason)
+    return subscription
+
+
+def resume_subscription(subscription: Subscription) -> Subscription:
+    """Deshace una baja agendada — el cliente se arrepintió.
+
+    Solo tiene sentido mientras el período siga vigente; después de eso la
+    suscripción ya está CANCELLED y hay que reactivarla (reactivate_subscription).
+    """
+    subscription.cancel_at_period_end = False
+    subscription.cancelled_at = None
+    subscription.save(update_fields=["cancel_at_period_end", "cancelled_at"])
+    invalidate_sub_cache(subscription.tenant_id)
+    logger.info("Baja revertida: tenant=%s", subscription.tenant_id)
     return subscription
 
 

@@ -85,6 +85,17 @@ def process_renewals(self):
                 if sub.current_period_end > now:
                     continue
 
+                # B21: el cliente pidió la baja. Ya disfrutó el período que
+                # pagó; acá se hace efectiva en vez de cobrarle otro mes.
+                if sub.cancel_at_period_end:
+                    from .services import cancel_subscription
+                    cancel_subscription(sub, reason="baja agendada por el cliente",
+                                        immediate=True)
+                    logger.info("Baja efectiva al vencer el período: tenant=%s",
+                                sub.tenant_id)
+                    processed += 1
+                    continue
+
                 invoice = create_invoice(sub)
                 result = charge_subscription(sub, invoice)
 
@@ -729,3 +740,19 @@ def _latest_invoice_failure_message(sub) -> str | None:
     return None
 
 
+
+
+# ─────────────────────────────────────────────────────────────
+# TASK 6: Reconciliar pagos con webhook perdido (B25)
+# ─────────────────────────────────────────────────────────────
+@shared_task(name="billing.tasks.reconcile_checkouts", bind=True,
+             max_retries=2, default_retry_delay=300)
+def reconcile_checkouts(self):
+    """Pregunta a Flow por las sesiones de checkout que siguen pendientes.
+
+    Si el webhook se perdió, el cliente pagó y quedó sin cuenta. Esta tarea
+    consulta el estado real en Flow (fuente de verdad) y completa la cuenta.
+    Ver billing/reconcile.py para el detalle.
+    """
+    from .reconcile import reconcile_pending_checkouts
+    return reconcile_pending_checkouts()

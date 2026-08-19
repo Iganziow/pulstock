@@ -74,6 +74,16 @@ class Subscription(models.Model):
     current_period_start = models.DateTimeField(null=True, blank=True)
     current_period_end   = models.DateTimeField(null=True, blank=True)
     cancelled_at     = models.DateTimeField(null=True, blank=True)
+
+    # B21: la cancelacion decia "tu acceso continua hasta el fin del periodo"
+    # pero ponia status=CANCELLED al instante e invalidaba el cache -> 402
+    # inmediato. El cliente pagaba el mes y perdia el servicio el mismo dia:
+    # reclamo o contracargo casi garantizado.
+    #
+    # Patron estandar (Stripe, Paddle): la baja se AGENDA. La suscripcion sigue
+    # ACTIVE hasta current_period_end, no se renueva, y ahi recien pasa a
+    # CANCELLED. Mientras tanto el dueno puede arrepentirse sin perder nada.
+    cancel_at_period_end = models.BooleanField(default=False)
     suspended_at     = models.DateTimeField(null=True, blank=True)
 
     # Flow customer (para cobro automático con tarjeta)

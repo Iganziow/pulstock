@@ -602,15 +602,26 @@ class TestMiddlewareAccess:
 @pytest.mark.django_db
 class TestCancellationFlow:
 
-    def test_cancel_sets_status(self, active_sub):
+    def test_cancel_agenda_la_baja(self, active_sub):
+        """B21: con periodo pagado vigente la baja queda AGENDADA."""
         cancel_subscription(active_sub, reason="Too expensive")
         active_sub.refresh_from_db()
-        assert active_sub.status == Subscription.Status.CANCELLED
+        assert active_sub.status == Subscription.Status.ACTIVE
+        assert active_sub.cancel_at_period_end is True
         assert active_sub.cancelled_at is not None
 
-    def test_cancelled_sub_blocked_by_middleware(self, jwt_client, active_sub):
-        """After cancellation, middleware blocks access."""
+    def test_baja_agendada_NO_bloquea_el_acceso(self, jwt_client, active_sub):
+        """El corazon de B21: este test pedia 402 el mismo dia de la baja.
+        El cliente pago el mes; cortarle el acceso es cobrarle y no darle nada."""
         cancel_subscription(active_sub, reason="test")
+        from billing.services import invalidate_sub_cache
+        invalidate_sub_cache(active_sub.tenant_id)
+        resp = jwt_client.get("/api/catalog/products/")
+        assert resp.status_code == 200
+
+    def test_cancelacion_efectiva_si_bloquea(self, jwt_client, active_sub):
+        """Cuando la baja se hace efectiva (o soporte corta), el 402 vuelve."""
+        cancel_subscription(active_sub, reason="test", immediate=True)
         from billing.services import invalidate_sub_cache
         invalidate_sub_cache(active_sub.tenant_id)
         resp = jwt_client.get("/api/catalog/products/")
@@ -618,7 +629,7 @@ class TestCancellationFlow:
 
     def test_reactivation_restores_access(self, jwt_client, active_sub):
         """Reactivation after cancellation restores access."""
-        cancel_subscription(active_sub, reason="test")
+        cancel_subscription(active_sub, reason="test", immediate=True)
         reactivate_subscription(active_sub)
         from billing.services import invalidate_sub_cache
         invalidate_sub_cache(active_sub.tenant_id)
