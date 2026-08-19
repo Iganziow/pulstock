@@ -83,6 +83,12 @@ class Sale(models.Model):
     # Clave de idempotencia opcional — si se provee, previene duplicados por reintento del cliente
     idempotency_key = models.CharField(max_length=64, blank=True, default="")
 
+    # B3: el motivo de anulacion se exigia en el frontend, viajaba en el body
+    # y el backend NUNCA lo leia — se perdia. Sin esto, una venta anulada no
+    # dice por que, que es justo lo que se necesita para auditar diferencias
+    # de caja o detectar patrones (un cajero que anula seguido).
+    void_reason = models.CharField(max_length=255, blank=True, default="")
+
     # Número de venta por tenant (empieza en 1 para cada negocio)
     sale_number = models.PositiveIntegerField(null=True, blank=True)
 

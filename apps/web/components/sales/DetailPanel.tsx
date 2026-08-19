@@ -216,6 +216,11 @@ export function DetailPanel({ saleId, onClose, onVoided, warehouses, mob }: {
                 {isVoid && (
                   <div style={{ padding:"10px 12px", borderRadius:C.r, border:`1px solid ${C.redBd}`, background:C.redBg, fontSize:13, color:C.red, fontWeight:600 }}>
                     Venta anulada — el total no contabiliza y el stock fue revertido.
+                    {sale.void_reason && (
+                      <div style={{ marginTop: 6, fontWeight: 500, color: C.red }}>
+                        Motivo: {sale.void_reason}
+                      </div>
+                    )}
                   </div>
                 )}
 

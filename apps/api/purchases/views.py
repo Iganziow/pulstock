@@ -263,11 +263,16 @@ class PurchaseList(generics.ListAPIView):
                 Q(supplier_name__icontains=q)
             )
 
-        date_from = (self.request.query_params.get("from") or "").strip()
+        # B1: el frontend manda date_from/date_to (los botones Hoy/7d/30d) pero
+        # esto solo leia from/to -> los filtros de fecha de compras no filtraban
+        # NADA. Aceptamos ambos nombres: date_* es el que usa la UI, from/to
+        # queda por compatibilidad con cualquier integracion externa.
+        qp = self.request.query_params
+        date_from = (qp.get("date_from") or qp.get("from") or "").strip()
         if date_from:
             qs = qs.filter(created_at__date__gte=date_from)
 
-        date_to = (self.request.query_params.get("to") or "").strip()
+        date_to = (qp.get("date_to") or qp.get("to") or "").strip()
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
 

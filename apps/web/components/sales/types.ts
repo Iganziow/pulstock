@@ -64,6 +64,8 @@ export type SaleDetail = {
   /** Lista relacional de propinas split. Cada fila = monto + método. */
   tips?: SaleTip[];
   status: string;
+  /** Motivo de anulación (B3). Solo viene si la venta está anulada. */
+  void_reason?: string | null;
   created_by_id?: number | null;
   open_order_id?: number | null;
   table_name?: string | null;

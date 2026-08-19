@@ -297,6 +297,9 @@ class SaleDetailSerializer(_WaiterSerializerMixin, serializers.ModelSerializer):
             "gross_profit",
             "status",
             "sale_type",
+            # B3/U7: por qué se anuló. Antes el motivo se pedía y se descartaba,
+            # así que la ficha de una venta anulada no decía nada.
+            "void_reason",
             "created_by_id",
             "open_order_id",
             "table_name",

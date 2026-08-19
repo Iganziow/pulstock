@@ -519,6 +519,12 @@ class SaleVoid(APIView):
         if _model_has_field(Sale, "unit_cost_snapshot"):
             sale.unit_cost_snapshot = Decimal("0.000")
             update_fields.append("unit_cost_snapshot")
+        # B3: guardar el motivo. El frontend lo exige y lo manda desde siempre,
+        # pero acá nunca se leía: la venta quedaba anulada "porque sí".
+        void_reason = (request.data.get("reason") or "").strip()[:255]
+        if void_reason:
+            sale.void_reason = void_reason
+            update_fields.append("void_reason")
         sale.save(update_fields=update_fields)
 
         # Audit
@@ -527,6 +533,7 @@ class SaleVoid(APIView):
             "lines": len(lines),
             "reversed_cost": str(total_cost_reversed),
             "original_tip": str(original_tip),
+            "reason": void_reason,
         })
 
         return Response(
@@ -616,6 +623,15 @@ class SaleEditPayments(APIView):
                 status=400,
             )
 
+        # B7: dejar rastro ANTES de pisar los pagos viejos — era la única
+        # escritura sensible de dinero sin log_audit. Cambiar el método de pago
+        # retroactivamente mueve plata entre efectivo y tarjeta, que es
+        # exactamente lo que hay que poder auditar en un cuadre de caja.
+        antes = [
+            {"method": p.method, "amount": str(p.amount)}
+            for p in SalePayment.objects.filter(sale=sale)
+        ]
+
         # Aplicar: borrar pagos viejos, crear nuevos.
         # En la misma transacción para que no quede inconsistente.
         SalePayment.objects.filter(sale=sale).delete()
@@ -626,6 +642,12 @@ class SaleEditPayments(APIView):
             )
             for p in parsed
         ])
+
+        from core.models import log_audit
+        log_audit(request, "sale_edit_payments", "sale", sale.id, {
+            "before": antes,
+            "after": [{"method": p["method"], "amount": str(p["amount"])} for p in parsed],
+        })
 
         return Response({
             "id": sale.id,
