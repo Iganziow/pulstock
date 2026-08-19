@@ -374,6 +374,10 @@ def get_subscription_status_for_api(subscription: Subscription) -> dict:
         "status":           subscription.status,
         "status_label":     subscription.get_status_display(),
         "is_access_allowed": subscription.is_access_allowed,
+        # B21: la baja agendada no cambia el estado (sigue ACTIVE hasta que
+        # venza lo pagado), asi que sin este campo la UI no tendria como
+        # mostrar que la suscripcion ya esta dada de baja.
+        "cancel_at_period_end": subscription.cancel_at_period_end,
         "plan": {
             "key":          plan.key,
             "name":         plan.name,

@@ -120,6 +120,30 @@ class TestB21CancelacionAgendada:
         )
 
 
+    def test_el_endpoint_resume_revierte_la_baja(self, api_client, sub_activa):
+        """Si la baja se agenda pero no hay forma de deshacerla, el cliente que
+        se arrepiente tiene que llamar a soporte."""
+        api_client.post("/api/billing/subscription/cancel/",
+                        {"reason": "test"}, format="json")
+        r = api_client.post("/api/billing/subscription/resume/", {}, format="json")
+        assert r.status_code == 200, r.content
+        sub_activa.refresh_from_db()
+        assert sub_activa.cancel_at_period_end is False
+        assert sub_activa.status == Subscription.Status.ACTIVE
+
+    def test_el_estado_expone_la_baja_agendada(self, api_client, sub_activa):
+        """El estado sigue siendo 'active', así que sin este campo la UI no
+        tiene cómo saber —ni mostrar— que la suscripción ya está de baja."""
+        from billing.services import cancel_subscription
+        cancel_subscription(sub_activa, reason="test")
+
+        r = api_client.get("/api/billing/subscription/")
+        assert r.status_code == 200, r.content
+        data = r.json()
+        assert data["status"] == "active"
+        assert data["cancel_at_period_end"] is True
+
+
 # ══════════════════════════════════════════════════════════════════════
 # B25 — reconciliación: el webhook no es el único canal
 # ══════════════════════════════════════════════════════════════════════

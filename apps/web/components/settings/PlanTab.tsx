@@ -26,6 +26,7 @@ type SubData = {
   plan: SubPlan; trial_ends_at: string | null; current_period_end: string | null;
   days_remaining: number | null; payment_retry_count: number;
   next_retry_at: string | null; recent_invoices: SubInvoice[];
+  cancel_at_period_end: boolean;
   has_card: boolean; card_brand: string; card_last4: string;
 };
 
@@ -150,12 +151,25 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
   const handleCancel = async () => {
     setBusy(true);
     try {
-      await apiFetch("/billing/subscription/cancel/", { method: "POST", body: JSON.stringify({}) });
+      const data = await apiFetch("/billing/subscription/cancel/", { method: "POST", body: JSON.stringify({}) });
       setShowCancel(false);
-      flash("ok", "Suscripción cancelada. Tu acceso continúa hasta el fin del período.");
+      // El mensaje sale del backend: si no queda período pagado por delante,
+      // el acceso termina ahora y prometer lo contrario sería mentir.
+      flash("ok", data?.message || "Suscripción cancelada.");
       await load();
     } catch (e: any) {
       flash("err", e?.data?.detail || "Error al cancelar.");
+    } finally { setBusy(false); }
+  };
+
+  const handleResume = async () => {
+    setBusy(true);
+    try {
+      const data = await apiFetch("/billing/subscription/resume/", { method: "POST", body: JSON.stringify({}) });
+      flash("ok", data?.message || "Suscripción reanudada.");
+      await load();
+    } catch (e: any) {
+      flash("err", e?.data?.detail || "Error al reanudar.");
     } finally { setBusy(false); }
   };
 
@@ -228,6 +242,8 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
   const isPD = sub.status === "past_due";
   const isSusp = sub.status === "suspended";
   const isCanc = sub.status === "cancelled";
+  // Baja pedida pero todavía no efectiva: sigue activa hasta que venza lo pagado.
+  const isAgendada = sub.cancel_at_period_end && !isCanc;
 
   const pb: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", fontFamily: "inherit", minHeight: 40 };
 
@@ -247,6 +263,23 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
             </div>
             <button onClick={handlePay} disabled={busy} style={{ ...pb, background: C.accent, color: "#fff" }}>
               💳 Pagar ahora
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* Baja agendada: la suscripción sigue activa hasta el vencimiento */}
+      {isAgendada && (
+        <Card style={{ borderColor: "#E4E4E7", background: "#FAFAFA" }} padding={14}>
+          <div style={{ display: "flex", alignItems: mob ? "stretch" : "center", gap: 12, flexDirection: mob ? "column" : "row" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, color: "#3F3F46", fontSize: 13 }}>Suscripción dada de baja</div>
+              <div style={{ fontSize: 12, color: "#52525B", marginTop: 2 }}>
+                Mantienes el acceso completo hasta el {fmtD(sub.current_period_end)}. No se hará un nuevo cobro.
+              </div>
+            </div>
+            <button onClick={handleResume} disabled={busy} style={{ ...pb, background: C.accent, color: "#fff" }}>
+              Reanudar suscripción
             </button>
           </div>
         </Card>
@@ -292,7 +325,7 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
             )}
             {!isTrial && sub.current_period_end && !isFree && (
               <>
-                <div style={{ fontSize: 11, color: C.mute }}>Próximo cobro</div>
+                <div style={{ fontSize: 11, color: C.mute }}>{isAgendada ? "Acceso hasta" : "Próximo cobro"}</div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtD(sub.current_period_end)}</div>
                 <div style={{ fontSize: 12, color: sub.days_remaining! <= 3 ? C.red : C.mid }}>{sub.days_remaining} días</div>
               </>
@@ -318,7 +351,7 @@ export default function PlanTab({ mob, flash, tenantCreatedAt }: PlanTabProps) {
         </div>
 
         {/* Acciones */}
-        {!isSusp && !isCanc && !isFree && (
+        {!isSusp && !isCanc && !isAgendada && !isFree && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
             {isPD && <button onClick={handlePay} disabled={busy} style={{ ...pb, background: C.accent, color: "#fff" }}>💳 Pagar ahora</button>}
             <button onClick={() => setShowCancel(true)} disabled={busy}
