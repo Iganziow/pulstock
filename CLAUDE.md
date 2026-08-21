@@ -90,7 +90,7 @@ Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS:
 
 ## Key Patterns
 
-**Store context:** Sales, inventory, and purchases are scoped to a `store`. The `StoreContextMiddleware` reads `X-Store-Id` header (falls back to `user.active_store`). Views must respect store scoping.
+**Store context:** Sales, inventory, and purchases are scoped to a `store`. The active store is **`user.active_store`** (switched via the Topbar selector, persisted server-side). The `X-Store-Id` header is NOT honored anywhere: `stores/middleware.py` defines a `StoreContextMiddleware` that would read it, but it was never added to `MIDDLEWARE` — it is dead code. `tests/test_aislamiento_modulos_nuevos.py` pins this uniformity; wiring the header for a single module would scope reports differently than sales/caja/tables.
 
 **Cost tracking:** Inventory uses weighted average cost (PPP). When purchases are received, `avg_cost` on `StockItem` is recalculated. `SaleLine` records `cost` at sale time for margin reporting. See `FORMULAS.md` for all costing rules.
 

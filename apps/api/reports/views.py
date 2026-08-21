@@ -35,6 +35,11 @@ def _tenant_id(request):
 
 
 def _active_store_id(request):
+    # Contrato de store en TODA la app: user.active_store, que el usuario
+    # cambia desde el selector del Topbar. El header X-Store-Id NO se honra
+    # en ningun modulo (stores/middleware.py existe pero no esta instalado
+    # en MIDDLEWARE) — no "arreglar" solo este modulo para que lo lea, o
+    # reportes quedaria scopeado distinto que ventas/caja/mesas.
     return getattr(request.user, "active_store_id", None)
 
 
