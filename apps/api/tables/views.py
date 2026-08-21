@@ -470,10 +470,25 @@ class AddLinesView(APIView):
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
+    @transaction.atomic
     def post(self, request, pk):
         t_id = _t(request); s_id = _s(request)
         try:
-            order = OpenOrder.objects.get(
+            # select_for_update serializa los add-lines de UNA MISMA orden.
+            # Sin el lock, la idempotencia de abajo es un check-then-insert:
+            # dos reintentos del mismo batch (WiFi inestable, el caso de
+            # Mario) llegan juntos, ambos cuentan 0 y ambos insertan — el
+            # cliente ve su pedido duplicado y se le cobra dos veces.
+            # Reproducido contra PostgreSQL en test_concurrencia_mesas.py.
+            #
+            # Ordenes DISTINTAS no se bloquean entre si, asi que 12 garzones
+            # en 12 mesas siguen escribiendo en paralelo. Y agregar lineas es
+            # rapido: el lock se sostiene milisegundos.
+            #
+            # OJO: sin select_related. `waiter` es nullable -> LEFT JOIN ->
+            # PostgreSQL responde NotSupportedError con select_for_update.
+            # Ya nos tumbo produccion una vez (ver commit 047b84a).
+            order = OpenOrder.objects.select_for_update().get(
                 id=pk, tenant_id=t_id, store_id=s_id, status=OpenOrder.STATUS_OPEN
             )
         except OpenOrder.DoesNotExist:
