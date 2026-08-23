@@ -41,7 +41,8 @@ class Command(BaseCommand):
                 continue
 
             ciegos = r["ciegos"]
-            total_ciegos += len(ciegos)
+            mudos = r.get("mudos", [])
+            total_ciegos += len(ciegos) + len(mudos)
             cab = "%s — %d productos con venta en %d dias" % (
                 t.name, r["con_ventas"], r["ventana_dias"])
             self.stdout.write(cab)
@@ -58,11 +59,20 @@ class Command(BaseCommand):
                 if len(ciegos) > 15:
                     self.stdout.write("    ... y %d mas" % (len(ciegos) - 15))
 
+            if mudos:
+                self.stdout.write(self.style.ERROR(
+                    "  MUDOS: %d producto(s) con pronostico que NO se miden "
+                    "hace %d dias" % (len(mudos), r.get("ventana_mudos_dias", 30))))
+                for f in mudos[:10]:
+                    self.stdout.write("    %-34s %10.1f unidades" % (
+                        f["nombre"][:34], f["unidades"]))
+
             # Un producto puede tener pronostico desde hoy y aun asi no haber
-            # sido puntuado en la ventana: es el que se esta recuperando de un
-            # agujero. Vale la pena verlo, pero no es la misma alarma.
+            # sido puntuado en la ventana corta: es el que recien empieza.
+            # Vale la pena verlo, pero no es la misma alarma.
+            ya_reportados = {c["product_id"] for c in ciegos} | {m["product_id"] for m in mudos}
             solo_sin_puntaje = [f for f in r["sin_puntaje"]
-                                if f["product_id"] not in {c["product_id"] for c in ciegos}]
+                                if f["product_id"] not in ya_reportados]
             if solo_sin_puntaje:
                 self.stdout.write(self.style.WARNING(
                     "  con pronostico pero sin puntuar en la ventana: %d" % len(solo_sin_puntaje)))
@@ -72,8 +82,10 @@ class Command(BaseCommand):
 
         if total_ciegos:
             # Falla para que cron/monitoreo lo registre: es una alarma, no un
-            # informe. Un producto invisible se compra a ojo.
+            # informe. Un producto invisible se compra a ojo — y uno que el
+            # sistema cree medir pero no mide es peor, porque da falsa
+            # tranquilidad.
             raise RuntimeError(
-                "%d producto(s) con ventas y sin pronostico" % total_ciegos)
+                "%d producto(s) sin pronostico o sin medirse" % total_ciegos)
 
         self.stdout.write(self.style.SUCCESS("Cobertura de forecast OK"))

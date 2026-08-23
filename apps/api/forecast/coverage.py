@@ -22,10 +22,15 @@ Qué mide esto
 Dos agujeros distintos, que se arreglan distinto:
 
   ciegos      — se vendieron en la ventana y NO tienen pronóstico a futuro.
-                No los estamos prediciendo. Es el caso de la deslactosada.
-  sin_puntaje — se vendieron en la ventana y no tienen NINGUNA fila de
-                accuracy en ella. Puede que se pronostiquen recién desde hoy
-                (recuperándose) o que se pronostiquen y no se puntúen.
+                No los estamos prediciendo.
+  mudos       — se vendieron, TIENEN pronóstico, y aun así no tienen una sola
+                fila de accuracy en 30 días. Es el caso peor: el sistema cree
+                que los está midiendo y no los mide. Así estuvo Leche
+                deslactosada desde el 6-jun, con pronóstico vigente y
+                vendiendo 4.170 unidades cada 14 días.
+  sin_puntaje — se vendieron y no tienen accuracy en la ventana corta. Puede
+                ser un producto que recién empieza a pronosticarse; por eso
+                avisa pero no falla.
 
 No mira productos sin ventas: que no se pronostique algo que nadie compra no
 es un agujero, es lo correcto.
@@ -40,6 +45,10 @@ logger = logging.getLogger(__name__)
 # Ventana para decidir "esto se vende". Corta pero no tanto como para que una
 # semana floja borre un producto estacional del radar.
 COVERAGE_WINDOW_DAYS = 14
+
+# Ventana larga para detectar mudos. Un producto que vende hace un mes y nunca
+# se midio no es un caso de "recien empieza": es una falla.
+MUTE_WINDOW_DAYS = 30
 
 
 def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
@@ -64,8 +73,9 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
         .values("product_id").annotate(q=Sum("qty_sold"))
     }
     if not vendidos:
-        return {"con_ventas": 0, "ciegos": [], "sin_puntaje": [],
-                "ventana_dias": days, "desde": desde, "hasta": hoy}
+        return {"con_ventas": 0, "ciegos": [], "mudos": [], "sin_puntaje": [],
+                "ventana_dias": days, "ventana_mudos_dias": MUTE_WINDOW_DAYS,
+                "desde": desde, "hasta": hoy}
 
     # Con pronóstico vigente: de hoy en adelante. Mirar el futuro y no el
     # pasado es a propósito — las filas de Forecast se purgan, así que su
@@ -95,11 +105,25 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
     ciegos = _filas(set(vendidos) - con_pronostico)
     sin_puntaje = _filas(set(vendidos) - con_puntaje)
 
+    # Mudos: tienen pronóstico y venden, pero llevan 30 días sin una sola
+    # medición. El sistema cree que los mide y no los mide — y como no falla
+    # nada, nadie se entera. Es exactamente el agujero que costó 2,5 meses
+    # descubrir la primera vez.
+    desde_largo = hoy - timedelta(days=MUTE_WINDOW_DAYS)
+    medidos_largo = set(
+        ForecastAccuracy.objects
+        .filter(tenant_id=tenant_id, product_id__in=vendidos, date__gte=desde_largo)
+        .values_list("product_id", flat=True)
+    )
+    mudos = _filas((set(vendidos) & con_pronostico) - medidos_largo)
+
     return {
         "con_ventas": len(vendidos),
         "ciegos": ciegos,
+        "mudos": mudos,
         "sin_puntaje": sin_puntaje,
         "ventana_dias": days,
+        "ventana_mudos_dias": MUTE_WINDOW_DAYS,
         "desde": desde,
         "hasta": hoy,
     }

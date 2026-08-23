@@ -152,6 +152,55 @@ class TestCoberturaDeForecast:
 
 
 @pytest.mark.django_db
+class TestProductosMudos:
+    """El agujero peor: el sistema cree que los mide y no los mide."""
+
+    def test_detecta_al_que_tiene_pronostico_y_nunca_se_mide(
+        self, tenant, warehouse, product, otro_producto,
+    ):
+        """EL CASO REAL. Leche deslactosada estuvo 2,5 meses así: pronóstico
+        vigente, vendiendo 4.170 unidades cada 14 días, y ni una sola fila de
+        accuracy. Como técnicamente tenía pronóstico, la alarma anterior lo
+        daba por cubierto."""
+        fm = _modelo(tenant, warehouse, otro_producto)
+        _vender(tenant, warehouse, otro_producto, dias=10, qty="365")
+        _pronosticar(tenant, warehouse, otro_producto, fm)
+        # sin ninguna fila de ForecastAccuracy
+
+        r = find_coverage_gaps(tenant.id, today=HOY)
+        assert otro_producto.id not in {c["product_id"] for c in r["ciegos"]}, (
+            "no es ciego: tiene pronóstico"
+        )
+        assert otro_producto.id in {m["product_id"] for m in r["mudos"]}, (
+            "vende y tiene pronóstico pero no se mide hace 30 días: es mudo"
+        )
+
+    def test_el_que_si_se_mide_no_es_mudo(
+        self, tenant, warehouse, product,
+    ):
+        fm = _modelo(tenant, warehouse, product)
+        _vender(tenant, warehouse, product, dias=10)
+        _pronosticar(tenant, warehouse, product, fm)
+        _puntuar(tenant, warehouse, product)
+
+        r = find_coverage_gaps(tenant.id, today=HOY)
+        assert r["mudos"] == []
+
+    def test_el_comando_FALLA_con_mudos(
+        self, tenant, warehouse, otro_producto,
+    ):
+        """Tiene que romper, no avisar: un producto que el sistema cree medir
+        y no mide da falsa tranquilidad, que es peor que no medirlo."""
+        from django.core.management import call_command
+        fm = _modelo(tenant, warehouse, otro_producto)
+        _vender(tenant, warehouse, otro_producto, dias=10, qty="365")
+        _pronosticar(tenant, warehouse, otro_producto, fm)
+
+        with pytest.raises(RuntimeError, match="sin pronostico o sin medirse"):
+            call_command("check_forecast_coverage", verbosity=0)
+
+
+@pytest.mark.django_db
 class TestComandoDeCobertura:
     def test_falla_cuando_hay_productos_invisibles(
         self, tenant, warehouse, otro_producto,
@@ -164,9 +213,13 @@ class TestComandoDeCobertura:
             call_command("check_forecast_coverage", verbosity=0)
 
     def test_pasa_cuando_todo_esta_cubierto(self, tenant, warehouse, product):
+        """Cubierto de verdad = se vende, se pronostica Y se mide. Sin lo
+        tercero el sistema cree que lo mide y no lo mide, que es el agujero
+        que costó 2,5 meses descubrir."""
         from django.core.management import call_command
         fm = _modelo(tenant, warehouse, product)
         _vender(tenant, warehouse, product, dias=10)
         _pronosticar(tenant, warehouse, product, fm)
+        _puntuar(tenant, warehouse, product)
 
         call_command("check_forecast_coverage", verbosity=0)  # no debe lanzar

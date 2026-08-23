@@ -302,10 +302,30 @@ class Command(BaseCommand):
                     # implementará backtest+WAPE y decidirá cuál activar.
                     if product.id in ingredient_ids:
                         from forecast.services import train_ingredient_product
+                        # Si el derivado YA es el modelo activo, dejo de ser un
+                        # candidato: hay que dejarlo escribir sus forecasts.
+                        #
+                        # Con make_active=False, train_ingredient_product solo
+                        # guarda filas `if make_active or swapped`. Un producto
+                        # que gano el swap hace semanas se seguia entrenando
+                        # como candidato cada noche y ya no volvia a swapear
+                        # (nada contra que ganar), asi que dejaba de escribir.
+                        # Sin fila para ese dia, track_forecast_accuracy no
+                        # tiene con que comparar y el producto deja de medirse
+                        # PARA SIEMPRE, en silencio.
+                        #
+                        # Asi estuvo Leche deslactosada desde el 6-jun: con
+                        # pronostico vigente, vendiendo 4.170 unidades cada 14
+                        # dias, y sin una sola fila de accuracy.
+                        ya_activo = ForecastModel.objects.filter(
+                            tenant=tenant, product=product, warehouse_id=wh_id,
+                            algorithm="ingredient_derived", is_active=True,
+                        ).exists()
                         try:
                             train_ingredient_product(
                                 tenant, product, wh_id, today,
-                                horizon, stock_items, stats, make_active=False,
+                                horizon, stock_items, stats,
+                                make_active=ya_activo,
                             )
                         except Exception as exc:
                             # Si el candidato falla, no rompemos el train.
