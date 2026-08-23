@@ -29,6 +29,19 @@ type CartDraft = {
   saleNote: string;
   payRows: PosPayRow[];
   tipAmount: string;
+  /** B5: la clave de idempotencia viaja CON el carrito.
+   *
+   *  El carrito se guarda en localStorage y sobrevive una recarga; la clave
+   *  vivía en un useRef y moría con la página. O sea: el cajero apretaba
+   *  Cobrar, la respuesta se perdía (4G lento, tablet que se reinicia), volvía
+   *  a entrar, veía su carrito intacto —lo que lo invita a apretar Cobrar de
+   *  nuevo— y esta vez se generaba una clave NUEVA. El backend la veía como
+   *  otra venta y cobraba dos veces.
+   *
+   *  Guardarla junto al carrito cierra el círculo: mismo carrito recuperado =
+   *  misma clave = el backend reconoce el duplicado y devuelve la venta que ya
+   *  existía. */
+  idemKey?: string | null;
 };
 
 function saveCartDraft(d: CartDraft) {
@@ -105,6 +118,15 @@ export default function PosPage() {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  // ── Idempotencia de la venta (B5) ──────────────────────────────────────────
+  // Se declara ANTES de los efectos del borrador porque los dos la leen: uno
+  // la restaura, el otro la persiste.
+  const idemKeyRef = useRef<string | null>(null);
+  function ensureIdemKey(): string {
+    if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
+    return idemKeyRef.current;
+  }
+
   // ── Restore cart draft from localStorage ───────────────────────────────────
   useEffect(() => {
     const draft = loadCartDraft();
@@ -115,6 +137,9 @@ export default function PosPage() {
       setSaleNote(draft.saleNote);
       setPayRows(draft.payRows);
       setTipAmount(draft.tipAmount);
+      // Sin esto el carrito vuelve pero la clave no, y el reintento del
+      // cajero se convierte en una venta nueva.
+      if (draft.idemKey) idemKeyRef.current = draft.idemKey;
       setDraftRecovered(true);
     }
     setCartLoaded(true);
@@ -124,7 +149,11 @@ export default function PosPage() {
   useEffect(() => {
     if (!cartLoaded) return;
     if (cart.length === 0) { clearCartDraft(); return; }
-    saveCartDraft({ cart, globalDiscountType, globalDiscountValue, saleNote, payRows, tipAmount });
+    // La clave se genera acá y no al cobrar: un ref no dispara re-render, así
+    // que si esperáramos al submit nunca quedaría guardada en el borrador —
+    // que es exactamente lo que hay que proteger.
+    saveCartDraft({ cart, globalDiscountType, globalDiscountValue, saleNote,
+                    payRows, tipAmount, idemKey: ensureIdemKey() });
   }, [cartLoaded, cart, globalDiscountType, globalDiscountValue, saleNote, payRows, tipAmount]);
 
   // ── /core/me/ + /core/warehouses/ en PARALELO ──────────────────────────────
@@ -215,11 +244,6 @@ export default function PosPage() {
   // permitir ese riesgo en producción.
   // Se regenera al limpiar el carrito (después de venta exitosa o
   // botón "Limpiar"). Mismo carrito = misma intención = misma key.
-  const idemKeyRef = useRef<string | null>(null);
-  function ensureIdemKey(): string {
-    if (!idemKeyRef.current) idemKeyRef.current = crypto.randomUUID();
-    return idemKeyRef.current;
-  }
 
   const clearCart = useCallback(() => {
     setCart([]);
