@@ -83,23 +83,16 @@ class Command(BaseCommand):
         sent = 0
         skipped = 0
         for tenant in tenants:
-            owner = User.objects.filter(
-                tenant=tenant, role="owner", is_active=True
-            ).first()
-            if not owner or not owner.email:
-                self.stdout.write(f"  [skip] tenant={tenant.id} sin owner con email")
+            # Duenos Y encargados que la tengan encendida, no solo el primer
+            # dueno: el que hace las compras suele ser el encargado. La regla
+            # vive en core.alert_recipients para que todas las alertas usen la
+            # misma y no se implemente distinto en cada comando.
+            from core.alert_recipients import destinatarios
+            usuarios = destinatarios(tenant, "stock_bajo")
+            if not usuarios:
+                self.stdout.write(f"  [skip] tenant={tenant.id} sin destinatarios")
                 skipped += 1
                 continue
-
-            # Respeta preferencias
-            try:
-                prefs = AlertPreference.objects.get(user=owner)
-                if not prefs.stock_bajo:
-                    self.stdout.write(f"  [skip] {owner.email} → stock_bajo apagado")
-                    skipped += 1
-                    continue
-            except AlertPreference.DoesNotExist:
-                pass
 
             all_alerts = self._compute_alerts(tenant)
             if not all_alerts:
@@ -117,7 +110,11 @@ class Command(BaseCommand):
 
             if dry_run:
                 self.stdout.write(self.style.WARNING(
-                    f"  [dry] {owner.email} → mostrando {len(shown)} de {total_count} "
+                    f"  [dry] {len(usuarios)} destinatario(s): "
+                    f"{', '.join(u.email for u in usuarios)}"
+                ))
+                self.stdout.write(self.style.WARNING(
+                    f"        mostrando {len(shown)} de {total_count} "
                     f"({len(critical)} críticos, {len(warning)} warnings, +{truncated} más)"
                 ))
                 for a in shown[:10]:  # primeros 10 visibles
@@ -136,24 +133,28 @@ class Command(BaseCommand):
                 truncated_count=truncated,
             )
 
-            try:
-                send_mail(
-                    subject=subject,
-                    message=plain,
-                    html_message=html,
-                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL",
-                                       "Pulstock <noreply@pulstock.cl>"),
-                    recipient_list=[owner.email],
-                    fail_silently=False,
-                )
-                sent += 1
-                self.stdout.write(self.style.SUCCESS(
-                    f"  [sent] {owner.email} → {len(alerts)} alertas"
-                ))
-            except Exception as e:
-                self.stderr.write(self.style.ERROR(
-                    f"  [error] {owner.email}: {e}"
-                ))
+            # Un correo por persona, no uno con todos en copia: cada quien ve
+            # su propia alerta y puede darse de baja sin afectar al resto.
+            # Y si el servidor rechaza una direccion, las demas igual salen.
+            for u in usuarios:
+                try:
+                    send_mail(
+                        subject=subject,
+                        message=plain,
+                        html_message=html,
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL",
+                                           "Pulstock <noreply@pulstock.cl>"),
+                        recipient_list=[u.email],
+                        fail_silently=False,
+                    )
+                    sent += 1
+                    self.stdout.write(self.style.SUCCESS(
+                        f"  [sent] {u.email} → {len(alerts)} alertas"
+                    ))
+                except Exception as e:
+                    self.stderr.write(self.style.ERROR(
+                        f"  [error] {u.email}: {e}"
+                    ))
 
         self.stdout.write(self.style.SUCCESS(
             f"\nTotal enviados: {sent} · saltados: {skipped}"

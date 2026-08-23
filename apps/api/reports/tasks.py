@@ -39,11 +39,11 @@ def send_weekly_abc_report(self):
 
     sent = 0
     for tenant in Tenant.objects.filter(is_active=True):
-        owner = User.objects.filter(
-            tenant=tenant, role="owner", is_active=True
-        ).values("email", "first_name").first()
-
-        if not owner or not owner["email"]:
+        # Duenos Y encargados que lo tengan encendido, no solo el primer
+        # dueno. Misma regla que la alerta de quiebre (core.alert_recipients).
+        from core.alert_recipients import destinatarios
+        usuarios = destinatarios(tenant, "reporte_abc")
+        if not usuarios:
             continue
 
         # Get the first active store for the tenant
@@ -86,16 +86,24 @@ def send_weekly_abc_report(self):
             total_profit=total_profit,
         )
 
-        send_mail(
-            subject=subject,
-            message=plain,
-            html_message=html,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Pulstock <noreply@pulstock.cl>"),
-            recipient_list=[owner["email"]],
-            fail_silently=False,
-        )
-        sent += 1
-        logger.info("ABC report sent to %s (tenant %s)", owner["email"], tenant.id)
+        # Un correo por persona: cada quien puede darse de baja sin afectar
+        # al resto, y una direccion rechazada no tumba los demas envios.
+        for u in usuarios:
+            try:
+                send_mail(
+                    subject=subject,
+                    message=plain,
+                    html_message=html,
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL",
+                                       "Pulstock <noreply@pulstock.cl>"),
+                    recipient_list=[u.email],
+                    fail_silently=False,
+                )
+                sent += 1
+                logger.info("ABC report sent to %s (tenant %s)", u.email, tenant.id)
+            except Exception as exc:
+                logger.error("ABC report FAILED to %s (tenant %s): %s",
+                             u.email, tenant.id, exc)
 
     logger.info("send_weekly_abc_report: %d emails sent", sent)
     return {"sent": sent}

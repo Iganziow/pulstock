@@ -798,8 +798,9 @@ class AlertPreferenceView(APIView):
     """
     permission_classes = [IsAuthenticated, HasTenant]
 
-    FIELDS = ("stock_bajo", "forecast_urgente", "sugerencia_compra",
-              "merma_alta", "sin_rotacion", "resumen_diario")
+    FIELDS = ("stock_bajo", "reporte_abc", "forecast_urgente",
+              "sugerencia_compra", "merma_alta", "sin_rotacion",
+              "resumen_diario")
 
     def _get_or_create(self, user):
         prefs, _ = AlertPreference.objects.get_or_create(

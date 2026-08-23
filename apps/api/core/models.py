@@ -190,10 +190,17 @@ class AlertPreference(models.Model):
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="alert_prefs",
     )
+    # Correo: alerta diaria de quiebre de stock.
     stock_bajo = models.BooleanField(default=True)
+    # Correo: reporte ABC de los lunes.
+    reporte_abc = models.BooleanField(default=True)
+    # Solo notificaciones dentro de la app (la campana del Topbar).
     forecast_urgente = models.BooleanField(default=True)
     sugerencia_compra = models.BooleanField(default=True)
     merma_alta = models.BooleanField(default=False)
+    # Sin emisor todavia: quedan en el modelo para no perder la eleccion del
+    # usuario cuando se construyan, pero la UI los muestra como no disponibles
+    # en vez de ofrecer un correo que no llega nunca.
     sin_rotacion = models.BooleanField(default=False)
     resumen_diario = models.BooleanField(default=False)
 
