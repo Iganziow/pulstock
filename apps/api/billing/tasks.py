@@ -558,23 +558,14 @@ def _notify_payment_link(sub, invoice, payment_url: str):
     marca, va en billing/email_renderers.py como los demás.
     """
     email = _get_owner_email(sub)
-    plan = getattr(sub.plan, "name", "tu plan")
-    monto = f"${int(invoice.amount_clp):,}".replace(",", ".")
-    subject = "Pulstock — tu pago está pendiente"
-    lineas = [
-        "Hola,",
-        "",
-        f"No pudimos cobrar automaticamente la renovacion de {plan} ({monto}).",
-        "",
-        "Puedes pagar desde este link:",
-        payment_url,
-        "",
-        "Apenas se confirme el pago, tu cuenta queda activa por 30 dias mas.",
-        "",
-        "- Pulstock",
-    ]
-    plain = "\n".join(lineas)
-    _send_email_safe(email, subject, plain)
+    from billing.email_renderers import render_payment_link
+    subject, plain, html = render_payment_link(
+        plan_name=getattr(sub.plan, "name", "tu plan"),
+        amount_clp=invoice.amount_clp,
+        payment_url=payment_url,
+        access_until=getattr(sub, "current_period_end", None),
+    )
+    _send_email_safe(email, subject, plain, html)
 
 
 def _send_suspension_notice(sub):

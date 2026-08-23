@@ -39,17 +39,25 @@ BRAND = "Pulstock"
 SUPPORT_EMAIL = "pulstock.admin@gmail.com"
 LOGO_URL = "https://pulstock.cl/email-logo.png?v=20260424"
 
+# Paleta de la direccion «Carta». Los colores son mas profundos que los de la
+# interfaz a proposito: sobre papel calido (#FCFBF9) un indigo de boton web se
+# ve estridente, y los tintes tienen que leerse como una mancha de tinta, no
+# como un fondo de UI. Los grises estan sesgados hacia el indigo — un gris
+# neutro se lee como no elegido.
+#
+# `cta_grad1/2` se conservan porque algun renderer podria pasarlos; la
+# plantilla ya no los usa (los degradados son lo primero que Outlook descarta).
 TONES = {
-    "indigo": {"eyebrow_bg": "#EEF2FF", "eyebrow_fg": "#4F46E5",
-               "cta_bg": "#4F46E5", "cta_grad1": "#4F46E5", "cta_grad2": "#7C3AED"},
-    "green":  {"eyebrow_bg": "#ECFDF5", "eyebrow_fg": "#16A34A",
-               "cta_bg": "#16A34A", "cta_grad1": "#16A34A", "cta_grad2": "#16A34A"},
-    "red":    {"eyebrow_bg": "#FEF2F2", "eyebrow_fg": "#DC2626",
-               "cta_bg": "#DC2626", "cta_grad1": "#DC2626", "cta_grad2": "#DC2626"},
-    "amber":  {"eyebrow_bg": "#FFFBEB", "eyebrow_fg": "#D97706",
-               "cta_bg": "#D97706", "cta_grad1": "#D97706", "cta_grad2": "#D97706"},
-    "black":  {"eyebrow_bg": "#E4E4E7", "eyebrow_fg": "#18181B",
-               "cta_bg": "#18181B", "cta_grad1": "#18181B", "cta_grad2": "#3F3F46"},
+    "indigo": {"eyebrow_bg": "#EFEDFB", "eyebrow_fg": "#4338CA",
+               "cta_bg": "#4338CA", "cta_grad1": "#4338CA", "cta_grad2": "#4338CA"},
+    "green":  {"eyebrow_bg": "#EAF4EC", "eyebrow_fg": "#15803D",
+               "cta_bg": "#15803D", "cta_grad1": "#15803D", "cta_grad2": "#15803D"},
+    "red":    {"eyebrow_bg": "#FBEDEB", "eyebrow_fg": "#AF2318",
+               "cta_bg": "#AF2318", "cta_grad1": "#AF2318", "cta_grad2": "#AF2318"},
+    "amber":  {"eyebrow_bg": "#FAF1E4", "eyebrow_fg": "#A65B07",
+               "cta_bg": "#A65B07", "cta_grad1": "#A65B07", "cta_grad2": "#A65B07"},
+    "black":  {"eyebrow_bg": "#EDEBE6", "eyebrow_fg": "#191825",
+               "cta_bg": "#191825", "cta_grad1": "#191825", "cta_grad2": "#191825"},
 }
 
 
@@ -574,4 +582,41 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
         lines.append("")
     lines.append(f"Ver detalle completo: {APP_URL}/dashboard/forecast")
     plain = "\n".join(lines)
+    return subject, plain, html
+
+
+# ─────────── Link de pago pendiente (B20) ───────────
+def render_payment_link(plan_name, amount_clp, payment_url, access_until=None):
+    """El correo que avisa que la renovacion quedo pendiente.
+
+    Era el unico de los once en texto plano. Se paso a plantilla porque desde
+    B20 un link de pago ya NO activa el periodo: si este correo no se entiende,
+    el cliente se queda sin servicio sin saber por que.
+    """
+    subject = f"Tu pago de {BRAND} quedó pendiente"
+    ctx = _base_ctx(
+        tone="amber",
+        subject_line=subject,
+        eyebrow="Pago pendiente",
+        hero_title="Tu renovación quedó pendiente",
+        subtitle="No pudimos procesar el cobro automático. Puedes pagarla en un minuto desde el botón de abajo.",
+        plan_name=plan_name,
+        monto=_fmt_clp(amount_clp),
+        payment_url=payment_url,
+        access_until=access_until,
+        cta_text="Pagar ahora",
+        cta_url=payment_url,
+    )
+    html = render_to_string("emails/payment_link.html", ctx)
+    lineas = [
+        f"Tu renovación de {plan_name} ({_fmt_clp(amount_clp)}) quedó pendiente.",
+        "",
+        "Puedes pagarla acá:",
+        payment_url,
+        "",
+        "El pago se acredita al instante.",
+        "",
+        f"— {BRAND}",
+    ]
+    plain = chr(10).join(lineas)  # chr(10) = salto de linea
     return subject, plain, html

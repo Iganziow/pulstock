@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Email · Link de pago pendiente (B20)
+
+Era el único de los once en texto plano — y el más importante. Desde B20 un
+link de pago ya NO activa el período: si este correo no llega o no se
+entiende, el cliente pierde el servicio sin saber por qué.
+
+Contexto: plan_name · monto · payment_url · access_until
+{% endcomment %}
+{% block body %}
+{% include "emails/_partials/callout.html" with bg="#FAF1E4" border="#E8D9BE" fg="#A65B07" title="No pudimos cobrar automáticamente" body="El cargo no se procesó, así que la renovación quedó pendiente. Puedes pagarla desde el botón de abajo." %}
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 26px;">
+  {% include "emails/_partials/data_row.html" with label="Plan" value=plan_name %}
+  {% include "emails/_partials/data_row.html" with label="Monto" value=monto big=True %}
+  {% if access_until %}{% include "emails/_partials/data_row.html" with label="Tu acceso continúa hasta" value=access_until is_last=True %}{% endif %}
+</table>
+
+<p style="margin:0 0 6px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#191825;">
+  El pago se acredita al instante. Si prefieres cambiar el medio de pago, puedes
+  hacerlo desde tu cuenta antes de pagar.
+</p>
+{% endblock %}
