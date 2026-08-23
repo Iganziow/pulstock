@@ -219,9 +219,19 @@ class Command(BaseCommand):
                     forecast_map[key] = row["days_to_stockout"]
 
         # ── (c) Recorrer cada StockItem y ver si dispara alguna regla ──
+        #
+        # Se EXCLUYEN los productos con receta. Un capuccino, un latte o un
+        # cortado se preparan al momento: su on_hand es 0 siempre, por diseno,
+        # y eso no es un quiebre. Sin este filtro la alerta avisaba de 82
+        # productos —toda la carta de cafeteria incluida— y era puro ruido:
+        # es la razon real por la que esta alerta quedo pausada en may-2026.
+        #
+        # Lo que SI hay que vigilar de un capuccino es su leche y su cafe, y
+        # esos son productos sin receta que ya entran por su cuenta.
         items = (
             StockItem.objects
             .filter(tenant=tenant, product__is_active=True)
+            .exclude(product__recipe__isnull=False)
             .select_related("product", "warehouse")
         )
 
@@ -261,6 +271,20 @@ class Command(BaseCommand):
     def _build_alert(self, item, on_hand, product, warehouse_name, avg_daily, forecast_days):
         """Aplica las 3 reglas en orden de prioridad y devuelve la alerta o None."""
         manual_min = float(product.min_stock or 0)
+
+        # Stock 0 → crítico, PERO solo si el producto se mueve.
+        #
+        # Un producto sin stock y sin una sola venta en la ventana no es un
+        # quiebre: es un producto descontinuado. Avisar de eso todos los dias
+        # es exactamente lo que hace que el dueno deje de abrir el correo.
+        # Medido en Marbrava (ago-2026): de 24 "quiebres" solo 8 se vendian;
+        # los otros 16 eran cafes de especialidad y golosinas que salieron de
+        # carta hace meses.
+        #
+        # Si el dueno le puso un min_stock manual, si avisamos aunque no rote:
+        # ese minimo es una decision explicita suya (regla 1, mas abajo).
+        if on_hand <= 0 and avg_daily <= 0 and manual_min <= 0:
+            return None
 
         # Stock 0 → siempre crítico (cualquiera sea la regla)
         if on_hand <= 0:

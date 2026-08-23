@@ -136,10 +136,21 @@ class TestRegenAppliesGuard:
         assert fm.model_params.get("circuit_breaker") is not None
         assert fm.model_params.get("circuit_breaker_streak") == 3  # prev 2 + 1
         # Y el forecast guardado NO es el colapsado: WMA > 0
-        fc = Forecast.objects.filter(
+        #
+        # Se mira TODO el horizonte, no solo el primer dia. Mirar `.first()`
+        # ataba el test al dia de la semana en que se corre: cuando el primer
+        # dia del horizonte cae en un dia cerrado del negocio (domingo en
+        # Marbrava), `_apply_closed_weekdays` lo pone en 0 DESPUES del blend
+        # —que es lo correcto— y el test fallaba todos los sabados por una
+        # razon que no tiene nada que ver con lo que quiere probar.
+        #
+        # Lo que el guard promete es que el horizonte deja de estar colapsado,
+        # no que un dia puntual sea positivo.
+        fcs = list(Forecast.objects.filter(
             tenant=tenant, product=steady_product, warehouse_id=warehouse_a.id,
-        ).order_by("forecast_date").first()
-        assert fc is not None and fc.qty_predicted > 0, (
+        ).order_by("forecast_date"))
+        assert fcs, "el guard debe dejar forecasts guardados"
+        assert max(f.qty_predicted for f in fcs) > 0, (
             "El guard debe reemplazar el forecast colapsado por WMA positivo."
         )
 
