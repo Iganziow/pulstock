@@ -123,12 +123,17 @@ class Command(BaseCommand):
         #
         # Fix: usar StockMove como fuente única de verdad para qty_sold.
         # Cubre los 3 casos (puro directo, puro ingrediente, mixto).
+        # OFFLINE entra junto con SALE porque ES una venta: la que ocurrio
+        # mientras el sistema estaba caido y Mario declaro despues. Si no se
+        # contara, la demanda de ese dia quedaria en cero, el modelo aprenderia
+        # que se vende menos de lo real y la sugerencia pediria de menos — y el
+        # error se acumularia en cada corte de luz.
         stockmove_sale_agg = (
             StockMove.objects.filter(
                 tenant=tenant,
                 created_at__date=target_date,
                 move_type="OUT",
-                ref_type="SALE",
+                ref_type__in=("SALE", "OFFLINE"),
             )
             .exclude(ref_id__in=voided_ids)  # F-VOID: demanda sin ventas anuladas
             .values("product_id", "warehouse_id")

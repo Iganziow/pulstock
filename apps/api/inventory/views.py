@@ -1252,3 +1252,78 @@ class KardexReportView(APIView):
             },
             "results": ser.data,
         })
+
+
+class OfflineSalesView(APIView):
+    """POST /api/inventory/offline-sales/ — ventas ocurridas sin sistema.
+
+    Body:
+      {"date": "2026-08-21", "warehouse_id": 1, "note": "corte de luz",
+       "lines": [{"product_id": 12, "qty": "40"}, ...]}
+
+    Corrige el stock fechando el consumo en el DIA DEL CORTE, no hoy, para que
+    el turno actual quede limpio — que es exactamente lo que pidio Mario. Y lo
+    marca como demanda para que el modelo aprenda de ese dia en vez de creer
+    que no se vendio nada.
+    """
+    permission_classes = [IsAuthenticated, HasTenant, IsInventoryOrManager]
+
+    def post(self, request):
+        from datetime import date as _date
+        from core.models import Warehouse
+        from inventory.offline_sales import (
+            ErrorVentaOffline, registrar_ventas_offline,
+        )
+
+        t_id = _tenant_id(request)
+        try:
+            fecha = _date.fromisoformat((request.data.get("date") or "").strip())
+        except ValueError:
+            return Response(
+                {"detail": "Falta la fecha del corte o tiene un formato invalido (AAAA-MM-DD)."},
+                status=400,
+            )
+
+        wh_id = request.data.get("warehouse_id") or getattr(
+            request.user, "active_warehouse_id", None
+        )
+        try:
+            warehouse = Warehouse.objects.get(id=wh_id, tenant_id=t_id)
+        except (Warehouse.DoesNotExist, ValueError, TypeError):
+            return Response({"detail": "Bodega no encontrada."}, status=404)
+
+        try:
+            resultado = registrar_ventas_offline(
+                tenant=request.user.tenant,
+                warehouse=warehouse,
+                usuario=request.user,
+                fecha=fecha,
+                lineas=request.data.get("lines") or [],
+                nota=(request.data.get("note") or "").strip(),
+            )
+        except ErrorVentaOffline as e:
+            return Response({"detail": str(e)}, status=400)
+
+        from core.models import log_audit
+        # entity_id no acepta None: se usa la bodega, que es la entidad sobre
+        # la que se opero (la correccion abarca varios StockMove, no uno).
+        log_audit(request, "inventory_offline_sales", "warehouse", warehouse.id,
+                  {"date": str(fecha), "warehouse_id": warehouse.id,
+                   "lines": len(resultado["lineas"]),
+                   "descuadres": len(resultado["descuadres"])})
+
+        # Reprocesar ese dia para que el forecast lo tome de inmediato. Si
+        # falla, el cron nocturno lo recoge igual — no vale la pena tumbar la
+        # correccion de stock, que ya quedo aplicada, por esto.
+        try:
+            from django.core.management import call_command
+            call_command("aggregate_daily_sales", date=str(fecha),
+                         tenant=t_id, verbosity=0)
+            resultado["forecast_actualizado"] = True
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "No se pudo reagregar %s: %s", fecha, e)
+            resultado["forecast_actualizado"] = False
+
+        return Response(resultado, status=201)

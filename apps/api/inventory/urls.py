@@ -1,11 +1,13 @@
 from django.urls import path
 from .views import (
-    StockAdjust, StockList, StockMoveList, StockReceive, StockIssue,
+    StockAdjust,
+    OfflineSalesView, StockList, StockMoveList, StockReceive, StockIssue,
     StockTransferCreate, KardexView, StockTransferDetail,StockTransferList,KardexReportView
 )
 
 urlpatterns = [
     path("adjust/", StockAdjust.as_view(), name="stock-adjust"),
+    path("offline-sales/", OfflineSalesView.as_view(), name="stock-offline-sales"),
     path("receive/", StockReceive.as_view(), name="stock-receive"),
     path("issue/", StockIssue.as_view(), name="stock-issue"),
     path("stock/", StockList.as_view(), name="stock-list"),
