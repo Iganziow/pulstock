@@ -80,15 +80,37 @@ def _create_units(tenant, unit_list, base_map):
             created += 1
 
     # Second pass: derived units
+    #
+    # Los factores de esta tabla estan expresados contra SU base (GR para masa,
+    # ML para volumen). Si el tenant ya tiene unidades con OTRA convencion —
+    # por ejemplo KG como base, con GR=0.001 — insertar el factor tal cual deja
+    # conversiones erradas por 1000x, y una receta con esa unidad destruye
+    # stock, costo y forecast de una sola vez.
+    #
+    # Paso el 23-ago-2026 al sembrar Marbrava: tenia base Litro (ML=0.001) y la
+    # semilla creo TAZA=250 asumiendo base ML. 1 taza daba 250.000 ml.
+    #
+    # Se detecta la escala real del tenant comparando su base contra la nuestra
+    # y se ajusta el factor. Si no hay base previa, la escala es 1 y no cambia
+    # nada — un tenant nuevo se siembra igual que siempre.
     for code, name, family, is_base, base_code, factor in unit_list:
         if is_base:
             continue
         base_obj = base_map.get(base_code)
+        escala = Decimal("1")
+        if base_obj is not None:
+            nuestro_factor_base = next(
+                (f for c, _n, _f, ib, _b, f in unit_list if c == base_code and ib),
+                Decimal("1"),
+            )
+            if nuestro_factor_base and base_obj.conversion_factor:
+                escala = Decimal(base_obj.conversion_factor) / Decimal(nuestro_factor_base)
+        factor_ajustado = (Decimal(factor) * escala).normalize()
         obj, was_created = Unit.objects.get_or_create(
             tenant=tenant, code=code,
             defaults={
                 "name": name, "family": family, "is_base": False,
-                "base_unit": base_obj, "conversion_factor": factor,
+                "base_unit": base_obj, "conversion_factor": factor_ajustado,
             },
         )
         if not was_created and not obj.family:
