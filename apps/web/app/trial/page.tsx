@@ -8,14 +8,19 @@ import { LogoIcon } from "@/components/ui/Logo";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
+// Los `value` son los del modelo (Tenant.BUSINESS_TYPE_CHOICES), no etiquetas
+// libres. El tipo decide qué unidades de medida se crean, los multiplicadores
+// de feriado del forecast y la plantilla de arranque de un local nuevo — así
+// que un valor que el backend no reconoce hace que las tres cosas caigan al
+// default en silencio. Antes esta lista mandaba "minimarket" y "ferreteria",
+// que no existen en el modelo.
 const BIZ_TYPES = [
-  { value: "minimarket", label: "Minimarket / Almacén" },
-  { value: "ferreteria", label: "Ferretería" },
-  { value: "farmacia", label: "Farmacia" },
-  { value: "ropa", label: "Tienda de ropa" },
-  { value: "libreria", label: "Librería / Bazar" },
+  { value: "retail", label: "Minimarket / Almacén" },
   { value: "restaurant", label: "Restaurant / Café" },
-  { value: "otro", label: "Otro" },
+  { value: "hardware", label: "Ferretería" },
+  { value: "wholesale", label: "Distribuidora" },
+  { value: "pharmacy", label: "Farmacia" },
+  { value: "other", label: "Otro" },
 ];
 
 export default function TrialPage() {
@@ -24,7 +29,7 @@ export default function TrialPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [businessName, setBusinessName] = useState("");
-  const [businessType, setBusinessType] = useState("minimarket");
+  const [businessType, setBusinessType] = useState("retail");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});

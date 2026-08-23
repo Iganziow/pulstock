@@ -943,7 +943,13 @@ def _auto_create_checkout_account(session, payment_data=None):
         first_name = parts[0] if parts else ""
         last_name = parts[1] if len(parts) > 1 else ""
 
-        tenant = Tenant(name=session.business_name, slug=slug, is_active=True)
+        # B19: la sesion capturo el tipo de negocio; antes se creaba el
+        # Tenant sin el y todo cliente que pagaba quedaba en "retail".
+        from core.business_types import normalizar as _norm_btype
+        tenant = Tenant(
+            name=session.business_name, slug=slug, is_active=True,
+            business_type=_norm_btype(session.business_type),
+        )
         tenant._skip_default_store = True
         tenant._skip_subscription = True
         tenant.save()
@@ -1280,7 +1286,13 @@ class CheckoutCompleteView(APIView):
         try:
             with transaction.atomic():
                 # 1. Tenant (skip auto-subscription)
-                tenant = Tenant(name=business_name, slug=slug, is_active=True)
+                # B19: mismo caso — el formulario manda el tipo correcto
+                # y se descartaba dos lineas despues de leerlo.
+                from core.business_types import normalizar as _norm_btype
+                tenant = Tenant(
+                    name=business_name, slug=slug, is_active=True,
+                    business_type=_norm_btype(business_type),
+                )
                 tenant._skip_default_store = True
                 tenant._skip_subscription = True
                 tenant.save()

@@ -60,6 +60,7 @@ class RegisterView(APIView):
         password = data.get("password") or ""
         full_name = (data.get("full_name") or "").strip()
         business_name = (data.get("business_name") or "").strip()
+        from core.business_types import normalizar as normalizar_business_type
         business_type = (data.get("business_type") or "").strip()
         store_name = (data.get("store_name") or "").strip() or "Mi Local"
         warehouse_name = (data.get("warehouse_name") or "").strip() or "Bodega Principal"
@@ -110,7 +111,7 @@ class RegisterView(APIView):
                 tenant = Tenant(
                     name=business_name,
                     slug=slug,
-                    business_type=business_type or "retail",
+                    business_type=normalizar_business_type(business_type),
                     is_active=True,
                 )
                 tenant._skip_default_store = True
