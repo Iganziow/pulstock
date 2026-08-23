@@ -60,6 +60,17 @@ class Command(BaseCommand):
                             help="No envía emails, solo lista quiénes recibirían")
 
     def handle(self, *args, **options):
+        # Heartbeat para que una alerta rota se vea en /health/deep/ en vez de
+        # descubrirse porque el dueno comenta que dejo de recibir el correo.
+        # 36h de tolerancia: es diaria, con margen para un dia fallado.
+        # El dry-run no registra: es una consulta, no la corrida real.
+        if options.get("dry_run"):
+            return self._handle(*args, **options)
+        from core.cron_utils import cron_wrapper
+        with cron_wrapper("inventory.low_stock_alerts", max_age_min=36 * 60):
+            return self._handle(*args, **options)
+
+    def _handle(self, *args, **options):
         from core.models import Tenant, User, AlertPreference
 
         tenant_id = options.get("tenant")

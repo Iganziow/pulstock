@@ -201,6 +201,18 @@ class TestAlertaDeQuiebre:
         call_command("send_low_stock_alerts", "--dry-run", verbosity=0)
         assert len(mail.outbox) == 0
 
+    def test_registra_heartbeat(
+        self, tenant, store, warehouse, dueño_con_correo, leche,
+    ):
+        """Una alerta que se rompe en silencio es peor que no tenerla."""
+        from core.models import CronHeartbeat
+        _sin_stock(tenant, warehouse, leche)
+        _vender(tenant, store, warehouse, dueño_con_correo, leche)
+
+        call_command("send_low_stock_alerts", verbosity=0)
+        hb = CronHeartbeat.objects.filter(task_name="inventory.low_stock_alerts").first()
+        assert hb is not None and hb.last_result == "ok"
+
 
 # ══════════════════════════════════════════════════════════════════════
 # REPORTE ABC SEMANAL
