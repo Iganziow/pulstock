@@ -154,7 +154,12 @@ def _confianza(fm) -> str | None:
     razon = (fm.confidence_reason or "").strip()
     base = f"La confianza es {nivel}"
     if razon:
-        base += f": {razon[0].lower()}{razon[1:]}"
+        # Minuscula inicial para que encadene con los dos puntos — salvo que
+        # la razon empiece con una sigla (WAPE, MAPE). "wAPE real 26%" se lee
+        # como un error de tipeo y le resta seriedad a todo el texto.
+        primera = razon.split(" ", 1)[0]
+        es_sigla = len(primera) > 1 and primera[:2].isupper()
+        base += f": {razon}" if es_sigla else f": {razon[0].lower()}{razon[1:]}"
     base += "."
     if fm.confidence_label in ("low", "very_low"):
         base += (

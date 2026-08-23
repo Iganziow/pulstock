@@ -109,6 +109,18 @@ class TestLoQueElModeloAprendio:
         texto = " ".join(explicar_modelo(fm, unidad="unidades")["detalles"])
         assert "confianza es alta" in texto
         assert "26%" in texto
+        # Las siglas no se minusculizan: "wAPE" se lee como error de tipeo.
+        assert "WAPE" in texto and "wAPE" not in texto
+
+    def test_una_razon_normal_si_encadena_en_minuscula(
+        self, tenant, warehouse, product,
+    ):
+        fm = _modelo(
+            tenant, warehouse, product, "simple_avg", {"avg_daily": "50"},
+            confidence_label="medium", confidence_reason="Pocos dias de datos",
+        )
+        texto = " ".join(explicar_modelo(fm, unidad="unidades")["detalles"])
+        assert "es media: pocos dias" in texto
 
     def test_con_confianza_baja_sugiere_revisar_antes_de_aprobar(
         self, tenant, warehouse, product,
