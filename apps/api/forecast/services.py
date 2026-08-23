@@ -34,6 +34,7 @@ from django.utils import timezone
 from core.models import Warehouse
 from catalog.models import Product, Recipe, RecipeLine
 from inventory.models import StockItem
+from forecast.explain import explicar_ingredientes, explicar_modelo
 from forecast.models import (
     DailySales, ForecastModel, Forecast,
     PurchaseSuggestion, SuggestionLine,
@@ -724,6 +725,12 @@ def get_product_detail(tenant_id, product_id, warehouse_ids, history_days=30):
             "trained_at": fm.trained_at.isoformat() if fm else None,
             "params": fm.model_params if fm else None,
             "demand_pattern": fm.demand_pattern if fm else None,
+            # Mario: "en predicciones ver de donde sale cada cosa". Todo lo de
+            # arriba ya estaba, pero en JSON que solo sirve para depurar. Esto
+            # lo traduce a castellano — mismo tratamiento que ya tenia la
+            # sugerencia de compra.
+            "explanation": explicar_modelo(fm, unidad=unit_code or "unidades"),
+            "recipe_breakdown": explicar_ingredientes(fm),
         } if fm else None,
         "suggestion": suggestion_info,
         "history": [
