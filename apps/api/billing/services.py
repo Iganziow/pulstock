@@ -192,8 +192,17 @@ def register_payment_failure(
         days_to_retry = RETRY_SCHEDULE[retry_count - 1]
         subscription.next_retry_at = now + timedelta(days=days_to_retry)
         subscription.status = Subscription.Status.PAST_DUE
-        if not subscription.notified_past_due:
-            subscription.notified_past_due = True   # trigger en task de notificaciones
+        # B22: NO marcar notified_past_due aca.
+        #
+        # El comentario original decia "trigger en task de notificaciones",
+        # pero send_payment_reminders busca `notified_past_due=False` para
+        # saber a quien avisar. Marcarlo True al fallar el pago hacia que la
+        # tarea no lo encontrara nunca: el correo de "no pudimos procesar tu
+        # pago" no se enviaba JAMAS.
+        #
+        # Con B20 desplegado esto pasa de molesto a grave: un cobro fallido ya
+        # no activa el periodo, asi que el cliente pierde el servicio y nadie
+        # le dice por que. El flag lo pone la tarea DESPUES de enviar.
     else:
         # Agotó reintentos → suspender acceso
         subscription.status       = Subscription.Status.SUSPENDED
