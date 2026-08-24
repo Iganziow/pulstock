@@ -122,7 +122,10 @@ class DeepHealthView(APIView):
             heartbeats = list(CronHeartbeat.objects.all())
 
             def _es_critica(nombre):
-                return nombre.startswith("billing.")
+                # `billing.` toca plata; `backup.` toca la existencia del
+                # negocio. Un respaldo que no corre no se nota hasta el dia
+                # que hay que restaurar, y ese dia ya es tarde.
+                return nombre.startswith(("billing.", "backup."))
 
             # "partial" = corrio y funciono para algunos negocios. Nunca es
             # critico aunque la tarea lo sea: un cliente con un problema no

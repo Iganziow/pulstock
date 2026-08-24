@@ -157,3 +157,30 @@ class TestSiNoSePuedeSaberEsCritico:
         r = _salud()
         assert r.status_code == 503
         assert r.json()["status"] == "down"
+
+
+@pytest.mark.django_db
+class TestElRespaldoEsCritico:
+    """Un respaldo que no corre no se nota hasta el día que hay que restaurar.
+
+    Era la única tarea crítica sin heartbeat: `backup.sh` es un script de bash
+    y escribía su resultado en un log que nadie abre. Ahora se anota como el
+    resto y cuenta como crítico — si el respaldo falla, la alarma suena.
+    """
+
+    def test_un_respaldo_fallido_dispara_la_alarma(self):
+        _latido("backup.diario", "failed")
+        r = _salud()
+        assert r.status_code == 503, (
+            "el respaldo falló y el monitor se quedó callado"
+        )
+        assert r.json()["status"] == "down"
+
+    def test_un_respaldo_que_dejo_de_correr_tambien(self):
+        """Peor que fallar: no ejecutarse. No deja ni un error que mirar."""
+        _latido("backup.diario", "ok", edad_min=3000)
+        assert _salud().status_code == 503
+
+    def test_con_el_respaldo_al_dia_no_molesta(self):
+        _latido("backup.diario", "ok")
+        assert _salud().status_code == 200

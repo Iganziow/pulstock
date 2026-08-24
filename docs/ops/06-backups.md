@@ -151,3 +151,70 @@ echo "✅ Restauración completada"
 RESTORE_EOF
 chmod +x /root/restore.sh
 ```
+
+
+---
+
+## Restaurar desde un respaldo cifrado — probado el 24-ago-2026
+
+Este procedimiento se ejecutó de punta a punta contra producción: se cifró un
+volcado, se borró el original, se descifró y se restauró en una base
+descartable. Las cinco tablas comparadas dieron **exactamente los mismos
+conteos** que producción.
+
+### 1. Descifrar
+
+```bash
+gpg --batch --passphrase-fd 0 --decrypt     --output /tmp/restore.sql.gz     /var/backups/pulstock/pulstock_AAAAMMDD_HHMM.sql.gz.gpg
+```
+
+Pide la contraseña por stdin. Está en `/etc/pulstock-backup.env` **y debería
+estar también en un gestor de contraseñas**: si se pierde, todos los respaldos
+cifrados son basura irrecuperable.
+
+Verificá que salió bien antes de seguir:
+
+```bash
+gzip -t /tmp/restore.sql.gz && echo "archivo integro"
+```
+
+### 2. Restaurar en una base descartable, NUNCA sobre producción
+
+```bash
+sudo -u postgres psql -c "CREATE DATABASE pulstock_restore OWNER pulstock;"
+zcat /tmp/restore.sql.gz | sudo -u postgres psql -d pulstock_restore
+```
+
+> **`sudo -u postgres` no es opcional.** El usuario `pulstock` **no tiene
+> permiso para crear bases** (`rolcreatedb = f`). Si intentás con él, el
+> `CREATE DATABASE` falla, el restore va a una base que no existe y las
+> consultas devuelven vacío — parece que el respaldo estaba corrupto cuando el
+> problema era el permiso. Pasó en la primera prueba.
+
+### 3. Comparar antes de confiar
+
+```bash
+for t in sales_sale catalog_product inventory_stockmove core_tenant; do
+  a=$(sudo -u postgres psql -d pulstock -tAc "SELECT count(*) FROM $t")
+  b=$(sudo -u postgres psql -d pulstock_restore -tAc "SELECT count(*) FROM $t")
+  printf "%-24s prod=%-8s restaurada=%s
+" "$t" "$a" "$b"
+done
+```
+
+### 4. Recién ahí, promover
+
+Si los conteos cuadran y la app arranca contra la base restaurada, se puede
+apuntar `DATABASE_URL` a ella o renombrar. **Antes de promover, hacer un
+volcado de la base actual**: por rota que esté, puede tener datos de hoy que el
+respaldo no.
+
+```bash
+sudo -u postgres psql -c "DROP DATABASE pulstock_restore;"   # al terminar la prueba
+```
+
+### Cada cuánto conviene hacer esto
+
+Una vez al mes, aunque no pase nada. Un respaldo que nunca se restauró es una
+suposición, no un respaldo — y el día que haga falta no es el día de descubrir
+que no funcionaba.
