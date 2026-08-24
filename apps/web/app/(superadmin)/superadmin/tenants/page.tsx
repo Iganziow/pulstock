@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { vencimiento, cuentaPorVencer } from "@/lib/suscripcion";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", border: "#334155",
@@ -26,6 +27,12 @@ const STATUS_LABELS: Record<string, string> = {
   active: "Activa", trialing: "Trial", past_due: "Pendiente", suspended: "Suspendida", cancelled: "Cancelada",
 };
 const fCLP = (n: number) => "$" + n.toLocaleString("es-CL");
+
+// El color hace el trabajo de escaneo: rojo es plata que ya no entro, ambar es
+// la lista de llamados de esta semana.
+const VENC_COLORS: Record<string, string> = {
+  vencido: C.red, urgente: C.red, proximo: C.yellow, ok: C.mute,
+};
 
 export default function TenantsPage() {
   const router = useRouter();
@@ -75,7 +82,20 @@ export default function TenantsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Tenants</h1>
-          <p style={{ color: C.mute, fontSize: 13, margin: "4px 0 0" }}>{total} negocios registrados</p>
+          <p style={{ color: C.mute, fontSize: 13, margin: "4px 0 0" }}>
+            {total} negocios registrados
+            {(() => {
+              // Cuenta solo sobre la pagina cargada: decirlo asi evita que el
+              // numero se lea como "de toda la plataforma" y se confie de mas.
+              const n = cuentaPorVencer(tenants.map(t => t.subscription?.current_period_end));
+              if (!n) return null;
+              return (
+                <span style={{ color: C.yellow, fontWeight: 700 }}>
+                  {" · "}{n} {n === 1 ? "vence" : "vencen"} esta semana
+                </span>
+              );
+            })()}
+          </p>
         </div>
       </div>
 
@@ -102,7 +122,7 @@ export default function TenantsPage() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: C.bg, borderBottom: `1px solid ${C.border}` }}>
-              {["Negocio", "Plan", "Estado", "Usuarios", "Locales", "Creado", "Acciones"].map((h) => (
+              {["Negocio", "Plan", "Estado", "Vence", "Usuarios", "Locales", "Creado", "Acciones"].map((h) => (
                 <th key={h} style={{ padding: "10px 14px", textAlign: "left", color: C.mute, fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em" }}>
                   {h}
                 </th>
@@ -111,9 +131,9 @@ export default function TenantsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} style={{ padding: 30, textAlign: "center", color: C.mute }}>Cargando...</td></tr>
+              <tr><td colSpan={8} style={{ padding: 30, textAlign: "center", color: C.mute }}>Cargando...</td></tr>
             ) : tenants.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 30, textAlign: "center", color: C.mute }}>Sin resultados.</td></tr>
+              <tr><td colSpan={8} style={{ padding: 30, textAlign: "center", color: C.mute }}>Sin resultados.</td></tr>
             ) : tenants.map((t) => (
               <tr
                 key={t.id}
@@ -148,6 +168,22 @@ export default function TenantsPage() {
                   ) : (
                     <span style={{ color: C.mute, fontSize: 11 }}>Sin plan</span>
                   )}
+                </td>
+                <td style={{ padding: "10px 14px" }}>
+                  {(() => {
+                    const v = vencimiento(t.subscription?.current_period_end);
+                    if (!v) return <span style={{ color: C.mute }}>—</span>;
+                    return (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: VENC_COLORS[v.urgencia] }}>
+                          {v.texto}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.mute }}>
+                          {new Date(t.subscription!.current_period_end!).toLocaleDateString("es-CL")}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td style={{ padding: "10px 14px", fontWeight: 600 }}>{t.user_count}</td>
                 <td style={{ padding: "10px 14px", fontWeight: 600 }}>{t.store_count}</td>

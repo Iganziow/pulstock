@@ -12,6 +12,7 @@ Modelos:
 
 import uuid
 
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -23,11 +24,29 @@ from datetime import timedelta
 # ─────────────────────────────────────────────
 class Plan(models.Model):
     class PlanKey(models.TextChoices):
+        """Los tres planes con los que arranco la plataforma.
+
+        Siguen aca porque el resto del codigo los usa como valor por defecto
+        (`create_subscription`, la señal de alta), NO como lista cerrada: la
+        clave es un CharField libre para poder crear planes nuevos —un plan
+        anual, uno para un cliente grande— desde el admin, sin deploy.
+
+        Se puede porque las features NO se deciden por la clave sino por los
+        flags de cada fila (`has_forecast`, `max_products`, …). Un plan nuevo
+        funciona con solo cargarlo.
+        """
         INICIO      = "inicio",      "Plan Inicio"
         CRECIMIENTO = "crecimiento", "Plan Crecimiento"
         PRO         = "pro",         "Plan Pro"
 
-    key         = models.CharField(max_length=20, choices=PlanKey.choices, unique=True)
+    key         = models.CharField(
+        max_length=20, unique=True,
+        validators=[RegexValidator(
+            r"^[a-z][a-z0-9_]*$",
+            "Usa solo minusculas, numeros y guion bajo (ej: anual, pro_plus).",
+        )],
+        help_text="Identificador interno. No se muestra al cliente.",
+    )
     name        = models.CharField(max_length=80)
     price_clp   = models.IntegerField(default=0, help_text="Precio mensual en CLP")
     trial_days  = models.IntegerField(default=14, help_text="Días de prueba gratis")

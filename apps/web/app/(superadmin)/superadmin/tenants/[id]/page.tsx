@@ -31,6 +31,10 @@ export default function TenantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // Los planes venian escritos a mano en el <select>. Si se crea uno nuevo
+  // —el plan anual que recomienda el roadmap, por ejemplo— no aparecia acá y
+  // no habia forma de asignarlo desde la plataforma.
+  const [planes, setPlanes] = useState<{ key: string; name: string; price_clp: number }[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -41,6 +45,12 @@ export default function TenantDetailPage() {
   };
 
   useEffect(() => { load(); }, [tenantId]);
+
+  useEffect(() => {
+    // Si falla, el selector queda vacio y se muestra el aviso de abajo: es
+    // preferible a ofrecer planes que quiza ya no existan.
+    apiFetch("/billing/plans/").then(setPlanes).catch(() => setPlanes([]));
+  }, []);
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
@@ -222,10 +232,14 @@ export default function TenantDetailPage() {
                 onChange={(e) => { if (e.target.value) updateSub({ plan_key: e.target.value }); e.target.value = ""; }}
                 style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 12px", color: C.text, fontSize: 12 }}
               >
-                <option value="">Cambiar plan...</option>
-                <option value="inicio">Plan Inicio</option>
-                <option value="crecimiento">Plan Crecimiento</option>
-                <option value="pro">Plan Pro</option>
+                <option value="">
+                  {planes.length ? "Cambiar plan..." : "Sin planes disponibles"}
+                </option>
+                {planes.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.name} — ${p.price_clp.toLocaleString("es-CL")}
+                  </option>
+                ))}
               </select>
 
               <select
