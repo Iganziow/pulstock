@@ -16,6 +16,7 @@ from decimal import Decimal
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from core.heartbeat import with_heartbeat
+from core.multi_tenant import tenants_a_procesar
 from django.db.models import Sum, Q
 
 from core.models import Tenant
@@ -70,9 +71,7 @@ class Command(BaseCommand):
         today = date.today()
         started_at = tz.now()
 
-        tenants = Tenant.objects.all()
-        if options["tenant"]:
-            tenants = tenants.filter(id=options["tenant"])
+        tenants = tenants_a_procesar(options, command=self)
 
         stats = {"trained": 0, "skipped": 0, "improved": 0, "kept": 0,
                  "by_algo": {}, "failed": 0, "errors": []}

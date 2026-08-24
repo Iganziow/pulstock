@@ -53,10 +53,15 @@ def with_heartbeat(task_name: str, expected_max_age_minutes: int = 26 * 60):
             try:
                 result = fn(*args, **kwargs)
             except Exception as e:
+                # "partial" != "failed": la tarea corrio y funciono para
+                # algunos negocios. Un cliente con un problema no puede
+                # marcar la plataforma como caida — ver DeepHealthView.
+                from core.multi_tenant import FallaParcial
+                resultado = "partial" if isinstance(e, FallaParcial) else "failed"
                 CronHeartbeat.objects.update_or_create(
                     task_name=task_name,
                     defaults={
-                        "last_result": "failed",
+                        "last_result": resultado,
                         "last_error": str(e)[:500],
                         "last_duration_s": round(time.monotonic() - start, 1),
                         "expected_max_age_minutes": expected_max_age_minutes,

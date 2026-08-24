@@ -41,10 +41,21 @@ class DeepHealthView(APIView):
     Deep health check — verifica DB, Redis, cron heartbeats, cert SSL.
 
     Uso:
-      GET /api/core/health/deep/              → overall: "ok" | "degraded" | "down"
+      GET /api/core/health/deep/              → status: "ok" | "degraded" | "down"
       GET /api/core/health/deep/?token=<SECRET>   → incluye detalles (protegido)
+      GET /api/core/health/deep/?strict=1         → 503 tambien en "degraded"
 
-    El monitor externo puede hacer polling cada ~5 min y alertar si status != ok.
+    Codigos HTTP:
+      200  ok o degraded  → la plataforma responde
+      503  down           → hay que actuar ahora
+
+    El 200 en "degraded" es deliberado. Un monitor externo apuntado aca debe
+    sonar cuando el negocio se detiene, no cuando la calidad de un pronostico
+    baja. Antes cualquier aviso devolvia 503 y la salud quedo en rojo
+    permanente durante dias por 6 productos sin medir: una alarma que suena
+    siempre no la lee nadie, y el dia que de verdad se caiga algo va a
+    parecer mas de lo mismo.
+
     Sin token: responde summary mínimo (evita exponer estado interno).
     """
     permission_classes = [AllowAny]
@@ -92,22 +103,55 @@ class DeepHealthView(APIView):
                 overall_degraded = True
 
         # ── Cron heartbeats ──
+        #
+        # No todas las tareas pesan igual. El codigo HTTP de este endpoint
+        # responde UNA pregunta: "¿hay que despertar a alguien ahora?". Si
+        # contesta que si por cosas que pueden esperar al lunes, el monitor
+        # externo se vuelve ruido y el dia que se caiga la base nadie mira.
+        #
+        # Criticas: las que tocan plata. Una renovacion que no corre es un
+        # cobro perdido o un cliente cortado sin motivo.
+        #
+        # El resto son avisos: importan y hay que atenderlos, pero la
+        # plataforma esta de pie mientras tanto. El caso testigo es
+        # `forecast.check_coverage`, que tuvo la salud en rojo permanente
+        # durante dias por 6 productos sin medir — informacion util, urgencia
+        # equivocada.
         try:
             from core.models import CronHeartbeat
             heartbeats = list(CronHeartbeat.objects.all())
-            stale_tasks = [h.task_name for h in heartbeats if h.is_stale]
-            failed_tasks = [h.task_name for h in heartbeats if h.last_result == "failed"]
+
+            def _es_critica(nombre):
+                return nombre.startswith("billing.")
+
+            # "partial" = corrio y funciono para algunos negocios. Nunca es
+            # critico aunque la tarea lo sea: un cliente con un problema no
+            # es la plataforma caida.
+            caidas = [h.task_name for h in heartbeats if h.last_result == "failed"]
+            parciales = [h.task_name for h in heartbeats if h.last_result == "partial"]
+            detenidas = [h.task_name for h in heartbeats if h.is_stale]
+
+            criticas = [n for n in caidas + detenidas if _es_critica(n)]
+            avisos = [n for n in caidas + detenidas if not _es_critica(n)] + parciales
+
             checks["cron"] = {
-                "ok": not stale_tasks and not failed_tasks,
+                "ok": not criticas and not avisos,
                 "registered": len(heartbeats),
-                "stale": stale_tasks,
-                "failed": failed_tasks,
+                "criticas": criticas,
+                "avisos": avisos,
+                "stale": detenidas,
+                "failed": caidas,
+                "partial": parciales,
             }
-            if stale_tasks or failed_tasks:
+            if criticas:
+                overall_ok = False
+            elif avisos:
                 overall_degraded = True
         except Exception as e:
+            # Si no se puede leer el estado de los crons, no se sabe nada:
+            # eso si es critico.
             checks["cron"] = {"ok": False, "error": str(e)[:200]}
-            overall_degraded = True
+            overall_ok = False
 
         # ── Disk space ──
         try:
@@ -134,17 +178,25 @@ class DeepHealthView(APIView):
         else:
             status_str = "ok"
 
+        # El codigo HTTP responde "¿hay que actuar YA?", no "¿esta todo
+        # perfecto?". `degraded` devuelve 200 a proposito: son cosas que hay
+        # que atender pero que no justifican levantar a nadie, y un monitor
+        # que alerta por ellas deja de leerse.
+        #
+        # Con ?strict=1 tambien devuelve 503 en degraded, para quien quiera
+        # vigilar la calidad ademas de la disponibilidad.
+        estricto = request.GET.get("strict") in ("1", "true", "yes")
+        if status_str == "down" or (estricto and status_str == "degraded"):
+            http_status = 503
+        else:
+            http_status = 200
+
         # Sin token: respuesta mínima (no filtrar estado interno a cualquiera)
         if not show_details:
-            return Response(
-                {"status": status_str},
-                status=200 if status_str == "ok" else 503,
-            )
+            return Response({"status": status_str}, status=http_status)
 
-        return Response(
-            {"status": status_str, "checks": checks},
-            status=200 if status_str == "ok" else 503,
-        )
+        return Response({"status": status_str, "checks": checks},
+                        status=http_status)
 
 
 class WarehousesView(APIView):

@@ -297,7 +297,8 @@ class CronHeartbeat(models.Model):
     last_run_at = models.DateTimeField(auto_now=True)
     last_duration_s = models.FloatField(default=0)
     last_result = models.CharField(max_length=20, default="ok",
-        help_text="ok / failed / running")
+        help_text="ok / partial / failed / running. 'partial' = corrio pero "
+                  "fallo para algunos negocios; la plataforma sigue de pie.")
     last_error = models.CharField(max_length=500, blank=True, default="")
     # Cuán "viejo" puede estar antes de considerarse stale
     expected_max_age_minutes = models.IntegerField(default=90,

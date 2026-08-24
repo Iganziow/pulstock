@@ -38,7 +38,7 @@ from core.models import Tenant, Warehouse
 from catalog.models import Product
 from forecast.models import DailySales, CategoryDemandProfile
 from core.heartbeat import with_heartbeat
-from core.multi_tenant import exigir_todos, por_tenant
+from core.multi_tenant import exigir_todos, por_tenant, tenants_a_procesar
 
 
 def category_prior_estimator(per_product_avgs):
@@ -72,9 +72,7 @@ class Command(BaseCommand):
         lookback = max(7, options["days"])
         cutoff = date.today() - timedelta(days=lookback)
 
-        tenants = Tenant.objects.all()
-        if options["tenant"]:
-            tenants = tenants.filter(id=options["tenant"])
+        tenants = tenants_a_procesar(options, command=self)
 
         total = 0
 

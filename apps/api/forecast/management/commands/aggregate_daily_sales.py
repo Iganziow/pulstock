@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from core.heartbeat import with_heartbeat
-from core.multi_tenant import exigir_todos, por_tenant
+from core.multi_tenant import exigir_todos, por_tenant, tenants_a_procesar
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 
@@ -42,9 +42,7 @@ class Command(BaseCommand):
             today = date.today()
             days_to_process = [today - timedelta(days=i) for i in range(1, num_days + 1)]
 
-        tenants = Tenant.objects.all()
-        if options["tenant"]:
-            tenants = tenants.filter(id=options["tenant"])
+        tenants = tenants_a_procesar(options, command=self)
 
         total_created = 0
         total_updated = 0

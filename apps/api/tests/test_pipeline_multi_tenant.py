@@ -285,3 +285,116 @@ class TestConUnNegocioRotoDeVerdad:
 
         hb = CronHeartbeat.objects.get(task_name="train_forecast_models")
         assert hb.last_result == "failed"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# A QUIÉN SE PROCESA
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestAQuienRecorreElPipeline:
+    """`send_low_stock_alerts` ya filtraba `is_active=True`; el pipeline no.
+
+    Al sacar el `--tenant 1` del crontab, esa diferencia empieza a costar:
+    entrenar modelos para clientes dados de baja es trabajo que nadie paga y,
+    peor, un negocio muerto con datos corruptos puede hacer fallar la tarea y
+    encender la alarma de los que sí pagan.
+    """
+
+    @pytest.fixture
+    def uno_activo_y_uno_dado_de_baja(self, db, tenant):
+        baja = Tenant(name="Local Cerrado", slug="local-cerrado", is_active=False)
+        baja._skip_subscription = True
+        baja.save()
+        return tenant, baja
+
+    def test_saltea_los_negocios_dados_de_baja(self, uno_activo_y_uno_dado_de_baja):
+        from core.multi_tenant import tenants_a_procesar
+
+        activo, baja = uno_activo_y_uno_dado_de_baja
+        ids = [t.id for t in tenants_a_procesar({})]
+        assert activo.id in ids
+        assert baja.id not in ids
+
+    def test_dice_cuantos_salteo(self, uno_activo_y_uno_dado_de_baja, capsys):
+        """No es cosmético: si alguien desactiva un negocio por error, su
+        pronóstico deja de calcularse. Sin esta línea el silencio sería
+        idéntico al de todo funcionando bien."""
+        from django.core.management import BaseCommand
+        from core.multi_tenant import tenants_a_procesar
+
+        cmd = BaseCommand()
+        list(tenants_a_procesar({}, command=cmd))
+        assert "1 negocio(s) inactivo(s)" in capsys.readouterr().out
+
+    def test_el_flag_tenant_pasa_por_encima_del_filtro(
+        self, uno_activo_y_uno_dado_de_baja,
+    ):
+        """`--tenant` se usa para reprocesar casos raros a mano; si el filtro
+        lo bloqueara, no habría forma de tocar un negocio dado de baja."""
+        from core.multi_tenant import tenants_a_procesar
+
+        _, baja = uno_activo_y_uno_dado_de_baja
+        assert [t.id for t in tenants_a_procesar({"tenant": baja.id})] == [baja.id]
+
+    def test_coincide_con_el_criterio_de_las_alertas(
+        self, uno_activo_y_uno_dado_de_baja,
+    ):
+        """Los dos lados del sistema tienen que ver la misma lista de clientes,
+        o el forecast y las alertas hablan de negocios distintos."""
+        from core.models import Tenant as T
+        from core.multi_tenant import tenants_a_procesar
+
+        del_pipeline = {t.id for t in tenants_a_procesar({})}
+        de_las_alertas = set(T.objects.filter(is_active=True).values_list("id", flat=True))
+        assert del_pipeline == de_las_alertas
+
+
+@pytest.mark.django_db
+class TestParcialNoEsCaida:
+    """Un cliente roto y la plataforma caída son cosas distintas, y ahora el
+    heartbeat las distingue para que la salud pueda leerlas distinto."""
+
+    def test_si_algunos_terminaron_bien_queda_como_parcial(self):
+        from core.multi_tenant import FallaParcial, exigir_todos
+
+        with pytest.raises(FallaParcial) as e:
+            exigir_todos(4, [(_Falso(9, "Roto"), ValueError("boom"))])
+        assert e.value.ok == 4 and e.value.fallidos == 1
+
+    def test_si_no_se_proceso_ninguno_es_caida(self):
+        """Ninguno pasó: se rompió algo común —la base, un import, una
+        migración a medias— y eso sí hay que mirarlo ya."""
+        from core.multi_tenant import FallaParcial, exigir_todos
+
+        with pytest.raises(CommandError) as e:
+            exigir_todos(0, [(_Falso(1, "A"), ValueError("x")),
+                             (_Falso(2, "B"), ValueError("x"))])
+        assert not isinstance(e.value, FallaParcial)
+
+    def test_el_comando_igual_devuelve_error(self):
+        """Bajar la urgencia no es tragarse el fallo: el cron tiene que
+        registrar exit != 0 igual."""
+        from core.multi_tenant import FallaParcial
+        assert issubclass(FallaParcial, CommandError)
+
+    def test_el_heartbeat_guarda_parcial_no_fallido(self, dos_negocios, monkeypatch):
+        from core.models import CronHeartbeat
+        import forecast.management.commands.generate_purchase_suggestions as mod
+
+        _, roto = dos_negocios
+
+        def falla_para_uno(tenant, *a, **kw):
+            if tenant.id == roto.id:
+                raise ValueError("receta rota")
+            return 0, 0
+
+        monkeypatch.setattr(mod, "generate_suggestions", falla_para_uno)
+        with pytest.raises(CommandError):
+            call_command("generate_purchase_suggestions", verbosity=0)
+
+        hb = CronHeartbeat.objects.get(task_name="generate_purchase_suggestions")
+        assert hb.last_result == "partial", (
+            f"quedó como {hb.last_result!r}: un cliente con una receta rota "
+            f"marcaría la plataforma entera como caída"
+        )
