@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from core.heartbeat import with_heartbeat
+from core.multi_tenant import exigir_todos, por_tenant
 
 from core.models import Tenant
 from forecast.models import DailySales, Forecast, ForecastAccuracy, Holiday
@@ -59,9 +60,15 @@ class Command(BaseCommand):
             tenants = tenants.filter(id=options["tenant"])
 
         total = 0
-        for tenant in tenants:
+
+        def _un_tenant(tenant):
+            nonlocal total
             for d in days_to_process:
                 total += self._track_day(tenant, d)
+
+        # Aislado por negocio: un tenant con datos raros no puede dejar al
+        # resto sin medicion de precision.
+        ok, fallidos = por_tenant(tenants, _un_tenant, command=self)
 
         self.stdout.write(self.style.SUCCESS(f"Tracked {total} accuracy records"))
 
@@ -79,6 +86,10 @@ class Command(BaseCommand):
             self.stderr.write(self.style.WARNING(
                 f"Recalibración falló (no crítico): {e}"
             ))
+
+        # Al final del todo: la recalibracion alcanza a correr para los
+        # negocios sanos antes de que el comando falle por los rotos.
+        exigir_todos(ok, fallidos, command=self)
 
     def _track_day(self, tenant, target_date):
         """Compare forecasts vs actuals for one tenant on one day."""

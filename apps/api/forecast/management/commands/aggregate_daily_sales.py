@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from core.heartbeat import with_heartbeat
+from core.multi_tenant import exigir_todos, por_tenant
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 
@@ -48,15 +49,21 @@ class Command(BaseCommand):
         total_created = 0
         total_updated = 0
 
-        for tenant in tenants:
+        def _un_tenant(tenant):
+            nonlocal total_created, total_updated
             for d in days_to_process:
                 created, updated = self._aggregate_day(tenant, d)
                 total_created += created
                 total_updated += updated
 
+        # Aislado por negocio: sin esto, la excepcion del primer tenant deja a
+        # todos los siguientes sin demanda agregada, y en silencio.
+        ok, fallidos = por_tenant(tenants, _un_tenant, command=self)
+
         self.stdout.write(self.style.SUCCESS(
             f"Done: {total_created} created, {total_updated} updated across {len(days_to_process)} day(s)"
         ))
+        exigir_todos(ok, fallidos, command=self)
 
     def _aggregate_day(self, tenant, target_date):
         """Aggregate all sales, losses, and receipts for one tenant on one day."""

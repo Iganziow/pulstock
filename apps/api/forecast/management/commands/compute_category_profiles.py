@@ -37,6 +37,8 @@ from django.utils import timezone
 from core.models import Tenant, Warehouse
 from catalog.models import Product
 from forecast.models import DailySales, CategoryDemandProfile
+from core.heartbeat import with_heartbeat
+from core.multi_tenant import exigir_todos, por_tenant
 
 
 def category_prior_estimator(per_product_avgs):
@@ -63,6 +65,9 @@ class Command(BaseCommand):
         parser.add_argument("--tenant", type=int, help="Specific tenant ID")
         parser.add_argument("--days", type=int, default=60, help="Days of history to use (default: 60)")
 
+    # Era el UNICO paso del pipeline sin heartbeat: si dejaba de correr, los
+    # productos nuevos se quedaban sin prior de categoria y nadie se enteraba.
+    @with_heartbeat("compute_category_profiles")
     def handle(self, *args, **options):
         lookback = max(7, options["days"])
         cutoff = date.today() - timedelta(days=lookback)
@@ -72,12 +77,17 @@ class Command(BaseCommand):
             tenants = tenants.filter(id=options["tenant"])
 
         total = 0
-        for tenant in tenants:
+
+        def _un_tenant(tenant):
+            nonlocal total
             total += self._process_tenant(tenant, cutoff, lookback)
+
+        ok, fallidos = por_tenant(tenants, _un_tenant, command=self)
 
         self.stdout.write(self.style.SUCCESS(
             f"Done: {total} category profiles computed/updated"
         ))
+        exigir_todos(ok, fallidos, command=self)
 
     def _process_tenant(self, tenant, cutoff, lookback):
         # Get all warehouses for this tenant
