@@ -346,19 +346,50 @@ class Command(BaseCommand):
                 "priority": "critical" if forecast_days <= 1 else "warning",
             }
 
-        # Regla 2: min_stock automático = avg_daily × AUTO_MIN_DAYS
-        if avg_daily > 0:
-            auto_min = avg_daily * self.AUTO_MIN_DAYS
+        # Regla 2: minimo automatico.
+        #
+        # Antes era `avg_daily x 2`: dos dias de venta, plano para todo. Eso
+        # ignoraba dos cosas que deciden si la alerta sirve o llega tarde:
+        #   · la variabilidad (10±1 y 10±8 recibian el mismo minimo)
+        #   · el lead time (con proveedor de 5 dias, avisar a los 2 es tarde)
+        #
+        # Ahora usa el minimo que recalcula `recalcular_minimos` cada noche:
+        # consumo durante el lead time + colchon por variabilidad. Si todavia
+        # no se calculo —producto nuevo, primera noche— cae a la regla vieja
+        # para no dejar de avisar mientras tanto.
+        # La reja no puede ser `avg_daily > 0`.
+        #
+        # Ese promedio son los ultimos 14 dias, y para el papel higienico —el
+        # producto del que se quejo Mario— vale CERO: gasta 5 unidades en 80
+        # dias. Con esa condicion, calcular su minimo no servia de nada porque
+        # la regla no llegaba a evaluarse nunca.
+        #
+        # Alcanza con que exista un minimo calculado: `recalcular_minimos` solo
+        # lo pone si hubo consumo real. El filtro de descontinuados de mas
+        # arriba sigue intacto, asi que esto no revive productos muertos: los
+        # que estan en cero y no rotan se siguen callando.
+        calculado = getattr(item, "min_stock_auto", None)
+        if calculado or avg_daily > 0:
+            auto_min = float(calculado) if calculado else avg_daily * self.AUTO_MIN_DAYS
             if on_hand <= auto_min:
-                days_left = round(on_hand / avg_daily, 1)
-                priority = "critical" if days_left <= 1 else "warning"
+                days_left = round(on_hand / avg_daily, 1) if avg_daily > 0 else None
+                priority = "critical" if (days_left is not None and days_left <= 1) else "warning"
+                if days_left is not None:
+                    texto = (
+                        f"Te alcanza para {days_left} día{'s' if days_left != 1 else ''} "
+                        f"(vendes {round(avg_daily, 1)}/dia)"
+                    )
+                else:
+                    # Rotacion lenta: "te alcanza para 0 dias" seria falso y
+                    # alarmante. Lo util es decirle que ya toca reponer.
+                    texto = f"Quedan {round(on_hand, 1)} y conviene reponer"
                 return {
                     "product_name": product.name,
                     "sku": product.sku or "—",
                     "warehouse": warehouse_name,
                     "on_hand": on_hand,
                     "reason": "auto",
-                    "reason_text": f"Te alcanza para {days_left} día{'s' if days_left != 1 else ''} (vendés {round(avg_daily, 1)}/día)",
+                    "reason_text": texto,
                     "threshold": round(auto_min, 1),
                     "avg_daily": avg_daily,
                     "days_left": days_left,

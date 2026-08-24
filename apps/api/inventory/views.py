@@ -606,12 +606,14 @@ class StockList(APIView):
             if not product_ids:
                 return {}
             return {
-                si["product_id"]: (si["on_hand"], si["avg_cost"])
+                si["product_id"]: (
+                    si["on_hand"], si["avg_cost"], si["min_stock_auto"],
+                )
                 for si in StockItem.objects.filter(
                     tenant_id=t_id,
                     warehouse_id=warehouse_id,
                     product_id__in=product_ids,
-                ).values("product_id", "on_hand", "avg_cost")
+                ).values("product_id", "on_hand", "avg_cost", "min_stock_auto")
             }
 
         def _serialize(product_list):
@@ -623,7 +625,12 @@ class StockList(APIView):
                 bcs = list(getattr(p, "barcodes", []).all()) if hasattr(p, "barcodes") else []
                 if bcs:
                     barcode = bcs[0].code
-                on_hand, avg_cost = stock_by_product.get(p.id, (zero, zero))
+                on_hand, avg_cost, min_auto = stock_by_product.get(
+                    p.id, (zero, zero, None)
+                )
+                # El minimo manual manda sobre el sugerido: si el dueno puso un
+                # numero a mano, sabe algo que el historial no dice. El sugerido
+                # viaja igual para poder mostrarlo como referencia.
                 results.append({
                     "product_id": p.id,
                     "sku": p.sku,
@@ -633,6 +640,8 @@ class StockList(APIView):
                     "on_hand": str(on_hand),
                     "avg_cost": str(avg_cost),
                     "unit": p.unit_obj.code if p.unit_obj else (p.unit or "UN"),
+                    "min_stock": str(p.min_stock or zero),
+                    "min_stock_auto": str(min_auto) if min_auto is not None else None,
                 })
             return results
 

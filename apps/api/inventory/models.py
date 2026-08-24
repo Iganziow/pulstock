@@ -52,6 +52,19 @@ class StockItem(models.Model):
     # ✅ valorización persistida (on_hand * avg_cost, mantenida por lógica)
     stock_value = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
 
+    # Minimo calculado por el sistema, recalculado cada noche desde el consumo
+    # real (ver inventory/min_stock.py). Es el punto de reposicion clasico:
+    # consumo durante el lead time + colchon por variabilidad.
+    #
+    # NO pisa a Product.min_stock: si el dueno puso uno a mano, ese manda —
+    # sabe algo que el historial no dice. Este cubre los otros 244 productos
+    # que nadie va a configurar nunca.
+    min_stock_auto = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True,
+        help_text="Minimo sugerido por el sistema. Null = sin consumo reciente.",
+    )
+    min_stock_auto_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         unique_together = [("tenant", "warehouse", "product")]
         indexes = [

@@ -45,6 +45,7 @@ class TestElOrdenSeRespeta:
         call_command("run_nightly_pipeline", verbosity=0)
         assert espia_pasos == [
             "aggregate_daily_sales",
+            "recalcular_minimos",
             "track_forecast_accuracy",
             "compute_category_profiles",
             "train_forecast_models",
@@ -89,13 +90,13 @@ class TestCuandoUnPasoFallaDelTodo:
         """Si solo dijera 'falló', habría que leer el log entero para saber
         cuánto del pipeline alcanzó a correr."""
         self._falla_en(monkeypatch, "train_forecast_models", CommandError("x"))
-        with pytest.raises(CommandError, match="paso 4/5"):
+        with pytest.raises(CommandError, match="paso 5/6"):
             call_command("run_nightly_pipeline", verbosity=0)
 
     def test_tambien_corta_ante_un_error_inesperado(self, monkeypatch):
         """No solo CommandError: cualquier excepción del paso detiene todo."""
         self._falla_en(monkeypatch, "aggregate_daily_sales", ValueError("boom"))
-        with pytest.raises(CommandError, match="paso 1/5"):
+        with pytest.raises(CommandError, match="paso 1/6"):
             call_command("run_nightly_pipeline", verbosity=0)
 
 
@@ -174,4 +175,4 @@ class TestDejaRastro:
 
         monkeypatch.setattr(mod, "call_command", falso)
         call_command("run_nightly_pipeline", tenant=7, verbosity=0)
-        assert recibidos == [7] * 5
+        assert recibidos == [7] * 6

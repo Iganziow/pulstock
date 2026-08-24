@@ -55,12 +55,17 @@ from core.multi_tenant import FallaParcial
 
 # El orden importa y no es arbitrario:
 #   1. agregar la demanda del dia anterior      (base de todo lo demas)
-#   2. medir que tan bien predijimos ayer       (necesita 1)
-#   3. calcular los priors por categoria        (necesita 1)
-#   4. entrenar los modelos                     (necesita 1 y 3)
-#   5. convertir pronostico en sugerencia       (necesita 4)
+#   2. recalcular los minimos de stock          (necesita 1)
+#   3. medir que tan bien predijimos ayer       (necesita 1)
+#   4. calcular los priors por categoria        (necesita 1)
+#   5. entrenar los modelos                     (necesita 1 y 4)
+#   6. convertir pronostico en sugerencia       (necesita 5)
+#
+# Los minimos van temprano y no al final: la alerta de quiebre corre a las
+# 12:00 y tiene que leer los numeros de esta madrugada, no los de ayer.
 PASOS = [
     ("aggregate_daily_sales", {}),
+    ("recalcular_minimos", {}),
     ("track_forecast_accuracy", {"days": 1}),
     ("compute_category_profiles", {}),
     ("train_forecast_models", {"horizon": 30}),

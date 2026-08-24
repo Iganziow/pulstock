@@ -6,13 +6,42 @@ import { Btn, Modal } from "@/components/ui";
 export { Btn, Modal };
 
 export type Warehouse = { id: number; name: string; is_active: boolean; warehouse_type?: string };
-export type StockRow = { product_id: number; sku: string | null; name: string; category: string | null; barcode: string | null; on_hand: string; avg_cost?: string | null; unit?: string | null };
+export type StockRow = { product_id: number; sku: string | null; name: string; category: string | null; barcode: string | null; on_hand: string; avg_cost?: string | null; unit?: string | null; min_stock?: string | null; min_stock_auto?: string | null };
 
 export function toNum(v: string | number | null | undefined): number {
   if (v == null) return NaN;
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
 }
+/**
+ * El minimo que aplica a un producto, o null si no hay ninguno.
+ *
+ * El manual manda sobre el sugerido: si el dueno puso un numero a mano sabe
+ * algo que el historial no dice —viene un evento, cambio de proveedor— y el
+ * sistema no tiene por que pisarlo.
+ *
+ * El sugerido lo recalcula el servidor cada noche desde el consumo real
+ * (consumo durante el lead time + colchon por variabilidad), asi que sigue al
+ * negocio solo: si un producto se pone de moda, su minimo sube.
+ */
+export function minimoEfectivo(r: StockRow): number | null {
+  const manual = toNum(r.min_stock ?? "");
+  if (!isNaN(manual) && manual > 0) return manual;
+  const auto = toNum(r.min_stock_auto ?? "");
+  if (!isNaN(auto) && auto > 0) return auto;
+  return null;
+}
+
+/** Si el producto esta en o por debajo de su minimo (y todavia tiene stock). */
+export function bajoMinimo(r: StockRow): boolean {
+  const n = toNum(r.on_hand);
+  if (isNaN(n) || n <= 0) return false;
+  const min = minimoEfectivo(r);
+  // Sin minimo no hay con que comparar: se cae al umbral plano de siempre
+  // para no dejar de marcar productos que aun no tienen historial.
+  return min === null ? n <= 5 : n <= min;
+}
+
 export function fQty(v: string): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return v;

@@ -9,7 +9,7 @@ import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { Spinner, SkeletonPage } from "@/components/ui";
 import { useBreakpoint } from "@/hooks/useIsMobile";
 import {
-  Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos,
+  Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos, bajoMinimo, minimoEfectivo,
   type Warehouse, type StockRow,
 } from "@/components/inventory/StockShared";
 import { ReceiveModal, IssueModal, AdjustModal, TransferModal } from "@/components/inventory/StockModals";
@@ -210,7 +210,7 @@ export default function StockPage() {
 
   const metrics = useMemo(() => {
     const total = items.length;
-    const low = items.filter(r => { const n = toNum(r.on_hand); return !isNaN(n) && n > 0 && n <= 5; }).length;
+    const low = items.filter(bajoMinimo).length;
     const zero = items.filter(r => toNum(r.on_hand) <= 0).length;
     const totalUnits = items.reduce((a, r) => { const n = toNum(r.on_hand); return a + (isNaN(n) ? 0 : n); }, 0);
     return { total, low, zero, totalUnits };
@@ -255,7 +255,7 @@ export default function StockPage() {
           {[
             { label: "Productos", value: String(metrics.total), color: C.accent, sub: "en bodega" },
             { label: "Unidades tot.", value: metrics.totalUnits.toLocaleString("es-CL", { maximumFractionDigits: 0 }), color: C.accent, sub: "on_hand total" },
-            { label: "Stock bajo", value: String(metrics.low), color: C.amber, sub: "≤ 5 unidades" },
+            { label: "Stock bajo", value: String(metrics.low), color: C.amber, sub: "bajo su minimo" },
             { label: "Sin stock", value: String(metrics.zero), color: C.red, sub: "on_hand = 0" },
           ].map(s => (
             <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.rMd, padding: "12px 16px", boxShadow: C.sh }}>
@@ -264,6 +264,16 @@ export default function StockPage() {
               <div style={{ fontSize: 11, color: C.mute, marginTop: 3 }}>{s.sub}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Sin esta linea el asterisco de "mín 2*" queda cifrado, y un numero
+          que no se entiende no se usa. */}
+      {!meErr && items.some(r => minimoEfectivo(r) !== null) && (
+        <div style={{ fontSize: 11.5, color: C.mute, marginTop: -6, paddingLeft: 2 }}>
+          El mínimo marcado con <strong style={{ color: C.mid }}>*</strong> lo calcula el
+          sistema cada noche según tu consumo real y se ajusta solo. Si defines uno a mano,
+          ese manda.
         </div>
       )}
 
@@ -315,7 +325,9 @@ export default function StockPage() {
 
             {!loading && !err && items.map((r, i) => {
               const n = toNum(r.on_hand);
-              const isLow = !isNaN(n) && n > 0 && n <= 5;
+              const isLow = bajoMinimo(r);
+              const min = minimoEfectivo(r);
+              const minManual = toNum(r.min_stock ?? "") > 0;
               const isZero = !isNaN(n) && n <= 0;
               return (
                 <div key={r.product_id} className="prow" style={{ display: "grid", gridTemplateColumns: "1fr 90px 130px 110px 80px 130px 220px", columnGap: 14, padding: "11px 18px", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none", alignItems: "center", borderLeft: isZero ? `3px solid ${C.red}` : isLow ? `3px solid ${C.amber}` : "3px solid transparent" }}>
@@ -330,7 +342,17 @@ export default function StockPage() {
                   <div style={{ fontSize: 12, color: r.sku ? C.mid : C.mute, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sku ?? "—"}</div>
                   <div style={{ fontSize: 12, color: r.category ? C.mid : C.mute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.category ?? "—"}</div>
                   <div style={{ fontSize: 11, color: C.mute, fontFamily: C.mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.barcode ?? "—"}</div>
-                  <div style={{ textAlign: "right" }}><StockBadge val={r.on_hand} /></div>
+                  <div style={{ textAlign: "right" }}>
+                    <StockBadge val={r.on_hand} />
+                    {min !== null && (
+                      <div
+                        title={minManual ? "Mínimo que definiste" : "Mínimo sugerido según tu consumo"}
+                        style={{ fontSize: 10, color: C.mute, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", marginTop: 2, whiteSpace: "nowrap" }}
+                      >
+                        mín {fQty(String(min))}{minManual ? "" : "*"}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ textAlign: "right", fontSize: 12, color: C.mid, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                     {r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : "—"}
                   </div>
@@ -359,7 +381,9 @@ export default function StockPage() {
 
             {!loading && !err && items.map((r) => {
               const n = toNum(r.on_hand);
-              const isLow = !isNaN(n) && n > 0 && n <= 5;
+              const isLow = bajoMinimo(r);
+              const min = minimoEfectivo(r);
+              const minManual = toNum(r.min_stock ?? "") > 0;
               const isZero = !isNaN(n) && n <= 0;
               const cost = r.avg_cost && toNum(r.avg_cost) > 0 ? `$${Math.round(toNum(r.avg_cost)).toLocaleString("es-CL")}` : null;
               return (
@@ -384,7 +408,14 @@ export default function StockPage() {
                         </div>
                       )}
                     </div>
-                    <div style={{ flexShrink: 0 }}><StockBadge val={r.on_hand} /></div>
+                    <div style={{ flexShrink: 0, textAlign: "right" }}>
+                      <StockBadge val={r.on_hand} />
+                      {min !== null && (
+                        <div style={{ fontSize: 10, color: C.mute, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", marginTop: 3, whiteSpace: "nowrap" }}>
+                          mín {fQty(String(min))}{minManual ? "" : "*"}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* META */}
