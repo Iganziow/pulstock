@@ -1,8 +1,21 @@
 /** Format a number as Chilean Pesos (no symbol, dot-separated thousands). */
+/**
+ * Formatea un monto en pesos chilenos.
+ *
+ * `maximumFractionDigits: 0` no es opcional: el peso chileno NO tiene
+ * centavos. Sin esa opcion, `toLocaleString` usa 3 decimales por defecto y el
+ * dashboard mostraba el stock valorizado como "$5.096.714,232" — que en
+ * notacion chilena se lee como cinco millones con 232 milesimas. Nadie
+ * escribe precios asi en Chile.
+ *
+ * Ojo al leerlo: en es-CL el punto separa miles y la coma separa decimales,
+ * al reves del ingles. Por eso el error pasaba desapercibido: "5.096.714,232"
+ * se parece bastante a algo correcto.
+ */
 export function formatCLP(value: string | number) {
   const n = typeof value === "string" ? Number(value) : value;
   if (Number.isNaN(n)) return String(value);
-  return n.toLocaleString("es-CL");
+  return n.toLocaleString("es-CL", { maximumFractionDigits: 0 });
 }
 
 /**

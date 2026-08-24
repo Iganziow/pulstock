@@ -120,7 +120,7 @@ siente que le sacaron el trabajo aburrido lo defiende.
 
 **«Yo ya sé lo que tengo que comprar.»**
 > «Seguro, para los diez productos que más vendes. ¿Y para los otros
-> doscientos? El sistema no está para reemplazarte en lo que ya dominás, está
+> doscientos? El sistema no está para reemplazarte en lo que ya dominas, está
 > para los que se te pasan.»
 
 **«¿Y si se equivoca?»**

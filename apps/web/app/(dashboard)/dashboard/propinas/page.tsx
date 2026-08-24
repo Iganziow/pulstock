@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { C } from "@/lib/theme";
 import { apiFetch } from "@/lib/api";
 import { TipsTable } from "@/components/propinas/TipsTable";
@@ -26,6 +27,7 @@ import { WithdrawTipModal } from "@/components/caja/CajaModals";
 import type { Session } from "@/components/caja/CajaShared";
 
 export default function PropinasPage() {
+  const mob = useIsMobile();
   // Traer la sesión activa para saber si se puede retirar y mostrar
   // cuántas propinas en efectivo hay disponibles del turno actual.
   const [session, setSession] = useState<Session | null>(null);
@@ -76,7 +78,10 @@ export default function PropinasPage() {
   const cashTips = session?.live ? Number(session.live.cash_tips) || 0 : null;
 
   return (
-    <div style={{ padding: "16px 20px", maxWidth: 1400, margin: "0 auto" }}>
+    // El relleno horizontal era fijo en 20px. Las otras 37 pantallas usan
+    // 12px en telefono: en 390px de ancho, 16px extra de margen es ancho
+    // que le falta a una tabla que ya scrollea de lado.
+    <div style={{ padding: mob ? "16px 12px" : "16px 20px", maxWidth: 1400, margin: "0 auto" }}>
       <header style={{
         marginBottom: 16,
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
