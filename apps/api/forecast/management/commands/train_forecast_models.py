@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from core.heartbeat import with_heartbeat
 from django.db.models import Sum, Q
 
@@ -164,6 +164,21 @@ class Command(BaseCommand):
             self.stderr.write(self.style.WARNING(
                 f"Recalibración de confianza falló (no crítico): {e}"
             ))
+
+        # Si algun negocio quedo sin entrenar, el comando tiene que FALLAR.
+        #
+        # El aislamiento por tenant (arriba) evita que un cliente roto le quite
+        # el servicio a los demas — pero registrar la falla solo en
+        # ForecastTrainingLog la deja invisible: `with_heartbeat` marcaba "ok"
+        # y /health/deep/ seguia en verde con un cliente sin modelos.
+        #
+        # Va al final, despues de la recalibracion, para que los sanos
+        # terminen todo su trabajo antes de levantar.
+        if stats["failed"]:
+            raise CommandError(
+                f"{stats['failed']} negocio(s) no se entrenaron: "
+                + "; ".join(stats["errors"][:5])
+            )
 
     def _process_tenant(self, tenant, today, min_days, horizon, window,
                         product_id, stats, shrinkage_k=14, seasonal_prior=None):
@@ -317,7 +332,11 @@ class Command(BaseCommand):
                         # Asi estuvo Leche deslactosada desde el 6-jun: con
                         # pronostico vigente, vendiendo 4.170 unidades cada 14
                         # dias, y sin una sola fila de accuracy.
-                        ya_activo = ForecastModel.objects.filter(
+                        # `FM` es el alias con que este metodo importa
+                        # ForecastModel (arriba). Usar el nombre largo aca
+                        # levanta NameError y aborta el entrenamiento del
+                        # tenant a mitad de camino.
+                        ya_activo = FM.objects.filter(
                             tenant=tenant, product=product, warehouse_id=wh_id,
                             algorithm="ingredient_derived", is_active=True,
                         ).exists()

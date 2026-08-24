@@ -103,6 +103,37 @@ class TestDerivadoActivoEscribeSusForecasts:
             "queda sin nada que puntuar y desaparece de la métrica"
         )
 
+    def test_el_entrenamiento_no_aborta_a_mitad_de_camino(
+        self, tenant, store, warehouse, leche, latte,
+    ):
+        """Lo que los otros tres tests de este archivo NO miraban.
+
+        Verificaban el efecto sobre el producto, pero no que el comando hubiera
+        llegado al final. Entre el 23 y el 24-ago-2026 un `NameError` en esta
+        misma rama abortaba el entrenamiento del negocio a mitad de camino: el
+        `except` de tenant se lo tragaba, `ForecastTrainingLog` quedaba en
+        `partial` y el comando informaba éxito.
+
+        Producción entrenó **5 modelos en vez de 39** esa noche y los tres
+        tests de este archivo siguieron en verde.
+        """
+        from django.core.management import call_command
+        from forecast.models import ForecastTrainingLog
+
+        # Mismo montaje que el primer test de la clase: el error solo aparece
+        # con el derivado YA activo, que es cuando se evalua `ya_activo`.
+        _historial(tenant, warehouse, leche)
+        _historial(tenant, warehouse, latte, qty="20")
+        _modelo_derivado_activo(tenant, warehouse, leche)
+
+        call_command("train_forecast_models", tenant=tenant.id, horizon=14, verbosity=0)
+
+        log = ForecastTrainingLog.objects.order_by("-id").first()
+        assert log.models_failed == 0, (
+            f"el entrenamiento abortó a mitad: {log.error_message[:200]}"
+        )
+        assert log.status != ForecastTrainingLog.STATUS_PARTIAL
+
     def test_las_filas_pertenecen_a_un_modelo_activo(
         self, tenant, store, warehouse, leche, latte,
     ):
