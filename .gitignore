@@ -63,3 +63,17 @@ celerybeat.pid
 apps/web/test-results/
 apps/web/playwright-report/
 apps/web/e2e/.auth-state.json
+
+# ── Trabajo local que no debe llegar al repo ──────────────────────
+# Scripts de diagnostico de un solo uso. Se escriben para investigar algo
+# puntual contra datos reales y despues quedan: 34 acumulados en 3 meses.
+apps/api/_*.py
+apps/api/_*.csv
+
+# Snapshots de la base antes de un experimento. Utiles mientras dura la
+# prueba, 37 MB de ruido despues.
+db.sqlite3.*
+*.sqlite3.bak
+
+# Restos de correr un comando desde el directorio equivocado.
+apps/api/apps/
