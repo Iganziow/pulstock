@@ -54,6 +54,28 @@ html{scroll-behavior:smooth}
 input:focus:not(:focus-visible),select:focus:not(:focus-visible),textarea:focus:not(:focus-visible){outline:none}
 button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid #4F46E5;outline-offset:2px;border-radius:4px}
 
+/* ── Areas de toque en pantallas tactiles ──────────────────────────
+   Los botones miden 32px (sm) y 38px (md). Pasan el minimo de WCAG 2.2 AA
+   --24x24-- pero quedan por debajo de lo que piden las plataformas tactiles:
+   44px Apple, 48px Material.
+
+   Con mouse eso no molesta: el puntero es preciso. Con el dedo si, y el
+   garzon usa Mesas y POS con el telefono en una mano, muchas veces de pie y
+   apurado. Un toque que no registra le cuesta mas que a nadie.
+
+   "pointer: coarse" distingue el dedo del mouse, asi que esto NO agranda
+   nada en escritorio. Y se usa min-height a proposito: los botones traen
+   height en estilo inline, y min-height le gana sin necesidad de pelear
+   con especificidad en cada componente. */
+@media (pointer: coarse){
+  .xb{min-height:44px}
+  .ib{min-height:44px}
+  input,select,textarea{min-height:44px}
+  /* Los botones de icono suelen ser cuadrados: sin esto quedarian altos y
+     angostos, mas dificiles de acertar que antes. */
+  button[aria-label]{min-width:44px}
+}
+
 /* ── Respetar a quien pidio menos movimiento ───────────────────────
    La app tenia seis animaciones y ninguna miraba esta preferencia. Para
    alguien con sensibilidad al movimiento --o con vertigo, o simplemente en
