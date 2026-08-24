@@ -550,7 +550,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 background: C.surface, border: `1px solid ${C.border}`,
                 borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
                 padding: 6, minWidth: 200, maxWidth: "calc(100vw - 32px)",
-                maxHeight: "60vh", overflowY: "auto", zIndex: 300,
+                maxHeight: "60vh", overflowY: "auto", overflowX: "hidden", zIndex: 300,
               }}>
                 {stores.map(store => (
                   <button key={store.id} onClick={() => switchStore(store.id)}
@@ -596,7 +596,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               background: C.surface, border: `1px solid ${C.border}`,
               borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
               padding: 6, minWidth: 220, maxWidth: "calc(100vw - 32px)",
-              maxHeight: "70vh", overflowY: "auto", zIndex: 300,
+              maxHeight: "70vh", overflowY: "auto", overflowX: "hidden", zIndex: 300,
             }}>
               <div style={{ padding: "10px 12px 8px", borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{userName}</div>
@@ -659,7 +659,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     background: C.surface, border: `1px solid ${C.border}`,
                     borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
                     padding: 6, minWidth: 180, maxWidth: "calc(100vw - 16px)",
-                    maxHeight: "60vh", overflowY: "auto", zIndex: 300,
+                    maxHeight: "60vh", overflowY: "auto", overflowX: "hidden", zIndex: 300,
                   }}>
                     {stores.map(store => (
                       <button key={store.id} onClick={() => switchStore(store.id)} style={{
@@ -683,7 +683,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
         {drawerOpen && (<>
           <div onClick={() => setDrawerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 90, animation: "fadeIn 0.15s ease" }} />
-          <aside style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 280, background: C.surface, zIndex: 100, animation: "slideIn 0.2s cubic-bezier(0.22,1,0.36,1)", boxShadow: "4px 0 24px rgba(0,0,0,0.15)", overflowY: "auto" }}>
+          <aside style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 280, background: C.surface, zIndex: 100, animation: "slideIn 0.2s cubic-bezier(0.22,1,0.36,1)", boxShadow: "4px 0 24px rgba(0,0,0,0.15)", overflowY: "auto", overflowX: "hidden" }}>
             {sidebarContent}
           </aside>
         </>)}

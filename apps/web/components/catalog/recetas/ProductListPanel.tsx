@@ -69,7 +69,12 @@ export function ProductListPanel({
       </div>
 
       {/* Product rows */}
-      <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto" }}>
+      {/* overflowX explicito: definir SOLO un eje hace que el otro pase de
+          `visible` a `auto` por especificacion, y aparecia una barra
+          horizontal en una lista que solo tiene nombre y etiqueta --el
+          nombre ya trunca con puntos suspensivos, nada necesita ese
+          espacio--. */}
+      <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto", overflowX: "hidden" }}>
         {loading ? (
           <div style={{ padding: "40px 0", display: "flex", justifyContent: "center", alignItems: "center", gap: 8, color: C.mute }}>
             <Spinner size={16}/><span style={{ fontSize: 13 }}>Cargando…</span>
