@@ -81,6 +81,10 @@ export function PriceTable({
               // sale 100% y se pinta verde. Sin costo no hay margen que mostrar.
               const faltaCosto = sinCosto(row.cost);
               const currentMargin = faltaCosto ? NaN : Number(row.margin_pct);
+              // Un capuccino no se compra, se arma: su costo sale de la receta.
+              const deReceta = row.cost_source === "receta";
+              const recetaIncompleta = row.cost_source === "receta_incompleta";
+              const faltan = row.missing_ingredients ?? [];
 
               return (
                 <tr key={row.id} style={{ background: hasEdit ? C.amberBg : undefined, transition: C.ease }}>
@@ -93,8 +97,36 @@ export function PriceTable({
                   <td style={{ ...tdStyle, fontWeight: 600 }}>{row.name}</td>
                   <td style={{ ...tdStyle, color: C.mid, fontSize: 12 }}>{row.category_name || "—"}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: faltaCosto ? C.amber : undefined }}
-                      title={faltaCosto ? "Este producto no tiene costo cargado" : undefined}>
-                    {faltaCosto ? "sin costo" : `$${formatCLP(row.cost)}`}
+                      title={
+                        recetaIncompleta
+                          ? `Se calcula desde la receta, pero falta el costo de: ${faltan.join(", ")}`
+                          : deReceta
+                          ? "Calculado desde la receta, sumando sus ingredientes"
+                          : faltaCosto
+                          ? "Este producto no tiene costo cargado"
+                          : undefined
+                      }>
+                    {faltaCosto ? (
+                      recetaIncompleta ? (
+                        <span style={{ fontSize: 11, lineHeight: 1.3, display: "inline-block", textAlign: "right" }}>
+                          falta costo de<br />
+                          <strong>{faltan[0]}</strong>
+                          {faltan.length > 1 && ` +${faltan.length - 1}`}
+                        </span>
+                      ) : "sin costo"
+                    ) : (
+                      <>
+                        ${formatCLP(row.cost)}
+                        {/* La marca distingue el costo que se compra del que se
+                            calcula. Sin ella, el dueno no sabe si ese numero lo
+                            puede editar o sale de los ingredientes. */}
+                        {deReceta && (
+                          <span style={{ color: C.mute, fontSize: 10, marginLeft: 4 }} title="Desde la receta">
+                            ~
+                          </span>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: 600 }}>${formatCLP(row.price)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: Number.isFinite(currentMargin) ? (currentMargin < 0 ? C.red : currentMargin < 15 ? C.amber : C.green) : C.mute }}>

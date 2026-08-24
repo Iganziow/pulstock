@@ -1680,19 +1680,58 @@ class PriceListView(APIView):
         start = (page - 1) * self.PAGE_SIZE
         page_qs = qs[start:start + self.PAGE_SIZE]
 
+        # Costo real de los productos que se preparan.
+        #
+        # `Product.cost` esta en cero para todo lo que se arma en la barra: un
+        # capuccino no se compra. Su costo vive en los ingredientes, y esta
+        # pantalla mostraba 100% de margen para media carta.
+        #
+        # Se calcula solo para la pagina visible: recorrer 242 recetas cuando
+        # se muestran 50 productos seria trabajo tirado.
+        from catalog.recipe_costing import costos_de_receta
+
+        page_qs = list(page_qs)
+        recetas = costos_de_receta(tenant_id(request), [p.id for p in page_qs])
+
         data = []
         for p in page_qs:
             cost = p.cost or Decimal("0")
-            margin = ((p.price - cost) / p.price * 100) if p.price and p.price > 0 else Decimal("0")
+            origen = "propio" if cost else None
+            faltantes = []
+
+            # La receta manda sobre Product.cost cuando existe: es el costo
+            # que el sistema realmente registra al vender.
+            r = recetas.get(p.id)
+            if r and r["completo"] and r["costo"] > 0:
+                cost = r["costo"]
+                origen = "receta"
+            elif r and not r["completo"]:
+                # A proposito NO se muestra el costo parcial. Un ingrediente
+                # sin costo suma cero en silencio, asi que el numero saldria
+                # verosimil pero bajo, y el margen inflado sin que nada lo
+                # delate. Es preferible decir que falta y cual.
+                cost = Decimal("0")
+                origen = "receta_incompleta"
+                faltantes = r["faltantes"][:3]
+
+            margin = (((p.price - cost) / p.price * 100)
+                      if p.price and p.price > 0 and cost > 0 else None)
             data.append({
                 "id": p.id,
                 "sku": p.sku,
                 "name": p.name,
                 "category_name": p.category.name if p.category else None,
                 "category_id": p.category_id,
-                "cost": str(cost),
+                # Misma precision venga de donde venga: Product.cost trae 2
+                # decimales y el costo de receta 3, y una API que devuelve
+                # "640.00" en una fila y "800.000" en la siguiente invita a
+                # que alguien compare strings y se equivoque.
+                "cost": str(cost.quantize(Decimal("0.000"))),
                 "price": str(p.price),
-                "margin_pct": str(margin.quantize(Decimal("0.1"))),
+                "margin_pct": (str(margin.quantize(Decimal("0.1")))
+                               if margin is not None else None),
+                "cost_source": origen,
+                "missing_ingredients": faltantes,
             })
         return Response({
             "results": data,

@@ -5,8 +5,13 @@ export type PriceRow = {
   category_name: string | null;
   category_id: number | null;
   cost: string;
+  /** De donde sale el costo: 'propio' (se compra), 'receta' (se arma),
+   *  'receta_incompleta' (falta el costo de algun ingrediente). */
+  cost_source?: "propio" | "receta" | "receta_incompleta" | null;
+  /** Que ingredientes bloquean el calculo. Maximo 3. */
+  missing_ingredients?: string[];
   price: string;
-  margin_pct: string;
+  margin_pct: string | null;
 };
 
 export type Category = { id: number; name: string };
