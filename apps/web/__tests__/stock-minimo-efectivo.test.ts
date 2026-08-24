@@ -10,7 +10,7 @@
  * en pantalla, que es donde Mario lo mira todos los días.
  */
 import { describe, it, expect } from "vitest";
-import { bajoMinimo, minimoEfectivo, type StockRow } from "@/components/inventory/StockShared";
+import { bajoMinimo, minimoEfectivo, fMinimo, type StockRow } from "@/components/inventory/StockShared";
 
 function fila(extra: Partial<StockRow> = {}): StockRow {
   return {
@@ -64,5 +64,30 @@ describe("cuándo se marca stock bajo", () => {
 
   it("justo en el mínimo ya cuenta como bajo", () => {
     expect(bajoMinimo(fila({ on_hand: "3", min_stock_auto: "3" }))).toBe(true);
+  });
+});
+
+describe("cómo se muestra el mínimo", () => {
+  it("no escupe tres decimales en un producto que se cuenta por unidades", () => {
+    // El caso real en producción: el Americano mostraba "min 11,248". En
+    // notación chilena la coma es el separador decimal, así que es correcto
+    // — y aun así un barista lee "once mil".
+    expect(fMinimo(11.248)).toBe("11");
+    expect(fMinimo(5.71)).toBe("5,7");
+  });
+
+  it("conserva un decimal cuando la cantidad es chica", () => {
+    // Medio kilo de queso significa algo; redondearlo a 1 o a 0 no sirve.
+    expect(fMinimo(0.5)).toBe("0,5");
+    expect(fMinimo(1.1)).toBe("1,1");
+  });
+
+  it("redondea de diez para arriba, donde el decimal ya no aporta", () => {
+    expect(fMinimo(62.4)).toBe("62");
+    expect(fMinimo(3796.2)).toBe("3.796");
+  });
+
+  it("no muestra basura si el número no es válido", () => {
+    expect(fMinimo(NaN)).toBe("—");
   });
 });

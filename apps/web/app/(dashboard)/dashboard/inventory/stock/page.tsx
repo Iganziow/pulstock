@@ -9,7 +9,7 @@ import { useGlobalStyles } from "@/lib/useGlobalStyles";
 import { Spinner, SkeletonPage } from "@/components/ui";
 import { useBreakpoint } from "@/hooks/useIsMobile";
 import {
-  Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos, bajoMinimo, minimoEfectivo,
+  Btn, StockBadge, OkBanner, toNum, fQty, sanitizePos, bajoMinimo, minimoEfectivo, fMinimo,
   type Warehouse, type StockRow,
 } from "@/components/inventory/StockShared";
 import { ReceiveModal, IssueModal, AdjustModal, TransferModal } from "@/components/inventory/StockModals";
@@ -349,7 +349,7 @@ export default function StockPage() {
                         title={minManual ? "Mínimo que definiste" : "Mínimo sugerido según tu consumo"}
                         style={{ fontSize: 10, color: C.mute, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", marginTop: 2, whiteSpace: "nowrap" }}
                       >
-                        mín {fQty(String(min))}{minManual ? "" : "*"}
+                        mín {fMinimo(min)}{minManual ? "" : "*"}
                       </div>
                     )}
                   </div>
@@ -412,7 +412,7 @@ export default function StockPage() {
                       <StockBadge val={r.on_hand} />
                       {min !== null && (
                         <div style={{ fontSize: 10, color: C.mute, fontFamily: C.mono, fontVariantNumeric: "tabular-nums", marginTop: 3, whiteSpace: "nowrap" }}>
-                          mín {fQty(String(min))}{minManual ? "" : "*"}
+                          mín {fMinimo(min)}{minManual ? "" : "*"}
                         </div>
                       )}
                     </div>

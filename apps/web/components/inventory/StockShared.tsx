@@ -42,6 +42,26 @@ export function bajoMinimo(r: StockRow): boolean {
   return min === null ? n <= 5 : n <= min;
 }
 
+/**
+ * El minimo, redondeado para que se pueda leer de un vistazo.
+ *
+ * `fQty` muestra hasta 3 decimales, que para el stock esta bien —hay
+ * productos en litros y en gramos—. Pero aplicado al minimo daba cosas como
+ * "min 11,248" para un Americano. En notacion chilena la coma es el separador
+ * decimal, asi que es correcto... y aun asi un barista lee "once mil" y se
+ * asusta. Tres decimales de precision en un umbral que existe para decir
+ * "repone cuando bajes de aca" no aportan nada.
+ *
+ * Bajo 10 se deja un decimal (0,5 kg de queso significa algo); de ahi para
+ * arriba, entero.
+ */
+export function fMinimo(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return n < 10
+    ? n.toLocaleString("es-CL", { maximumFractionDigits: 1 })
+    : Math.round(n).toLocaleString("es-CL");
+}
+
 export function fQty(v: string): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return v;

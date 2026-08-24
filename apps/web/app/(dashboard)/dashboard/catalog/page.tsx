@@ -225,6 +225,11 @@ export default function CatalogPage() {
   const [q, setQ]                     = useState("");
   const [page, setPage]               = useState(1);
   const [totalCount, setTotalCount]   = useState(0);
+  // Los conteos los da el servidor: contarlos aca solo veria la pagina
+  // visible. Con 50 por pagina sobre 252 productos, eso mostraba
+  // "Inactivos 206" cuando en realidad eran 10.
+  const [activeCount, setActiveCount]     = useState(0);
+  const [inactiveCount, setInactiveCount] = useState(0);
 
   // Filtros adicionales — Mario lo pidió: "en el apartado de categorías
   // poder filtrar por distintos motivos que ya usemos como por ejemplo
@@ -343,9 +348,11 @@ export default function CatalogPage() {
       const list = Array.isArray(data) ? data : (data?.results ?? []);
       setItems(list);
       setTotalCount(data?.count ?? list.length);
+      setActiveCount(data?.active_count ?? 0);
+      setInactiveCount(data?.inactive_count ?? 0);
     } catch (e: any) {
       setErr(extractErr(e, "Error cargando catálogo"));
-      setItems([]); setTotalCount(0);
+      setItems([]); setTotalCount(0); setActiveCount(0); setInactiveCount(0);
     } finally { setLoading(false); }
   }, []);
 
@@ -639,7 +646,6 @@ export default function CatalogPage() {
   };
 
   const totalPages  = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const activeCount = items.filter((p) => p.is_active).length;
   const clearSearch = () => { setQ(""); setPage(1); };
 
   // ── RENDER ────────────────────────────────────────────────────────────────
@@ -690,7 +696,7 @@ export default function CatalogPage() {
       <div style={{ display:"grid", gridTemplateColumns:mob?"1fr 1fr":"repeat(auto-fit,minmax(148px,1fr))", gap:10 }}>
         <StatCard label="Total"      value={totalCount}               icon="📦" color={C.accent} />
         <StatCard label="Activos"    value={activeCount}              icon="✅" color={C.green}  />
-        <StatCard label="Inactivos"  value={totalCount-activeCount}   icon="⏸️" color={C.amber}  />
+        <StatCard label="Inactivos"  value={inactiveCount}            icon="⏸️" color={C.amber}  />
         <StatCard label="Categorías" value={categories.length}        icon="🗂️" color={C.violet} />
       </div>
 

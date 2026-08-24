@@ -134,6 +134,47 @@ class ProductListCreate(generics.ListCreateAPIView):
 
         return qs.order_by("name")
 
+    def list(self, request, *args, **kwargs):
+        """Agrega el conteo de activos/inactivos de TODO el catalogo.
+
+        La pantalla mostraba "Activos 46 / Inactivos 206" sobre un catalogo
+        de 252 productos donde solo 10 estaban inactivos. El frontend contaba
+        los activos de la PAGINA visible y los restaba del total global:
+
+            activeCount = items.filter(p => p.is_active).length   // 50 items
+            inactivos   = totalCount - activeCount                // 252 - 46
+
+        El resultado no significaba nada, y le decia al dueno que casi todo su
+        catalogo estaba dado de baja. Solo el servidor puede contar sobre el
+        conjunto completo, asi que el conteo se hace aca.
+        """
+        respuesta = super().list(request, *args, **kwargs)
+        if not isinstance(respuesta.data, dict):
+            return respuesta
+
+        # Los dos conteos en UNA sola consulta.
+        #
+        # Hacerlos por separado eran dos COUNT extra en un endpoint que se
+        # abre todo el dia; hay un test de presupuesto de queries que lo
+        # atrapo. Con un Count condicional sale lo mismo en una pasada.
+        #
+        # Sin filtros de estado ni de busqueda: las tarjetas describen el
+        # catalogo COMPLETO, no el resultado de lo que el dueno esta filtrando
+        # en ese momento. Si cambiaran al escribir, dejarian de ser referencia.
+        from django.db.models import Count, Q
+
+        conteo = (
+            Product.objects
+            .filter(tenant_id=tenant_id(request))
+            .aggregate(
+                activos=Count("id", filter=Q(is_active=True)),
+                total=Count("id"),
+            )
+        )
+        respuesta.data["active_count"] = conteo["activos"] or 0
+        respuesta.data["inactive_count"] = (conteo["total"] or 0) - (conteo["activos"] or 0)
+        return respuesta
+
     def get_serializer_class(self):
         return ProductWriteSerializer if self.request.method == "POST" else ProductReadSerializer
 
