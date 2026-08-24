@@ -239,6 +239,22 @@ export default function PromotionsPage() {
   };
 
   // ── Delete (soft) ───────────────────────────────────────────────────────
+  const handleReactivate = async (id: number) => {
+    // El backend hace borrado suave, asi que la oferta sigue ahi: alcanza con
+    // volver a marcarla activa. Antes no habia como, y el unico camino era
+    // duplicarla y perder su historial.
+    try {
+      await apiFetch(`/promotions/${id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: true }),
+      });
+      flash("ok", "Oferta activada");
+      loadPromotions();
+    } catch (e: any) {
+      flash("err", extractErr(e, "Error al activar oferta"));
+    }
+  };
+
   const handleDelete = async (id: number) => {
     try {
       await apiFetch(`/promotions/${id}/`, { method: "DELETE" });
@@ -374,6 +390,7 @@ export default function PromotionsPage() {
               onEdit={openEdit}
               onClone={clonePromotion}
               onDelete={(id) => setConfirmDeleteId(id)}
+              onReactivate={handleReactivate}
             />
           </>
         ) : (

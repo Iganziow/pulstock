@@ -12,6 +12,7 @@ interface PromotionTableProps {
   onEdit: (promo: Promotion) => void;
   onClone: (promo: Promotion) => void;
   onDelete: (id: number) => void;
+  onReactivate: (id: number) => void;
 }
 
 const thStyle: React.CSSProperties = {
@@ -26,7 +27,7 @@ const tdStyle: React.CSSProperties = {
   borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
 };
 
-export function PromotionTable({ promotions, loading, onEdit, onClone, onDelete }: PromotionTableProps) {
+export function PromotionTable({ promotions, loading, onEdit, onClone, onDelete, onReactivate }: PromotionTableProps) {
   return (
     <div style={{
       background: C.surface, borderRadius: C.rMd, border: `1px solid ${C.border}`,
@@ -66,7 +67,16 @@ export function PromotionTable({ promotions, loading, onEdit, onClone, onDelete 
                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                     <Btn size="sm" variant="ghost" onClick={() => onClone(p)}>Duplicar</Btn>
                     <Btn size="sm" variant="ghost" onClick={() => onEdit(p)}>Editar</Btn>
-                    <Btn size="sm" variant="danger" onClick={() => onDelete(p.id)}>Desactivar</Btn>
+                    {/* El boton decia siempre "Desactivar", incluso en ofertas
+                        que ya estaban inactivas. Como el backend hace borrado
+                        suave, esas ofertas seguian existiendo pero no habia
+                        forma de volver a encenderlas: habia que duplicarlas.
+                        Ahora alterna segun el estado real. */}
+                    {p.is_active === false ? (
+                      <Btn size="sm" variant="success" onClick={() => onReactivate(p.id)}>Activar</Btn>
+                    ) : (
+                      <Btn size="sm" variant="danger" onClick={() => onDelete(p.id)}>Desactivar</Btn>
+                    )}
                   </div>
                 </td>
               </tr>
