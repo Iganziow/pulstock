@@ -3,7 +3,7 @@
 import { C } from "@/lib/theme";
 import { Spinner } from "@/components/ui";
 import { formatCLP } from "@/lib/format";
-import { calcMargin } from "./helpers";
+import { calcMargin, sinCosto } from "./helpers";
 import type { PriceRow } from "./types";
 
 interface PriceTableProps {
@@ -77,7 +77,10 @@ export function PriceTable({
               const hasEdit = row.id in edits;
               const newPrice = edits[row.id] ?? "";
               const newMargin = hasEdit ? calcMargin(row.cost, newPrice) : null;
-              const currentMargin = Number(row.margin_pct);
+              // El margen que manda el backend tampoco sirve si no hay costo:
+              // sale 100% y se pinta verde. Sin costo no hay margen que mostrar.
+              const faltaCosto = sinCosto(row.cost);
+              const currentMargin = faltaCosto ? NaN : Number(row.margin_pct);
 
               return (
                 <tr key={row.id} style={{ background: hasEdit ? C.amberBg : undefined, transition: C.ease }}>
@@ -89,10 +92,15 @@ export function PriceTable({
                   </td>
                   <td style={{ ...tdStyle, fontWeight: 600 }}>{row.name}</td>
                   <td style={{ ...tdStyle, color: C.mid, fontSize: 12 }}>{row.category_name || "—"}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono }}>${formatCLP(row.cost)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: faltaCosto ? C.amber : undefined }}
+                      title={faltaCosto ? "Este producto no tiene costo cargado" : undefined}>
+                    {faltaCosto ? "sin costo" : `$${formatCLP(row.cost)}`}
+                  </td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, fontWeight: 600 }}>${formatCLP(row.price)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", fontFamily: C.mono, color: Number.isFinite(currentMargin) ? (currentMargin < 0 ? C.red : currentMargin < 15 ? C.amber : C.green) : C.mute }}>
-                    {Number.isFinite(currentMargin) ? `${currentMargin.toFixed(1)}%` : "—"}
+                    {Number.isFinite(currentMargin)
+                      ? `${currentMargin.toFixed(1)}%`
+                      : <span title={faltaCosto ? "Sin costo cargado: no se puede calcular el margen" : "Sin dato"}>—</span>}
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>
                     <input

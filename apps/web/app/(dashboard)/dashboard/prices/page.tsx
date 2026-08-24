@@ -248,7 +248,10 @@ export default function PricesPage() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: mob ? "16px 12px" : "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ fontFamily: C.font, color: C.text, background: C.bg, minHeight: "100vh", padding: mob ? "16px 12px" : "24px 28px", display: "flex", flexDirection: "column", gap: 16,
+                  // La barra de ajuste masivo es sticky abajo: sin este espacio
+                  // extra, el scroll termina antes de que la ultima fila la despeje.
+                  paddingBottom: mob ? 96 : 88 }}>
 
       {/* Toast */}
       {msg && (
@@ -311,6 +314,13 @@ export default function PricesPage() {
         page={page}
         setPage={setPage}
       />
+
+      {/* Aire para que la barra de abajo no tape la ultima fila.
+          La barra es sticky en bottom:0, asi que queda pegada al borde
+          inferior y el contenido pasa POR DETRAS. Sin este espacio, el ultimo
+          producto de la lista queda partido a la mitad y no se puede leer ni
+          editar su precio. */}
+      <div style={{ height: 8 }} aria-hidden />
 
       {/* Bottom action bar */}
       <div style={{

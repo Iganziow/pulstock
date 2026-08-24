@@ -36,6 +36,40 @@ html{scrollbar-width:auto;scrollbar-color:#B4B4BB transparent}
 @keyframes spin{to{transform:rotate(360deg)}}
 .qty-input-no-spin::-webkit-inner-spin-button,.qty-input-no-spin::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .qty-input-no-spin{-moz-appearance:textfield}
+
+/* ── Scroll suave ──────────────────────────────────────────────────
+   Al saltar a una seccion, volver arriba o abrir un modal largo, el salto
+   seco desorienta: no queda claro si la pagina cambio o solo se movio. */
+html{scroll-behavior:smooth}
+
+/* Los encabezados pegajosos tapan aquello a lo que se salta. Este margen
+   hace que el elemento quede DEBAJO del encabezado y no detras. */
+[id]{scroll-margin-top:80px}
+
+/* Las tablas largas no arrastran el scroll de la pagina al llegar al final. */
+.tbl-scroll{overscroll-behavior:contain}
+
+/* El anillo de foco solo con teclado. Antes aparecia tambien al hacer clic
+   con el mouse, que es ruido visual constante para quien no lo necesita. */
+input:focus:not(:focus-visible),select:focus:not(:focus-visible),textarea:focus:not(:focus-visible){outline:none}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid #4F46E5;outline-offset:2px;border-radius:4px}
+
+/* ── Respetar a quien pidio menos movimiento ───────────────────────
+   La app tenia seis animaciones y ninguna miraba esta preferencia. Para
+   alguien con sensibilidad al movimiento --o con vertigo, o simplemente en
+   un equipo lento-- cada modal era una molestia. El sistema operativo ya lo
+   sabe; solo habia que preguntarle. */
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{
+    animation-duration:0.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:0.01ms!important;
+    scroll-behavior:auto!important;
+  }
+  .sc:hover{transform:none}
+  .xb:hover:not(:disabled){transform:none}
+}
 `;
 
 const SHARED_ID = "pulstock-shared-ds";
