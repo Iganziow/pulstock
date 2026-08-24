@@ -22,7 +22,7 @@ Dónde buscar cuando algo falla.
 tail -f /var/log/pulstock/gunicorn-error.log
 
 # Frontend en vivo (con streaming)
-pm2 logs pulstock-web
+sudo pm2 logs pulstock-web
 
 # Varios a la vez
 tail -f /var/log/pulstock/gunicorn-error.log /var/log/nginx/error.log
@@ -59,7 +59,7 @@ grep "14:30" /var/log/pulstock/gunicorn-error.log
 awk '/14:30/' /var/log/nginx/access.log | head -50
 
 # Frontend — logs en esa hora (ajusta fecha)
-pm2 logs pulstock-web --lines 500 --nostream | grep -i "14:30"
+sudo pm2 logs pulstock-web --lines 500 --nostream | grep -i "14:30"
 ```
 
 ## Tamaño y rotación de logs
@@ -88,7 +88,7 @@ find /var/log/pulstock/ -name "*.gz" -mtime +30 -delete
 find /var/log/nginx/ -name "*.gz" -mtime +30 -delete
 
 # Limpiar logs de PM2
-pm2 flush
+sudo pm2 flush
 ```
 
 ## Interpretar logs comunes
@@ -124,4 +124,4 @@ AttributeError: 'NoneType' object has no attribute 'X'
 connect() failed (111: Connection refused) while connecting to upstream
 ```
 **Causa:** Gunicorn o PM2 caídos.
-**Fix:** `pm2 restart pulstock-web` o reiniciar Gunicorn.
+**Fix:** `sudo pm2 restart pulstock-web` o `sudo systemctl restart pulstock-api`.

@@ -1,6 +1,10 @@
 # Pulstock cron schedule — deploy a /etc/cron.d/pulstock
-# Todas las tasks corren como root con TZ=America/Santiago.
-# Reemplaza el anterior /etc/cron.d/pulstock-trials.
+# Todas las tareas corren como root con TZ=America/Santiago.
+# Reemplaza el anterior /etc/cron.d/pulstock.
+#
+# ⚠ ESTE ARCHIVO NO ES TODO. El pipeline del forecast y el backup diario NO
+#   estan aca: viven en el crontab del usuario `ignacio` (ver el final).
+#   Copiado literal del servidor el 24-ago-2026.
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -16,6 +20,10 @@ MAILTO=""
 # Suspender suscripciones vencidas — cada hora minuto 30
 30 * * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py billing_suspend_overdue >> /var/log/pulstock/billing-cron.log 2>&1
 
+# Reconciliar checkouts contra Flow — cada hora minuto 45
+# Sin esto, un webhook perdido deja al cliente pagado y sin cuenta.
+45 * * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py reconcile_checkouts >> /var/log/pulstock/billing-cron.log 2>&1
+
 # Recordatorios de pago — diario 09:00 AM
 0 9 * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py billing_send_reminders >> /var/log/pulstock/billing-cron.log 2>&1
 
@@ -25,3 +33,57 @@ MAILTO=""
 # ── Printing ────────────────────────────────────────────────────
 # Cleanup de print jobs terminales >30 días — diario 03:30 AM
 30 3 * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py cleanup_print_jobs >> /var/log/pulstock/printing-cron.log 2>&1
+
+# ── Forecast ────────────────────────────────────────────────────
+# Vigila que ningun producto quede sin pronosticar — diario 07:15 AM
+# Corre DESPUES del pipeline (04:30, crontab de ignacio). Este sigue
+# encadenado por reloj: con mas de ~300 clientes podria adelantarse al
+# entrenamiento y reportar productos sin pronostico que si se estaban
+# entrenando.
+15 7 * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py check_forecast_coverage >> /var/log/pulstock/forecast-cron.log 2>&1
+
+# ── Inventario y reportes ───────────────────────────────────────
+# Alerta de quiebre de stock — diario 12:00
+0 12 * * * root cd /var/www/pulstock/apps/api && venv/bin/python manage.py send_low_stock_alerts >> /var/log/pulstock/inventory-cron.log 2>&1
+
+# Reporte ABC semanal — lunes 12:00
+0 12 * * 1 root cd /var/www/pulstock/apps/api && venv/bin/python manage.py send_weekly_abc >> /var/log/pulstock/reports-cron.log 2>&1
+
+
+# ════════════════════════════════════════════════════════════════
+# EL OTRO CRONTAB — usuario `ignacio`  (crontab -l)
+# ════════════════════════════════════════════════════════════════
+#
+# Esto NO esta en /etc/cron.d/ ni se instala con el deploy. Vive en el crontab
+# personal del usuario `ignacio`. Si esa cuenta se borra o su crontab se
+# pierde, el forecast deja de entrenarse Y el backup diario deja de correr,
+# las dos cosas EN SILENCIO.
+#
+# Se recupera con `crontab -e` como ignacio y pegando estas dos lineas:
+#
+# 30 4 * * * cd /var/www/pulstock/apps/api && sudo venv/bin/python manage.py run_nightly_pipeline >> /var/log/pulstock/forecast-cron.log 2>&1
+# 30 7 * * * /var/backups/pulstock/backup.sh
+#
+# ── Por que UNA sola linea para todo el pipeline (24-ago-2026) ──
+#
+# Antes eran cuatro, cada una a su hora: 04:30 agregar demanda, 05:30 medir
+# precision, 06:30 perfiles + entrenamiento, 07:00 sugerencias. Arrancaban por
+# RELOJ, o sea que cada paso empezaba a su hora aunque el anterior siguiera
+# corriendo.
+#
+# Medido en produccion: el pipeline tarda 28,7 s por negocio (98% es el
+# entrenamiento), y entre el entrenamiento y las sugerencias habia 30 minutos:
+#
+#     30 min / 28,7 s  =  ~62 negocios
+#
+# Pasado ese numero las sugerencias arrancaban con el entrenamiento a medias y
+# salian calculadas sobre modelos parcialmente actualizados. Sin fallar y sin
+# avisar.
+#
+# `run_nightly_pipeline` corre los cinco pasos ESPERANDO a cada uno, asi que el
+# tiempo total deja de importar. Con 100 clientes tarda ~48 minutos y termina
+# cerca de las 05:20, mucho antes del backup.
+#
+# Los comandos sueltos siguen existiendo para reprocesar a mano:
+#   sudo venv/bin/python manage.py train_forecast_models --tenant 3
+#   sudo venv/bin/python manage.py run_nightly_pipeline --dry-run

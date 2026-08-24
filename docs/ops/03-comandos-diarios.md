@@ -5,42 +5,35 @@ Los comandos que más vas a usar, listos para copiar y pegar.
 ## Verificar estado general (5 segundos)
 
 ```bash
-ssh root@<TU_SERVIDOR>
-pm2 list && pgrep -fl "gunicorn.*api.wsgi" | head -1 && df -h / | tail -1
+ssh ignacio@65.108.148.200
+sudo pm2 list && pgrep -fl "gunicorn.*api.wsgi" | head -1 && df -h / | tail -1
 ```
 
 ## Reiniciar frontend (Next.js)
 
 ```bash
-pm2 restart pulstock-web
+sudo pm2 restart pulstock-web
 ```
 
 Si el puerto 3000 está ocupado:
 ```bash
 fuser -k 3000/tcp
-pm2 delete pulstock-web
+sudo pm2 delete pulstock-web
 cd /var/www/pulstock/apps/web
-pm2 start npm --name pulstock-web -- start
-pm2 save
+sudo pm2 start npm --name pulstock-web -- start
+sudo pm2 save
 ```
 
 ## Reiniciar backend (Django/Gunicorn)
 
 **Graceful** (sin cortar conexiones activas):
 ```bash
-kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+sudo systemctl reload pulstock-api   # HUP al master, sin cortar conexiones
 ```
 
 **Hard restart** (si el graceful no responde):
 ```bash
-pkill -f gunicorn
-cd /var/www/pulstock/apps/api
-source venv/bin/activate
-gunicorn api.wsgi:application \
-  --workers 3 --bind 127.0.0.1:8000 --timeout 120 --daemon \
-  --access-logfile /var/log/pulstock/gunicorn-access.log \
-  --error-logfile /var/log/pulstock/gunicorn-error.log \
-  --chdir /var/www/pulstock/apps/api
+sudo systemctl restart pulstock-api
 ```
 
 ## Reiniciar Nginx
@@ -50,7 +43,7 @@ gunicorn api.wsgi:application \
 systemctl reload nginx
 
 # Full restart
-systemctl restart nginx
+sudo systemctl restart nginx
 
 # Verificar config antes de reload
 nginx -t
@@ -66,7 +59,7 @@ tail -f /var/log/pulstock/gunicorn-error.log
 tail -f /var/log/pulstock/gunicorn-access.log
 
 # Frontend
-pm2 logs pulstock-web --lines 50
+sudo pm2 logs pulstock-web --lines 50
 
 # Nginx
 tail -f /var/log/nginx/error.log

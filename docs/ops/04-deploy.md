@@ -23,7 +23,7 @@ El script `~/deploy.sh` (alias `pdeploy`) hace todo en orden:
 5. **Frontend**: `next build` + `sudo pm2 stop pulstock-web` + `sudo pkill -KILL -f next-server` (importante: ver Notas sobre pm2 abajo) + `sudo pm2 start pulstock-web`.
 6. Verificación final con curls a `pulstock.cl`, `api.pulstock.cl`, y al endpoint nuevo `/api/printing/print/`.
 
-Es idempotente: corré dos veces y nada se rompe.
+Es idempotente: corre dos veces y nada se rompe.
 
 ## Aliases útiles (configurados en `~/.bashrc`)
 
@@ -46,7 +46,7 @@ ppm2           # sudo pm2
 
 ## Verificar después del deploy
 
-`pdeploy` ya hace los checks al final, pero podés re-correr en cualquier momento:
+`pdeploy` ya hace los checks al final, pero puedes re-correr en cualquier momento:
 
 ```bash
 pstatus
@@ -55,7 +55,7 @@ pstatus
 Salida esperada:
 ```
 === gunicorn ===
-... 3 workers ...
+... 5 workers ...
 === pm2 ===
 ... pulstock-web online ...
 === puerto 3000 ===
@@ -85,7 +85,7 @@ pdeploy
 
 ## Flujo manual (si `pdeploy` falla)
 
-Si tenés que correr cada paso a mano (debugging):
+Si tienes que correr cada paso a mano (debugging):
 
 ```bash
 # 1. Pull
@@ -93,7 +93,7 @@ pcd && git pull origin main
 
 # 2. Backend
 pcd-api && pvenv && python manage.py migrate
-sudo kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+sudo systemctl reload pulstock-api   # HUP al master, sin cortar conexiones
 
 # 3. Frontend (¡el orden importa, ver "Notas sobre pm2")
 pcd-web && npx next build

@@ -23,7 +23,7 @@ Esta guía lista los **monitores externos** que recomiendo configurar en tu serv
 | Deep health | `https://api.pulstock.cl/api/core/health/deep/` | GET | 200 con `{"status": "ok"}` | **DB, Redis, crons stale/failed, disco <10%** |
 
 **Frecuencia**: cada 5-10 min.
-**Opcional**: si querés ver el detalle, usá `?token=<DEEP_HEALTH_TOKEN>` (configurado en `.env`).
+**Opcional**: si quieres ver el detalle, usa `?token=<DEEP_HEALTH_TOKEN>` (configurado en `.env`).
 
 ### 3. SSL cert expiry (medio)
 
@@ -48,7 +48,7 @@ Si alguno sobrepasa su `max_age`, el deep health cambia a `degraded` y el monito
 
 ## 📊 Dashboard completo sugerido (Better Uptime / Grafana)
 
-Si querés algo más rico que UptimeRobot, te sirven estos checks:
+Si quieres algo más rico que UptimeRobot, te sirven estos checks:
 
 ### Grupo "Servicio público"
 - ✅ API health (https://api.pulstock.cl/api/core/health/)
@@ -207,7 +207,7 @@ UptimeRobot tiene integración nativa con Telegram. Más simple que mantener tu 
 
 ### D) Setup adicional opcional
 
-**Notificaciones a tu propio script** (si querés alertas custom desde el server, no solo del monitor externo):
+**Notificaciones a tu propio script** (si quieres alertas custom desde el server, no solo del monitor externo):
 
 ```bash
 # Crear ~/notify-telegram.sh en el server
@@ -232,7 +232,7 @@ chmod 600 ~/.telegram_creds
 ~/notify-telegram.sh "Test desde el server"
 ```
 
-Lo podés llamar desde cualquier cron, pre-deploy hook, etc.
+Lo puedes llamar desde cualquier cron, pre-deploy hook, etc.
 
 ---
 

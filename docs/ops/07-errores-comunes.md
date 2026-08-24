@@ -9,8 +9,8 @@ Los problemas que más vas a ver en producción, con su solución.
 ### Diagnóstico rápido
 
 ```bash
-ssh root@<TU_SERVIDOR>
-pm2 list
+ssh ignacio@65.108.148.200
+sudo pm2 list
 pgrep -fl "gunicorn.*api.wsgi"
 systemctl is-active nginx
 curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
@@ -20,37 +20,31 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/core/health/
 ### Caso A: PM2 dice `stopped` o `errored`
 
 ```bash
-pm2 logs pulstock-web --lines 30 --nostream
-pm2 restart pulstock-web
+sudo pm2 logs pulstock-web --lines 30 --nostream
+sudo pm2 restart pulstock-web
 
 # Si no levanta:
 fuser -k 3000/tcp
-pm2 delete pulstock-web
+sudo pm2 delete pulstock-web
 cd /var/www/pulstock/apps/web
-pm2 start npm --name pulstock-web -- start
-pm2 save
+sudo pm2 start npm --name pulstock-web -- start
+sudo pm2 save
 ```
 
 ### Caso B: Gunicorn no responde
 
 ```bash
 # Reload graceful
-kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+sudo systemctl reload pulstock-api   # HUP al master, sin cortar conexiones
 
 # Si no funciona, hard restart
-pkill -f gunicorn
-cd /var/www/pulstock/apps/api
-source venv/bin/activate
-gunicorn api.wsgi:application --workers 3 --bind 127.0.0.1:8000 --timeout 120 --daemon \
-  --access-logfile /var/log/pulstock/gunicorn-access.log \
-  --error-logfile /var/log/pulstock/gunicorn-error.log \
-  --chdir /var/www/pulstock/apps/api
+sudo systemctl restart pulstock-api
 ```
 
 ### Caso C: Nginx caído
 
 ```bash
-systemctl start nginx
+sudo systemctl start nginx
 # Si falla al arrancar, ver error:
 nginx -t
 journalctl -u nginx -n 20
@@ -68,8 +62,8 @@ pgrep -fl "gunicorn.*api.wsgi"
 # Si no hay procesos → iniciar Gunicorn (ver Caso B arriba)
 
 # Verificar PM2
-pm2 list
-# Si pulstock-web no está online → pm2 restart pulstock-web
+sudo pm2 list
+# Si pulstock-web no está online → sudo pm2 restart pulstock-web
 ```
 
 ---
@@ -103,7 +97,7 @@ du -sh /var/www/pulstock/* 2>/dev/null | sort -hr | head
 logrotate -f /etc/logrotate.d/pulstock
 find /var/log/pulstock -name "*.gz" -mtime +7 -delete
 find /var/log/nginx -name "*.gz" -mtime +7 -delete
-pm2 flush
+sudo pm2 flush
 
 # Limpiar builds viejos de Next.js
 du -sh /var/www/pulstock/apps/web/.next*
@@ -127,9 +121,9 @@ sudo -u postgres psql -c "SELECT datname, usename, count(*) FROM pg_stat_activit
 sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='pulstock' AND state='idle' AND state_change < now() - interval '10 minutes';"
 
 # Si persiste, reiniciar PostgreSQL (cuidado: corta todas las conexiones)
-systemctl restart postgresql
+sudo systemctl restart postgresql
 # Y después reiniciar el backend
-kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+sudo systemctl reload pulstock-api   # HUP al master, sin cortar conexiones
 ```
 
 ---
@@ -301,7 +295,7 @@ nano /var/www/pulstock/apps/api/.env
 # Agregar el nuevo dominio a DJANGO_ALLOWED_HOSTS=...
 
 # Reload Gunicorn
-kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+sudo systemctl reload pulstock-api   # HUP al master, sin cortar conexiones
 ```
 
 ---
@@ -327,10 +321,10 @@ cat /etc/cron.d/certbot
 
 ```bash
 # Guardar los procesos actuales
-pm2 save
+sudo pm2 save
 
 # Configurar autoarranque
-pm2 startup
+sudo pm2 startup
 # (copia y ejecuta el comando que te devuelve)
 
 # Verificar
@@ -342,27 +336,22 @@ systemctl status pm2-root
 ## 🚨 Cuando nada funciona — reinicio completo
 
 ```bash
-ssh root@<TU_SERVIDOR>
+ssh ignacio@65.108.148.200
 
 # 1. Reiniciar todo
-systemctl restart postgresql
-systemctl restart nginx
-pm2 kill
+sudo systemctl restart postgresql
+sudo systemctl restart nginx
+sudo pm2 kill
 
-# 2. Matar gunicorn si queda colgado
-pkill -f gunicorn
-
-# 3. Levantar Gunicorn
-cd /var/www/pulstock/apps/api
-source venv/bin/activate
-gunicorn api.wsgi:application --workers 3 --bind 127.0.0.1:8000 --timeout 120 --daemon \
-  --access-logfile /var/log/pulstock/gunicorn-access.log \
-  --error-logfile /var/log/pulstock/gunicorn-error.log
+# 2. Backend
+# NO uses pkill: systemd lo relevanta solo y quedan dos instancias peleando
+# por el puerto 8000. `restart` mata y levanta en el orden correcto.
+sudo systemctl restart pulstock-api
 
 # 4. Levantar PM2
 cd /var/www/pulstock/apps/web
-pm2 start npm --name pulstock-web -- start
-pm2 save
+sudo pm2 start npm --name pulstock-web -- start
+sudo pm2 save
 
 # 5. Verificar todo
 sleep 5

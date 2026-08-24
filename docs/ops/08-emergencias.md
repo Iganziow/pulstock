@@ -8,7 +8,7 @@ Guía para cuando todo está mal. Sigue los pasos en orden.
 
 ```bash
 # Desde tu máquina local
-ping <TU_SERVIDOR>
+ping 65.108.148.200
 ```
 
 - **Responde:** el servidor está arriba, problema es con los servicios → salta al Paso 2
@@ -21,7 +21,7 @@ ping <TU_SERVIDOR>
 ### Paso 2 — SSH al servidor
 
 ```bash
-ssh root@<TU_SERVIDOR>
+ssh ignacio@65.108.148.200
 ```
 
 - **No conecta:** red o firewall → panel Hetzner, verificar firewall
@@ -31,24 +31,16 @@ ssh root@<TU_SERVIDOR>
 
 ```bash
 # 1. PostgreSQL
-systemctl restart postgresql
+sudo systemctl restart postgresql
 
-# 2. Gunicorn (backend)
-pkill -f gunicorn
-cd /var/www/pulstock/apps/api
-source venv/bin/activate
-gunicorn api.wsgi:application --workers 3 --bind 127.0.0.1:8000 --timeout 120 --daemon \
-  --access-logfile /var/log/pulstock/gunicorn-access.log \
-  --error-logfile /var/log/pulstock/gunicorn-error.log
+# 2. Backend (es un servicio de systemd: pulstock-api.service)
+sudo systemctl restart pulstock-api
 
-# 3. PM2 (frontend)
-pm2 kill
-cd /var/www/pulstock/apps/web
-pm2 start npm --name pulstock-web -- start
-pm2 save
+# 3. Frontend (PM2 corre como root — el sudo no es opcional)
+sudo pm2 restart pulstock-web
 
 # 4. Nginx
-systemctl restart nginx
+sudo systemctl restart nginx
 
 # 5. Verificar
 sleep 10
@@ -56,11 +48,25 @@ curl -s http://localhost:8000/api/core/health/
 curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
 ```
 
+**Dos trampas que evitar acá**, las dos encontradas verificando este manual
+contra el servidor real:
+
+- **No levantes gunicorn a mano.** El backend es un servicio de systemd. Si lo
+  matas con `pkill` y lo levantas a mano, systemd lo vuelve a levantar y quedan
+  dos instancias peleando por el puerto 8000: la aplicación responde
+  intermitente y cuesta mucho diagnosticarlo.
+
+- **PM2 corre como root.** Sin `sudo` los comandos hablan con otro demonio —el
+  de tu usuario, que está vacío— así que la tabla sale sin filas y parece que
+  el frontend está caído cuando está perfecto. Peor: `pm2 start` sin sudo
+  levanta un SEGUNDO Next.js compitiendo por el puerto 3000.
+
 ### Paso 4 — Si aún no funciona, ver logs
 
 ```bash
+sudo journalctl -u pulstock-api -n 50 --no-pager
 tail -50 /var/log/pulstock/gunicorn-error.log
-pm2 logs pulstock-web --lines 50 --nostream
+sudo pm2 logs pulstock-web --lines 50 --nostream
 tail -50 /var/log/nginx/error.log
 ```
 
@@ -176,15 +182,15 @@ print(f"Lifetime? {t.slug in ['marbrava']}")  # debe ser True
 ### Paso 2 — Si no está en lifetime_slugs, forzar
 
 ```bash
-# Verificar env
-grep LIFETIME /var/www/pulstock/apps/api/.env
-# Debe tener: BILLING_LIFETIME_SLUGS=marbrava
+# Mirar el valor EFECTIVO, no el .env. Si la variable no esta definida,
+# settings.py usa "marbrava" por defecto — asi esta hoy en el servidor. O sea
+# que no encontrarla en el .env NO significa que Marbrava perdio la exencion.
+cd /var/www/pulstock/apps/api && venv/bin/python -c "import django, os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','api.settings'); django.setup(); from django.conf import settings; print(settings.BILLING_LIFETIME_SLUGS)"
+# Debe incluir: marbrava
 
-# Si no, agregar:
-echo "BILLING_LIFETIME_SLUGS=marbrava" >> /var/www/pulstock/apps/api/.env
-
-# Reload Gunicorn
-kill -HUP $(pgrep -f 'gunicorn.*api.wsgi' -o)
+# Solo si NO aparece, agregarla y reiniciar el backend:
+echo "BILLING_LIFETIME_SLUGS=marbrava" | sudo tee -a /var/www/pulstock/apps/api/.env
+sudo systemctl restart pulstock-api
 ```
 
 ### Paso 3 — Forzar sub activa
@@ -215,7 +221,7 @@ df -h /
 # Limpieza inmediata
 logrotate -f /etc/logrotate.d/pulstock 2>/dev/null
 journalctl --vacuum-time=2d
-pm2 flush
+sudo pm2 flush
 truncate -s 0 /var/log/pulstock/*.log
 find /var/log -name "*.gz" -mtime +7 -delete 2>/dev/null
 find /tmp -type f -mtime +3 -delete 2>/dev/null
@@ -291,7 +297,7 @@ Si llegaste acá y nada funciona, antes de llamar:
 - [ ] Logs del backend (últimas 100 líneas)
 - [ ] Logs del frontend (últimas 100 líneas)
 - [ ] Logs de Nginx
-- [ ] Output de `pm2 list` y `systemctl status nginx postgresql`
+- [ ] Output de `sudo pm2 list` y `systemctl status nginx postgresql`
 - [ ] Fecha y hora exacta del problema
 - [ ] Qué estabas haciendo cuando se rompió
 - [ ] Qué has intentado ya
@@ -303,8 +309,8 @@ mkdir -p /tmp/debug-$(date +%Y%m%d_%H%M)
 cd /tmp/debug-*
 cp /var/log/pulstock/*.log .
 cp /var/log/nginx/error.log .
-pm2 list > pm2.txt
-pm2 logs --nostream --lines 200 > pm2-logs.txt
+sudo pm2 list > pm2.txt
+sudo pm2 logs --nostream --lines 200 > pm2-logs.txt
 systemctl status nginx postgresql > services.txt
 df -h > disk.txt
 free -h > memory.txt

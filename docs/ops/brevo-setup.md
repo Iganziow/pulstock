@@ -39,7 +39,7 @@ Autoriza a Brevo a mandar emails en nombre de `pulstock.cl`.
 |------|------|---------|-------|-----|
 | TXT | `@` (o `pulstock.cl`) | `v=spf1 include:spf.brevo.com ~all` | ⚪ DNS only | Auto |
 
-> Si ya tenés un SPF record existente, NO crees otro — extendelo: `v=spf1 include:spf.brevo.com include:otro.com ~all`. Solo puede haber un SPF por dominio.
+> Si ya tienes un SPF record existente, NO crees otro — extendelo: `v=spf1 include:spf.brevo.com include:otro.com ~all`. Solo puede haber un SPF por dominio.
 
 #### DKIM (DomainKeys Identified Mail)
 Brevo firma cada email con esta llave privada; los servidores receptores validan la firma contra esta llave pública.
@@ -51,7 +51,7 @@ Brevo firma cada email con esta llave privada; los servidores receptores validan
 > El valor exacto lo ves en Brevo en la pantalla del dominio. Es un string largo (1-2 líneas). Copialo **exacto**, incluyendo `k=rsa; p=`.
 
 #### Brevo ownership verification
-Prueba que vos controlás el dominio.
+Prueba que tú controlás el dominio.
 
 | Type | Name | Content | Proxy | TTL |
 |------|------|---------|-------|-----|
@@ -115,12 +115,12 @@ En Brevo → **Senders**:
 | Pulstock Soporte | `soporte@pulstock.cl` | Soporte manual |
 | Pulstock | `hola@pulstock.cl` | Bienvenidas / onboarding |
 
-> Los emails NO tienen que ser buzones reales. Para recibir respuestas, usá [ImprovMX](https://improvmx.com/) gratis → forward a tu Gmail.
+> Los emails NO tienen que ser buzones reales. Para recibir respuestas, usa [ImprovMX](https://improvmx.com/) gratis → forward a tu Gmail.
 
 ### Paso 7 — Actualizar `.env` en el server
 
 ```bash
-ssh root@65.108.148.200
+ssh ignacio@65.108.148.200
 cd /var/www/pulstock/apps/api
 cp .env .env.bak.pre-brevo.$(date +%Y%m%d-%H%M%S)
 
@@ -164,7 +164,7 @@ Un email que pasa SPF + DKIM + DMARC + dominio con historia tiene ~99% chance de
 ### Brevo dashboard
 - **Statistics** → opens, clicks, bounces, spam reports
 - **Transactional → Logs** → ver cada email individual con timestamp + status
-- Si ves muchos "Soft bounces" → revisá contenido o listas
+- Si ves muchos "Soft bounces" → revisa contenido o listas
 
 ### Alertas recomendadas
 Configurá en Brevo:
@@ -180,7 +180,7 @@ Configurá en Brevo:
 
 ```bash
 # 1. Verificar que SMTP está configurado
-ssh root@65.108.148.200
+ssh ignacio@65.108.148.200
 cd /var/www/pulstock/apps/api
 venv/bin/python manage.py send_test_email tu@gmail.com
 

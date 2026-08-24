@@ -5,10 +5,10 @@ Tareas que tienes que hacer **aunque todo funcione bien**.
 ## 📅 Semanal (5 minutos)
 
 ```bash
-ssh root@<TU_SERVIDOR>
+ssh ignacio@65.108.148.200
 
 # 1. Estado general
-pm2 list
+sudo pm2 list
 pgrep -fl "gunicorn.*api.wsgi" | head -2
 df -h /
 free -h
@@ -37,7 +37,7 @@ grep -c Traceback /var/log/pulstock/gunicorn-error.log
 
 ```bash
 # Desde tu máquina local
-scp root@<TU_SERVIDOR>:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/pulstock_backup_$(date +%Y%m).sql.gz
+scp ignacio@65.108.148.200:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz ~/Desktop/pulstock_backup_$(date +%Y%m).sql.gz
 ```
 
 Guarda en Google Drive / Dropbox / disco externo.
@@ -45,7 +45,7 @@ Guarda en Google Drive / Dropbox / disco externo.
 ### 2. Actualización de paquetes del sistema (con cuidado)
 
 ```bash
-ssh root@<TU_SERVIDOR>
+ssh ignacio@65.108.148.200
 
 # Ver qué se actualizaría
 apt list --upgradable 2>/dev/null | head -20
@@ -83,7 +83,7 @@ find /var/log -name "*.gz" -mtime +30 -delete
 find /var/backups/pulstock -name "*.sql.gz" -mtime +30 -delete
 
 # PM2 logs
-pm2 flush
+sudo pm2 flush
 ```
 
 ### 5. Verificar que cron jobs corren
@@ -108,7 +108,7 @@ tail -20 /var/backups/pulstock/backup.log
 ```bash
 # En una VPS de prueba o en Docker
 # 1. Copia el último backup
-scp root@<TU_SERVIDOR>:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz /tmp/
+scp ignacio@65.108.148.200:/var/backups/pulstock/pulstock_$(date +%Y%m%d)_0300.sql.gz /tmp/
 
 # 2. Crea BD temporal y restaura
 sudo -u postgres psql -c "CREATE DATABASE pulstock_test;"
@@ -229,3 +229,78 @@ Copia esto en un documento y marca cada mes:
 - **Certificado SSL expira mañana** → renovación urgente
 - **Flow.cl cambió su API** → actualizar código (ver changelog de Flow)
 - **Vulnerabilidad crítica en Django/Next.js** → actualizar versión mayor
+
+---
+
+## Lo que hay que revisar con más cuidado (y por qué)
+
+Estos tres puntos salieron de verificar este manual comando por comando contra
+el servidor el 24-ago-2026. Ninguno rompe nada hoy, pero los tres fallan en
+silencio, que es la peor forma de fallar cuando no hay nadie mirando.
+
+### 1. Hay tareas críticas fuera del control de versiones
+
+El pipeline del forecast **y el backup diario** no están en `/etc/cron.d/` ni
+en el repositorio: viven en el crontab personal del usuario `ignacio`.
+
+```bash
+crontab -l   # como ignacio, NO con sudo
+```
+
+Deben aparecer **dos** líneas: `run_nightly_pipeline` (que corre los cinco
+pasos del forecast en orden) y `/var/backups/pulstock/backup.sh`.
+
+Si esa cuenta se borra o el crontab se pierde, el forecast deja de entrenarse y
+**los respaldos dejan de correr**, sin ningún aviso. La copia de respaldo de
+esas líneas está en [`pulstock-crontab.txt`](pulstock-crontab.txt).
+
+### 2. Cuánto aguanta el pipeline
+
+*(Corregido el 24-ago-2026: antes las tareas llevaban `--tenant 1` y un cliente
+nuevo no recibía nada. Ya no.)*
+
+El pipeline recorre a todos los negocios activos y encadena los pasos por
+terminación, así que el tiempo total no rompe nada. Medido: **28,7 segundos por
+negocio**, de los cuales 28 son el entrenamiento.
+
+| Clientes | Duración | Termina |
+|---|---|---|
+| 1 | ~29 s | 04:31 |
+| 100 | ~48 min | 05:18 |
+| 300 | ~2,4 h | 06:54 |
+
+El backup corre 07:30, así que hay margen hasta unos 300 locales. Para
+recalcular esto en cualquier momento:
+
+```bash
+cd /var/www/pulstock/apps/api && sudo venv/bin/python manage.py run_nightly_pipeline
+```
+
+Imprime la duración de cada paso y el total.
+
+**Lo que todavía va por reloj:** `check_forecast_coverage` corre 07:15 desde
+`/etc/cron.d/pulstock`, independiente del pipeline. Con más de ~300 clientes
+podría ejecutarse antes de que el entrenamiento termine y reportar productos
+sin pronóstico que en realidad se estaban entrenando.
+
+### 3. El chequeo profundo devuelve 503 hoy
+
+```bash
+curl -s -o /dev/null -w "%{http_code}
+" https://api.pulstock.cl/api/core/health/deep/
+```
+
+Devuelve **503**, y no es infraestructura: 13 de los 14 heartbeats están sanos.
+El que falla es `forecast.check_coverage`, avisando que 6 productos tienen
+pronóstico pero no se miden hace 30 días (Leche deslactosada, Queso, Syrup
+vainilla, Pan blanco, Carne Mechada, Soda espresso).
+
+Para ver el detalle:
+
+```bash
+sudo tail -40 /var/log/pulstock/forecast-cron.log | grep -A 10 MUDOS
+```
+
+**Antes de apuntar un monitor externo a este endpoint**, resuelve esos 6
+productos. Un monitor que alerta siempre es un monitor que nadie lee, y el día
+que se caiga la base de datos la alerta va a parecer más de lo mismo.

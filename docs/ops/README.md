@@ -18,14 +18,27 @@ Guía práctica para mantener Pulstock en producción sin soporte externo.
 
 | Item | Valor |
 |------|-------|
-| Servidor | `<TU_SERVIDOR>` (Hetzner) |
-| Usuario SSH | `root` |
-| URL app | http://<TU_SERVIDOR> |
+| Servidor | `65.108.148.200` (Hetzner, `ubuntu-4gb-hel1-2`) |
+| Usuario SSH | `ignacio` — **no** `root`, root no tiene login |
+| App | https://pulstock.cl |
+| API | https://api.pulstock.cl |
 | Rama producción | `main` |
 | Base de datos | PostgreSQL (local, puerto 5432) |
-| Frontend | Next.js en puerto 3000 (PM2) |
-| Backend | Django + Gunicorn en puerto 8000 |
-| Proxy | Nginx (puerto 80) |
+| Frontend | Next.js puerto 3000, bajo PM2 **como root** (`sudo pm2 list`) |
+| Backend | Django + Gunicorn, 5 workers, puerto 8000 |
+| Proxy | Nginx con HTTPS (certbot renueva solo) |
+| Tareas programadas | `/etc/cron.d/pulstock` **y** el crontab de `ignacio` — ver abajo |
+
+### Dos lugares con tareas programadas
+
+Esto sorprende y conviene saberlo antes de necesitarlo:
+
+- **`/etc/cron.d/pulstock`** — facturación, trials, alertas de quiebre, ABC semanal.
+- **`crontab -l` del usuario `ignacio`** — el pipeline del forecast **y el backup diario**.
+
+El segundo no está en el repo ni en `/etc/cron.d/`. Si se pierde ese crontab,
+el forecast y los respaldos dejan de correr **sin avisar**. Ver
+[Mantenimiento periódico](09-mantenimiento.md).
 
 ## Contactos de emergencia
 

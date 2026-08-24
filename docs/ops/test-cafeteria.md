@@ -112,7 +112,7 @@ local + agente + celulares del staff).
 
 ## Fase 4 — Caso "tablet con impresora Bluetooth"
 
-> Solo si tenés tablet + impresora térmica BT. Skipeable.
+> Solo si tienes tablet + impresora térmica BT. Skipeable.
 
 28. [ ] En la tablet, ir a Settings → Impresoras → "+ Agregar impresora" →
        "Bluetooth" → emparejar con la térmica BT.

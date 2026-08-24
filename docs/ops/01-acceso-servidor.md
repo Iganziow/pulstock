@@ -3,10 +3,12 @@
 ## Conectar por SSH
 
 ```bash
-ssh root@<TU_SERVIDOR>
+ssh ignacio@65.108.148.200
 ```
 
-Si te pide password usa el que guardaste. Si ya configuraste tu llave SSH (`~/.ssh/id_ed25519.pub` en `authorized_keys` del servidor), entra sin password.
+El usuario es `ignacio`. **`root` no tiene login por SSH**, así que cualquier comando que necesite privilegios va con `sudo`.
+
+Si te pide contraseña usa la que guardaste. Si ya configuraste tu llave SSH (`~/.ssh/id_ed25519.pub` en `authorized_keys` del servidor), entra sin password.
 
 ## Configurar acceso sin password (recomendado)
 
@@ -16,8 +18,8 @@ Desde tu máquina local (una sola vez):
 # 1. Ver tu llave pública (si no tienes, crea con: ssh-keygen -t ed25519)
 cat ~/.ssh/id_ed25519.pub
 
-# 2. Copiar al servidor
-ssh root@<TU_SERVIDOR> "mkdir -p ~/.ssh && echo 'TU_LLAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+# 2. Copiar al servidor (reemplaza TU_LLAVE_PUBLICA por lo que imprimió el paso 1)
+ssh ignacio@65.108.148.200 "mkdir -p ~/.ssh && echo 'TU_LLAVE_PUBLICA' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 ```
 
 ## Ubicaciones importantes
@@ -33,7 +35,15 @@ ssh root@<TU_SERVIDOR> "mkdir -p ~/.ssh && echo 'TU_LLAVE_PUBLICA' >> ~/.ssh/aut
 | Logs Nginx | `/var/log/nginx/*.log` |
 | Backups | `/var/backups/pulstock/` |
 | Config Nginx | `/etc/nginx/sites-enabled/pulstock` |
-| Crontabs | `/etc/cron.d/pulstock-trials` + user crontab |
+| Tareas programadas | `/etc/cron.d/pulstock` **y** `crontab -l` de `ignacio` |
+| Servicio del backend | `pulstock-api.service` (systemd, corre como root) |
+| Frontend | PM2 **como root** → todo comando pm2 lleva `sudo` |
+
+
+> **Las tareas programadas están en dos lugares.** `/etc/cron.d/pulstock` tiene
+> facturación, trials y alertas. El crontab personal de `ignacio` tiene el
+> pipeline del forecast **y el backup diario** — y ese no está en el
+> repositorio. Copia de respaldo en [`pulstock-crontab.txt`](pulstock-crontab.txt).
 
 ## Salir del servidor
 
