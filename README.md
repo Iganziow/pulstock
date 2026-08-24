@@ -107,6 +107,7 @@ Estos documentos evitan re-deducir cosas que ya costaron caro:
 | **[FORECAST_RESEARCH.md](FORECAST_RESEARCH.md)** | Estado del arte en pronóstico de inventario. |
 | **[CLAUDE.md](CLAUDE.md)** | Convenciones del código. Escrito para asistentes de IA, útil para humanos. |
 | **[docs/manual-venta-modelo-predictivo.md](docs/manual-venta-modelo-predictivo.md)** | Cómo explicar y vender el motor de pronóstico. Con los números reales medidos, no con los que quedarían mejor. |
+| **[docs/manual-de-uso.md](docs/manual-de-uso.md)** | Qué hace cada pantalla y para quién. Escrito recorriendo la instalación real. |
 
 ---
 
