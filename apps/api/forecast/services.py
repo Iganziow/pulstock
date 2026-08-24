@@ -10,6 +10,25 @@ import statistics
 from datetime import date, timedelta
 from decimal import Decimal
 
+
+def cuenta_mermas_como_demanda(tenant) -> bool:
+    """Si las mermas y el uso interno son demanda real para este negocio.
+
+    En un restaurante lo son: la leche que se corta y el papel higienico que
+    se gasta salen del stock igual que una venta, y hay que reponerlos igual.
+    En un retail que revende cajas cerradas, una merma es una perdida, no una
+    señal de cuanto comprar.
+
+    Vive aca y no repetida en cada modulo porque el sintoma de tenerla
+    duplicada ya se vio: `inventory.min_stock` leia solo `qty_sold` y dejaba
+    sin minimo justo a los insumos --papel higienico, servilletas, toallas--,
+    que son los que el dueño pidio cubrir. Dos partes del sistema con
+    definiciones distintas de "demanda" es una falla silenciosa esperando.
+    """
+    btype = getattr(tenant, "business_type", "other") or "other"
+    return btype in ("restaurant",)
+
+
 logger = logging.getLogger(__name__)
 
 # Nivel de servicio objetivo para el safety stock probabilístico.
@@ -1368,8 +1387,7 @@ def train_product_model(tenant, product, warehouse_id, today,
             )
 
     # For restaurants: include waste (qty_lost) in effective demand
-    btype = getattr(tenant, "business_type", "other") or "other"
-    include_waste = btype in ("restaurant",)
+    include_waste = cuenta_mermas_como_demanda(tenant)
     if include_waste:
         raw_data = list(ds_qs.values_list("date", "qty_sold", "promo_qty", "qty_lost"))
     else:

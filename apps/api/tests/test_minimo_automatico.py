@@ -449,3 +449,93 @@ class TestSeVeEnLaApi:
         r = api_client.get(f"/api/inventory/stock/?warehouse_id={warehouse.id}")
         fila = next(f for f in r.json()["results"] if f["product_id"] == product.id)
         assert fila["min_stock_auto"] is None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# LO QUE NO SE VENDE PERO SE GASTA
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.mark.django_db
+class TestElConsumoInternoEsDemanda:
+    """El papel higiénico no se vende nunca. Se gasta.
+
+    Su consumo se registra como `qty_lost` (un `OUT/ISSUE`), no como
+    `qty_sold`. Leyendo solo las ventas, los insumos daban "sin consumo" y se
+    quedaban sin mínimo — justo los productos que originaron el pedido de
+    Mario. Verificado contra producción: papel higiénico, servilletas y
+    toallas tenían filas de demanda con `qty_sold = 0` y su consumo real en
+    `qty_lost`.
+
+    El motor de pronóstico ya lo contaba bien desde antes. El módulo nuevo no,
+    y esa discrepancia es el tipo de falla que no se ve: dos partes del
+    sistema con definiciones distintas de la misma palabra.
+    """
+
+    def _gasto_interno(self, tenant, warehouse, product, dias_atras, qty="1"):
+        DailySales.objects.create(
+            tenant=tenant, product=product, warehouse=warehouse,
+            date=timezone.localdate() - datetime.timedelta(days=dias_atras),
+            qty_sold=D("0"), qty_lost=D(qty),
+        )
+
+    def test_un_insumo_que_solo_se_gasta_igual_recibe_minimo(
+        self, tenant, warehouse, product,
+    ):
+        """EL CASO DE MARIO, con los números reales de producción:
+        6 movimientos de uso interno repartidos en ~80 días."""
+        tenant.business_type = "restaurant"
+        tenant.save(update_fields=["business_type"])
+        for d in (32, 47, 78, 80, 110):
+            self._gasto_interno(tenant, warehouse, product, d)
+
+        r = minimo_para(tenant, product, warehouse)
+        assert r is not None, (
+            "quedó sin mínimo: se leyó solo qty_sold y el consumo real vive "
+            "en qty_lost"
+        )
+        assert r["minimo"] >= 1
+
+    def test_el_gasto_se_suma_a_la_venta_no_la_reemplaza(
+        self, tenant, warehouse, product,
+    ):
+        """Un producto que se vende Y se gasta consume las dos cosas."""
+        tenant.business_type = "restaurant"
+        tenant.save(update_fields=["business_type"])
+        for d in range(1, 29):
+            DailySales.objects.create(
+                tenant=tenant, product=product, warehouse=warehouse,
+                date=timezone.localdate() - datetime.timedelta(days=d),
+                qty_sold=D("6"), qty_lost=D("4"),
+            )
+        r = minimo_para(tenant, product, warehouse)
+        assert r["demanda_diaria"] == pytest.approx(10, abs=0.5), (
+            f"contó {r['demanda_diaria']:.1f}/día en vez de 10: el mínimo va "
+            f"a quedar corto en la proporción que se gasta por dentro"
+        )
+
+    def test_en_un_negocio_que_no_cuenta_mermas_no_se_suman(
+        self, tenant, warehouse, product,
+    ):
+        """En un retail que revende cajas cerradas, una merma es una pérdida,
+        no una señal de cuánto comprar. El criterio lo decide el tipo de
+        negocio, y tiene que ser el mismo que usa el pronóstico."""
+        tenant.business_type = "retail"
+        tenant.save(update_fields=["business_type"])
+        for d in range(1, 29):
+            DailySales.objects.create(
+                tenant=tenant, product=product, warehouse=warehouse,
+                date=timezone.localdate() - datetime.timedelta(days=d),
+                qty_sold=D("6"), qty_lost=D("4"),
+            )
+        r = minimo_para(tenant, product, warehouse)
+        assert r["demanda_diaria"] == pytest.approx(6, abs=0.5)
+
+    def test_usa_el_mismo_criterio_que_el_pronostico(self, tenant):
+        """Si las dos mitades divergen, el mínimo y la sugerencia de compra
+        hablan de demandas distintas para el mismo producto."""
+        from forecast.services import cuenta_mermas_como_demanda
+
+        tenant.business_type = "restaurant"
+        assert cuenta_mermas_como_demanda(tenant) is True
+        tenant.business_type = "retail"
+        assert cuenta_mermas_como_demanda(tenant) is False

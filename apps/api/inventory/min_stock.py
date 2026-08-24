@@ -128,21 +128,38 @@ def _serie_diaria(tenant, product, warehouse, hasta, dias=VENTANA_DIAS):
     Los dias sin venta CUENTAN: son parte del ritmo real. Promediar solo los
     dias con movimiento infla el minimo de todo lo que rota poco — que es
     justo el caso de los insumos que Mario quiere cubrir.
+
+    Y "demanda" NO es solo `qty_sold`. En un restaurante lo que se gasta por
+    dentro sale del stock igual que una venta: el papel higienico no se vende
+    nunca, se consume, y su consumo se registra como `qty_lost`. Leyendo solo
+    las ventas, los insumos daban "sin consumo" y se quedaban sin minimo —
+    justo los productos que originaron el pedido.
+
+    El criterio lo decide `cuenta_mermas_como_demanda`, el mismo que usa el
+    motor de pronostico, para que las dos mitades del sistema no tengan
+    definiciones distintas de la misma palabra.
     """
     import datetime
     from forecast.models import DailySales
+    from forecast.services import cuenta_mermas_como_demanda
+
+    con_mermas = cuenta_mermas_como_demanda(tenant)
+    campos = ["date", "qty_sold"] + (["qty_lost"] if con_mermas else [])
 
     desde = hasta - datetime.timedelta(days=dias)
-    filas = dict(
-        DailySales.objects
-        .filter(tenant=tenant, product=product, warehouse=warehouse,
-                date__gte=desde, date__lt=hasta)
-        .values_list("date", "qty_sold")
-    )
+    filas = {}
+    for fila in (DailySales.objects
+                 .filter(tenant=tenant, product=product, warehouse=warehouse,
+                         date__gte=desde, date__lt=hasta)
+                 .values_list(*campos)):
+        total = float(fila[1] or 0)
+        if con_mermas and len(fila) > 2:
+            total += float(fila[2] or 0)
+        filas[fila[0]] = total
     serie = []
     d = desde
     while d < hasta:
-        serie.append(float(filas.get(d) or 0))
+        serie.append(filas.get(d, 0.0))
         d += datetime.timedelta(days=1)
     return serie
 
