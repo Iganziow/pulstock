@@ -195,3 +195,30 @@ Especificado para que el abogado sepa qué es posible:
 - Exportación completa de datos por cliente (sección 7)
 
 Nada de esto es difícil; ninguna parte existe todavía.
+
+## 11. Los tres borradores ya escritos
+
+No hay que empezar de una hoja en blanco. Los tres documentos están
+redactados sobre los hechos de este expediente, en `docs/legal/`:
+
+| Borrador | Qué cubre |
+|---|---|
+| [borrador-terminos-de-servicio.md](legal/borrador-terminos-de-servicio.md) | Licencia de uso, precio, pronóstico sin garantía de resultados, limitación de responsabilidad como **tope**, datos al terminar |
+| [borrador-politica-privacidad.md](legal/borrador-politica-privacidad.md) | Base de licitud por tratamiento, transferencia a Finlandia, subprocesadores, derechos, retención |
+| [borrador-dpa.md](legal/borrador-dpa.md) | Anexo de encargo: roles, instrucciones, subencargados, medidas de seguridad medidas, brechas, devolución |
+
+**Cómo usarlos:** son un punto de partida para que el abogado corrija, no un
+contrato listo para firmar. Cada uno lleva el aviso en la primera línea y
+`[corchetes]` en las decisiones que no son técnicas (razón social, plazos,
+jurisdicción, tope de responsabilidad).
+
+**Dos cosas bloquean la firma del DPA**, y están marcadas dentro del propio
+texto:
+
+1. La **exportación de datos por cliente no existe** — la prometen la
+   cláusula 12 de los ToS y la cláusula 8 del anexo.
+2. El **respaldo fuera del servidor no está operativo** — el anexo lo declara
+   hoy como limitación explícita.
+
+Firmar el anexo mientras esas dos líneas sigan siendo ciertas es prometer por
+escrito algo que el sistema no hace.

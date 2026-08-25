@@ -165,9 +165,10 @@ sobre un producto cuyo pronóstico falla por diseño (38% de error semanal,
 medido).
 
 Los hechos completos para el abogado están en
-[expediente-legal.md](expediente-legal.md). Esto es **más urgente que el
-respaldo externo**: un incendio destruye datos; una demanda por daño
-consecuencial sin sociedad de por medio compromete el patrimonio personal.
+[expediente-legal.md](expediente-legal.md), y los tres borradores ya
+redactados en [legal/](legal/). Esto es **más urgente que el respaldo
+externo**: un incendio destruye datos; una demanda por daño consecuencial sin
+sociedad de por medio compromete el patrimonio personal.
 
 ## Orden sugerido
 

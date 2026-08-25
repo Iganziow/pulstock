@@ -16,21 +16,21 @@ Guía completa para configurar envío de emails transaccionales desde Pulstock u
 
 ### Paso 1 — Crear cuenta Brevo
 
-1. Andá a https://www.brevo.com/ → **Sign up free**
-2. Usá el **email corporativo de Pulstock** (no personal)
-3. Plan: **Free** (el pricing lo subís después si hace falta)
+1. Entra a https://www.brevo.com/ → **Sign up free**
+2. Usa el **email corporativo de Pulstock** (no personal)
+3. Plan: **Free** (el plan se sube después si hace falta)
 4. Propósito: **Transactional emails** (NO marketing)
-5. Activá **2FA** inmediatamente: Account → Security → Two-factor authentication
+5. Activa **2FA** inmediatamente: Account → Security → Two-factor authentication
 
 ### Paso 2 — Verificar dominio `pulstock.cl`
 
 1. Menú lateral: **Senders, Domains & Dedicated IPs** → pestaña **Domains**
-2. Click **"Add a Domain"** → escribí `pulstock.cl` → Save
+2. Click **"Add a Domain"** → escribe `pulstock.cl` → Save
 3. Brevo genera 3 registros DNS — los vamos a agregar a Cloudflare
 
 ### Paso 3 — Agregar registros en Cloudflare
 
-En https://dash.cloudflare.com → `pulstock.cl` → **DNS** → **Records**, agregá estos 4:
+En https://dash.cloudflare.com → `pulstock.cl` → **DNS** → **Records**, agrega estos 4:
 
 #### SPF (Sender Policy Framework)
 Autoriza a Brevo a mandar emails en nombre de `pulstock.cl`.
@@ -39,7 +39,7 @@ Autoriza a Brevo a mandar emails en nombre de `pulstock.cl`.
 |------|------|---------|-------|-----|
 | TXT | `@` (o `pulstock.cl`) | `v=spf1 include:spf.brevo.com ~all` | ⚪ DNS only | Auto |
 
-> Si ya tienes un SPF record existente, NO crees otro — extendelo: `v=spf1 include:spf.brevo.com include:otro.com ~all`. Solo puede haber un SPF por dominio.
+> Si ya tienes un SPF record existente, NO crees otro — extiéndelo: `v=spf1 include:spf.brevo.com include:otro.com ~all`. Solo puede haber un SPF por dominio.
 
 #### DKIM (DomainKeys Identified Mail)
 Brevo firma cada email con esta llave privada; los servidores receptores validan la firma contra esta llave pública.
@@ -48,10 +48,10 @@ Brevo firma cada email con esta llave privada; los servidores receptores validan
 |------|------|---------|-------|-----|
 | TXT | `mail._domainkey` | `k=rsa; p=<LLAVE-LARGA-QUE-TE-DA-BREVO>` | ⚪ DNS only | Auto |
 
-> El valor exacto lo ves en Brevo en la pantalla del dominio. Es un string largo (1-2 líneas). Copialo **exacto**, incluyendo `k=rsa; p=`.
+> El valor exacto lo ves en Brevo en la pantalla del dominio. Es un string largo (1-2 líneas). Cópialo **exacto**, incluyendo `k=rsa; p=`.
 
 #### Brevo ownership verification
-Prueba que tú controlás el dominio.
+Prueba que tú controlas el dominio.
 
 | Type | Name | Content | Proxy | TTL |
 |------|------|---------|-------|-----|
@@ -64,14 +64,14 @@ Política de qué hacer si un email que dice ser de `pulstock.cl` NO pasa SPF/DK
 |------|------|---------|-------|-----|
 | TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:pulstock.admin@gmail.com; fo=1` | ⚪ DNS only | Auto |
 
-> `p=none` = solo reportar (no bloquear). Después de 2 semanas de uso estable, subí a `p=quarantine` y luego a `p=reject` para endurecer.
+> `p=none` = solo reportar (no bloquear). Después de 2 semanas de uso estable, sube a `p=quarantine` y luego a `p=reject` para endurecer.
 
 ### Paso 4 — Esperar propagación y validar en Brevo
 
-1. Esperá 15-60 min para que Cloudflare propague
+1. Espera 15-60 min para que Cloudflare propague
 2. En Brevo → Domains → click **"Verify"** en `pulstock.cl`
 3. Te marca ✅ SPF / ✅ DKIM / ✅ Ownership cuando estén OK
-4. Validá DMARC también en https://mxtoolbox.com/dmarc.aspx
+4. Valida DMARC también en https://mxtoolbox.com/dmarc.aspx
 
 ### Paso 5 — Obtener credenciales SMTP
 
@@ -89,12 +89,12 @@ SMTP key    : xsmtpsib-xxxxxxxxxxxxxxxxxxxxxxxx
 ### Paso 5.5 — Activación manual de SMTP (cuentas nuevas)
 
 Brevo **desactiva SMTP por defecto** en cuentas Free nuevas para prevenir spam.
-Si al enviar recibís:
+Si al enviar aparece:
 ```
 502 5.7.0 Your SMTP account is not yet activated.
 ```
 
-Contactalos:
+Contáctalos:
 - **Chat del dashboard** (más rápido, respuesta en minutos)
 - O email a `contact@brevo.com`
 
@@ -153,7 +153,7 @@ Si el email llega a tu inbox principal (no spam), todo está OK.
 
 Un email que pasa SPF + DKIM + DMARC + dominio con historia tiene ~99% chance de llegar a inbox. Herramientas:
 
-- **Mail-tester.com**: mandá el test a la dirección random que te den → te da un score 0-10. Objetivo: 9.5+
+- **Mail-tester.com**: manda el test a la dirección random que te den → te da un score 0-10. Objetivo: 9.5+
 - **Postmaster Tools de Google**: https://postmaster.google.com/ — stats de reputación de `pulstock.cl`
 - **MXToolbox**: https://mxtoolbox.com/SuperTool.aspx → chequear SPF, DKIM, DMARC
 
@@ -167,7 +167,7 @@ Un email que pasa SPF + DKIM + DMARC + dominio con historia tiene ~99% chance de
 - Si ves muchos "Soft bounces" → revisa contenido o listas
 
 ### Alertas recomendadas
-Configurá en Brevo:
+Configura en Brevo:
 - Alerta si **bounce rate > 5%**
 - Alerta si **spam reports > 0.1%**
 - Alerta si **daily limit > 80%** (te estás acercando al free tier)
@@ -199,7 +199,7 @@ tail -50 /var/log/pulstock/gunicorn-error.log | grep -i smtp
 
 ### "Error 535 — authentication failed"
 
-SMTP key inválida o revocada. Generá una nueva en Brevo → SMTP → "Generate new key".
+SMTP key inválida o revocada. Genera una nueva en Brevo → SMTP → "Generate new key".
 
 ### "Daily limit exceeded"
 
@@ -221,6 +221,6 @@ Free tier es 300 emails/día. Si tu volumen crece:
 ## 🔐 Seguridad
 
 - **2FA en Brevo**: obligatorio. Alguien con acceso puede mandar spam con tu dominio.
-- **SMTP key rotación**: cada 6-12 meses generá nueva key y actualizá `.env`.
+- **SMTP key rotación**: cada 6-12 meses genera una nueva key y actualiza `.env`.
 - **DMARC strict** (`p=reject`) tras 2-4 semanas estable.
 - **Rate limit en Django**: ya existe (20/hr sensitive action) — protege de ataque que spamee tu API para mandar emails.

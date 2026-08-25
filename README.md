@@ -111,6 +111,7 @@ Estos documentos evitan re-deducir cosas que ya costaron caro:
 | **[docs/traspaso-cuentas.md](docs/traspaso-cuentas.md)** | Qué servicios sostienen el sistema, a nombre de quién, y el estado frente a la Ley 21.719. |
 | **[docs/expediente-legal.md](docs/expediente-legal.md)** | Los hechos verificados para que un abogado redacte los ToS. El más urgente: hoy no existe ningún contrato con el cliente. |
 | **[docs/investigacion-tos-privacidad.md](docs/investigacion-tos-privacidad.md)** | Marco legal chileno para los ToS: qué se puede pactar y qué es nulo, con el esqueleto de los tres documentos. |
+| **[docs/legal/](docs/legal/)** | Los tres borradores: términos de servicio, política de privacidad y anexo de tratamiento de datos. **Borradores: no publicar sin revisión de abogado.** |
 
 ---
 

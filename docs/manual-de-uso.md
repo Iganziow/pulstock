@@ -46,7 +46,7 @@ predice ventas para un día que sabe que estás cerrado.
 
 Es la pantalla más usada y está pensada para el teclado, no para el mouse:
 
-1. **Escaneás el código de barras** o escribís nombre o SKU
+1. **Escaneas el código de barras** o escribes nombre o SKU
 2. Las flechas ↑↓ navegan los resultados, **Enter** agrega
 3. El carrito se arma a la izquierda; el total y el método de pago a la derecha
 4. **Efectivo / Débito / Crédito / Transferencia**, o *Dividir pago* si el
