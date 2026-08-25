@@ -110,6 +110,7 @@ Estos documentos evitan re-deducir cosas que ya costaron caro:
 | **[docs/manual-de-uso.md](docs/manual-de-uso.md)** | Qué hace cada pantalla y para quién. Escrito recorriendo la instalación real. |
 | **[docs/traspaso-cuentas.md](docs/traspaso-cuentas.md)** | Qué servicios sostienen el sistema, a nombre de quién, y el estado frente a la Ley 21.719. |
 | **[docs/expediente-legal.md](docs/expediente-legal.md)** | Los hechos verificados para que un abogado redacte los ToS. El más urgente: hoy no existe ningún contrato con el cliente. |
+| **[docs/investigacion-tos-privacidad.md](docs/investigacion-tos-privacidad.md)** | Marco legal chileno para los ToS: qué se puede pactar y qué es nulo, con el esqueleto de los tres documentos. |
 
 ---
 

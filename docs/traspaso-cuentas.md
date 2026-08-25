@@ -36,13 +36,20 @@ Verificado en producción el 24-ago-2026:
 | Rol | Acceso |
 |---|---|
 | Dueño de Marbrava | `mario@marbrava.cl` (rol owner, **sin** superadmin) |
-| Superadministrador de la plataforma | ⚠️ **Solo `daniel@dev.cl`** — cuenta sin negocio asignado, creada en marzo, último acceso 21-ago |
+| Superadmin — desarrollo | `daniel@dev.cl` — cuenta de desarrollo de Ignacio (confirmado). Sin negocio asignado |
+| Superadmin — Mario | `admin@pulstock.cl` ⚠️ *pendiente de crear* |
 
-**Mario no puede operar la plataforma hoy.** No puede gestionar suscripciones,
-ver tenants ni nada del modo superadmin: la única llave la tiene una cuenta
-cuya titularidad hay que aclarar (¿es la cuenta de desarrollo de Ignacio? ¿un
-tercero?). Antes de la entrega: crear la cuenta superadmin de Mario y decidir
-qué pasa con `daniel@dev.cl`.
+**Hoy Mario no puede operar la plataforma que compró:** no accede a
+suscripciones, tenants ni al modo superadmin.
+
+La cuenta nueva va **separada** de su usuario diario (`mario@marbrava.cl`) a
+propósito: la cuenta del café queda abierta en el POS todo el día, y si esa
+misma pudiera borrar negocios de la plataforma, cualquier sesión olvidada
+sería la llave maestra. Mismo criterio por el que `daniel@dev.cl` existe
+aparte.
+
+Al cerrar el traspaso hay que decidir si `daniel@dev.cl` se conserva (soporte
+posventa) o se da de baja.
 
 ---
 

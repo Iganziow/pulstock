@@ -152,6 +152,16 @@ trabajo, doble propósito).
 - Monitoreo de salud con alertas clasificadas por severidad
 - HTTPS en todo el tráfico; rate limiting en login y registro
 
+## 8-bis. Marco legal chileno aplicable
+
+Antes de redactar, leer [investigacion-tos-privacidad.md](investigacion-tos-privacidad.md).
+
+Lo más importante que aparece ahí y cambia el diseño de las cláusulas: por el
+**artículo 9° de la Ley 20.416 (Estatuto Pyme)**, un café que contrata software
+—fuera de su giro— queda protegido por la **Ley del Consumidor**. Es decir:
+esto NO es un B2B puro, y las limitaciones **absolutas** de responsabilidad
+son nulas por el artículo 16 de la 19.496.
+
 ## 9. Las cláusulas que el abogado debe redactar
 
 La lista mínima, con el hecho que sostiene cada una:
