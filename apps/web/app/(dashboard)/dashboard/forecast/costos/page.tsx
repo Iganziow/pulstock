@@ -54,7 +54,7 @@ export default function MissingCostsPage() {
   const [err, setErr] = useState<string | null>(null);
 
   // Mapa product_id → costo ingresado (string para no romper con decimales
-  // mientras escribís — convertimos a Decimal recién al enviar).
+  // mientras escribe — convertimos a Decimal recién al enviar).
   const [costs, setCosts] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState<string | null>(null);
