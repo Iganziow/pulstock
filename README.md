@@ -108,6 +108,7 @@ Estos documentos evitan re-deducir cosas que ya costaron caro:
 | **[CLAUDE.md](CLAUDE.md)** | Convenciones del código. Escrito para asistentes de IA, útil para humanos. |
 | **[docs/manual-venta-modelo-predictivo.md](docs/manual-venta-modelo-predictivo.md)** | Cómo explicar y vender el motor de pronóstico. Con los números reales medidos, no con los que quedarían mejor. |
 | **[docs/manual-de-uso.md](docs/manual-de-uso.md)** | Qué hace cada pantalla y para quién. Escrito recorriendo la instalación real. |
+| **[docs/traspaso-cuentas.md](docs/traspaso-cuentas.md)** | Qué servicios sostienen el sistema, a nombre de quién, y el estado frente a la Ley 21.719. |
 
 ---
 

@@ -243,3 +243,23 @@ Al mediodía sale el correo de quiebres de stock, y los lunes el reporte ABC.
 
 Si algo de esto falla, queda registrado y se puede ver — no se reporta éxito
 a medias.
+
+
+---
+
+## Los servicios de los que depende
+
+Pulstock no vive solo en el servidor: se apoya en cuatro proveedores externos.
+Quién administra cada cuenta, y qué pasa si alguno se cae, está en
+[traspaso-cuentas.md](traspaso-cuentas.md).
+
+| Servicio | Para qué |
+|---|---|
+| Hetzner | El servidor |
+| Cloudflare | El dominio `pulstock.cl` |
+| Brevo | El envío de correos |
+| Flow.cl | El cobro de la suscripción |
+| Sentry | El aviso cuando algo falla |
+
+Ese mismo documento tiene el estado frente a la **Ley 21.719** de protección
+de datos, que entra en vigencia plena el 1 de diciembre de 2026.
