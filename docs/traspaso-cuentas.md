@@ -31,14 +31,18 @@ peor que un espacio en blanco, porque parece resuelto.
 
 ### Cuentas dentro de la aplicación
 
+Verificado en producción el 24-ago-2026:
+
 | Rol | Acceso |
 |---|---|
-| Dueño de Marbrava | Usuario `mario@marbrava.cl` |
-| Superadministrador de la plataforma | ⚠️ **Sin verificar si Mario tiene una** |
+| Dueño de Marbrava | `mario@marbrava.cl` (rol owner, **sin** superadmin) |
+| Superadministrador de la plataforma | ⚠️ **Solo `daniel@dev.cl`** — cuenta sin negocio asignado, creada en marzo, último acceso 21-ago |
 
-Lo segundo importa: el modo superadmin es donde se gestionan suscripciones y
-se ven todos los negocios. Si la única cuenta con `is_superuser` es la de
-Ignacio, Mario no puede operar la plataforma. Se comprueba en un minuto.
+**Mario no puede operar la plataforma hoy.** No puede gestionar suscripciones,
+ver tenants ni nada del modo superadmin: la única llave la tiene una cuenta
+cuya titularidad hay que aclarar (¿es la cuenta de desarrollo de Ignacio? ¿un
+tercero?). Antes de la entrega: crear la cuenta superadmin de Mario y decidir
+qué pasa con `daniel@dev.cl`.
 
 ---
 
@@ -145,10 +149,23 @@ inmediata.
 
 ---
 
+## El hueco más grande: no hay contrato con el cliente
+
+Un SaaS no se vende, se licencia — y esa licencia son los Términos de
+Servicio, que **no existen**. Marbrava opera sin contrato escrito, sin
+limitación de responsabilidad y sin cláusula de no garantía de resultados,
+sobre un producto cuyo pronóstico falla por diseño (38% de error semanal,
+medido).
+
+Los hechos completos para el abogado están en
+[expediente-legal.md](expediente-legal.md). Esto es **más urgente que el
+respaldo externo**: un incendio destruye datos; una demanda por daño
+consecuencial sin sociedad de por medio compromete el patrimonio personal.
+
 ## Orden sugerido
 
 1. **Completar los correos** de esta tabla — es lo que desbloquea todo lo demás
-2. **Verificar el superadmin de Mario** — un minuto, y hoy es una incógnita
+2. **Crear el superadmin de Mario y aclarar `daniel@dev.cl`** — verificado: hoy Mario no tiene acceso
 3. **Crear Backblaze B2** — el respaldo sigue sin salir del servidor
 4. **MX y SPF** en Cloudflare — hoy nadie puede responderle un correo al soporte
 5. **Flow a producción** + una transacción real de prueba

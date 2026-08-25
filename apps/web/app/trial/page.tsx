@@ -171,8 +171,17 @@ export default function TrialPage() {
               {loading ? "Creando cuenta..." : "Empezar prueba gratis →"}
             </button>
 
+            {/* OJO: acá decía "Al registrarte aceptas nuestros términos" —
+                pero esos términos NO EXISTEN todavía: no hay documento, no hay
+                página, y no se registra ninguna aceptación. Afirmar un contrato
+                inexistente es peor que no decir nada: en una disputa, lo
+                primero que pide la contraparte es el documento que nunca se
+                mostró. Cuando el abogado entregue los ToS, acá va el enlace al
+                texto Y el registro de la aceptación (fecha, versión, IP) — ver
+                docs/expediente-legal.md. Mientras tanto, solo la frase que sí
+                es verdad. */}
             <p style={{ fontSize: 11, color: C.mute, textAlign: "center", margin: "14px 0 0" }}>
-              Al registrarte aceptas nuestros términos. Cancela cuando quieras.
+              Cancela cuando quieras.
             </p>
 
             <div style={{ textAlign: "center", marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.mid }}>
