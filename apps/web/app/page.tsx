@@ -763,12 +763,62 @@ export default function LandingPage() {
       {/* ═══ HERO — Value proposition ═══ */}
       <section style={{
         minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-        background: `linear-gradient(135deg, #FAFAFA 0%, #EEF2FF 40%, #F5F3FF 70%, #FAFAFA 100%)`,
+        background: "#FCFCFD",
         position: "relative", overflow: "hidden", paddingTop: 80,
       }}>
-        <div style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(${C.accent}06 1px, transparent 1px), linear-gradient(90deg, ${C.accent}06 1px, transparent 1px)`, backgroundSize: "60px 60px" }} />
-        <div style={{ position: "absolute", top: "15%", left: "10%", width: 300, height: 300, borderRadius: "50%", background: `radial-gradient(circle, ${C.accent}0A, transparent)`, animation: "float 6s ease-in-out infinite" }} />
-        <div style={{ position: "absolute", bottom: "20%", right: "8%", width: 200, height: 200, borderRadius: "50%", background: `radial-gradient(circle, ${C.violet}0A, transparent)`, animation: "float 8s ease-in-out infinite 1s" }} />
+        {/* Profundidad, no un color plano.
+            Antes: un degradado en diagonal + dos circulos de 300px al 4% de
+            opacidad, o sea invisibles, + una grilla uniforme cubriendo todo.
+            Nada de eso tenia desenfoque real, asi que el fondo se leia como
+            una pared pintada.
+            Ahora son tres halos GRANDES con blur de verdad (90px), que es lo
+            que hace que el color se difumine en vez de cortarse. Tres tonos
+            frios distintos —indigo, violeta, celeste— para que no se lea
+            monocromo. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", top: "-18%", left: "-12%", width: 780, height: 780,
+          borderRadius: "50%", filter: "blur(90px)", opacity: .55,
+          background: `radial-gradient(circle, ${C.accent}3D 0%, ${C.accent}14 45%, transparent 70%)`,
+          animation: "float 14s ease-in-out infinite",
+        }} />
+        <div aria-hidden="true" style={{
+          position: "absolute", top: "8%", right: "-14%", width: 640, height: 640,
+          borderRadius: "50%", filter: "blur(90px)", opacity: .5,
+          background: `radial-gradient(circle, ${C.violet}38 0%, ${C.violet}12 45%, transparent 70%)`,
+          animation: "float 18s ease-in-out infinite 2s",
+        }} />
+        <div aria-hidden="true" style={{
+          position: "absolute", bottom: "-6%", left: "22%", width: 700, height: 560,
+          borderRadius: "50%", filter: "blur(100px)", opacity: .4,
+          background: "radial-gradient(circle, #0284C72E 0%, #0284C70F 45%, transparent 70%)",
+          animation: "float 22s ease-in-out infinite 1s",
+        }} />
+
+        {/* La grilla ya no cubre todo por igual: se desvanece hacia abajo con
+            una mascara, asi que da textura arriba y deja respirar el contenido.
+            Uniforme era justamente lo que aplanaba. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", inset: 0,
+          backgroundImage: `linear-gradient(${C.accent}0D 1px, transparent 1px), linear-gradient(90deg, ${C.accent}0D 1px, transparent 1px)`,
+          backgroundSize: "64px 64px",
+          WebkitMaskImage: "radial-gradient(ellipse 90% 55% at 50% 0%, #000 0%, transparent 75%)",
+          maskImage: "radial-gradient(ellipse 90% 55% at 50% 0%, #000 0%, transparent 75%)",
+        }} />
+
+        {/* Un claro detras del titular: lo despega del fondo en vez de dejarlo
+            pintado encima. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", top: "16%", left: "50%", transform: "translateX(-50%)",
+          width: "min(900px, 95vw)", height: 420, borderRadius: "50%",
+          filter: "blur(70px)", background: "rgba(255,255,255,.72)",
+        }} />
+
+        {/* Cierre suave hacia la seccion siguiente: sin esto el hero termina
+            en un corte recto. */}
+        <div aria-hidden="true" style={{
+          position: "absolute", left: 0, right: 0, bottom: 0, height: 180,
+          background: "linear-gradient(to bottom, transparent, #FAFAFA)",
+        }} />
 
         <div style={{ textAlign: "center", maxWidth: 760, padding: "0 24px", position: "relative", zIndex: 1, animation: "fadeUp .6s cubic-bezier(.16,1,.3,1)" }}>
           <div style={{
