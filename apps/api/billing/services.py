@@ -232,9 +232,15 @@ def cancel_subscription(subscription: Subscription, reason: str = "",
     y perdía el servicio el mismo día.
 
     Ahora la suscripción queda ACTIVE con `cancel_at_period_end=True`: sigue
-    funcionando lo que ya pagó, no se renueva, y `expire_cancelled` la pasa a
-    CANCELLED cuando corresponde. Es el patrón de Stripe/Paddle, y permite
-    arrepentirse (ver `resume_subscription`).
+    funcionando lo que ya pagó, no se renueva, y al vencer el período pasa a
+    CANCELLED. Es el patrón de Stripe/Paddle, y permite arrepentirse (ver
+    `resume_subscription`).
+
+    Quién la pasa a CANCELLED: `billing.tasks.process_renewals`, que corre por
+    cron cada hora (`manage.py billing_process_renewals`, ver
+    `/etc/cron.d/pulstock`). Cuando encuentra una suscripción vencida con la
+    baja agendada, vuelve a llamar acá con `immediate=True` en vez de emitir
+    la factura del mes siguiente.
 
     `immediate=True` queda para soporte/superadmin, que sí necesita cortar ya.
     """
