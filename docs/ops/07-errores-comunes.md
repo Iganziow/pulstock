@@ -358,3 +358,39 @@ sleep 5
 curl http://localhost:8000/api/core/health/
 curl -o /dev/null -s -w "%{http_code}" http://localhost:3000
 ```
+
+---
+
+## El pronóstico está sugiriendo disparates
+
+**Síntoma:** un producto aparece con sugerencias de compra absurdas —el triple
+de lo que se vende, o cero cuando claramente rota— y se sospecha del algoritmo
+que le tocó.
+
+**Apagar el algoritmo sin desplegar nada.** En `/var/www/pulstock/apps/api/.env`:
+
+```
+FORECAST_ALGOS_OFF=croston,ets
+```
+
+Y reiniciar la API:
+
+```bash
+sudo systemctl reload pulstock-api
+```
+
+Esos algoritmos dejan de competir. Los productos que los usaban eligen su mejor
+alternativa disponible **en el entrenamiento de esa misma noche** (04:30), así
+que el efecto se ve al día siguiente. Para revertir, se borra la línea y se
+recarga de nuevo.
+
+Nombres válidos: `simple_avg`, `moving_avg`, `adaptive_ma`, `theta`,
+`holt_winters`, `hw_damped`, `ets`, `croston`, `croston_sba`, `ensemble`,
+`seasonal_naive`.
+
+**Antes de apagar nada, mirar el dato.** Superadmin → Forecast muestra el WAPE
+medido por algoritmo. Si el algoritmo sospechoso tiene pocos productos y poco
+volumen, apagarlo cambia poco; si es `adaptive_ma` o `theta`, mueve harto.
+
+`category_prior` no se puede apagar por acá: no compite en la selección, lo
+asigna el código directamente a productos sin historia propia.

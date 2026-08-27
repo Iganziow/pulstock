@@ -143,3 +143,38 @@ class TestNoRompeLoQueYaHabia:
         campo = ForecastModel._meta.get_field("algorithm")
         assert len("seasonal_naive") <= campo.max_length
         assert "seasonal_naive" in dict(campo.choices)
+
+
+class TestElInterruptor:
+    """Se entrega el lunes y después no hay desarrollador. Cualquier cosa que
+    cambie el pronóstico tiene que poder apagarse sin tocar código."""
+
+    def test_apagar_un_algoritmo_lo_saca_de_la_competencia(self, monkeypatch):
+        import importlib
+        from forecast.engine import registry
+
+        monkeypatch.setenv("FORECAST_ALGOS_OFF", "seasonal_naive")
+        # Re-registrar con la variable puesta: simula el arranque del proceso.
+        assert "seasonal_naive" in registry._desactivados()
+
+        guardado = registry.ALGORITHM_REGISTRY.pop("seasonal_naive")
+        try:
+            @registry.register
+            class Falsa:
+                name = "seasonal_naive"
+            assert "seasonal_naive" not in registry.ALGORITHM_REGISTRY, (
+                "el interruptor no apagó el algoritmo"
+            )
+        finally:
+            registry.ALGORITHM_REGISTRY["seasonal_naive"] = guardado
+
+    def test_sin_la_variable_no_apaga_nada(self, monkeypatch):
+        from forecast.engine import registry
+        monkeypatch.delenv("FORECAST_ALGOS_OFF", raising=False)
+        assert registry._desactivados() == set()
+        assert "seasonal_naive" in registry.ALGORITHM_REGISTRY
+
+    def test_una_variable_vacia_no_rompe(self, monkeypatch):
+        from forecast.engine import registry
+        monkeypatch.setenv("FORECAST_ALGOS_OFF", "  , ,")
+        assert registry._desactivados() == set()
