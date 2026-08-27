@@ -25,24 +25,43 @@ const fCLP = (n: number) => "$" + n.toLocaleString("es-CL");
    DATA
    ═══════════════════════════════════════════════════════════════ */
 
+/**
+ * Tonos por tarjeta.
+ *
+ * Antes todos los iconos eran del mismo gris oscuro sobre el mismo rosa
+ * palido: la pagina se leia plana y el color no decia nada. Ahora el tono
+ * carga significado -- rojo lo que te cuesta plata, verde lo que te la
+ * cuida, ambar lo que esta detenido -- y de paso le da variedad a la
+ * grilla, que es lo que la hace amigable sin recurrir a emojis.
+ */
+const T = {
+  rojo:    { fg: "#DC2626", bg: "#FEF2F2", bd: "#FECACA" },
+  ambar:   { fg: "#D97706", bg: "#FFFBEB", bd: "#FDE68A" },
+  violeta: { fg: "#7C3AED", bg: "#F5F3FF", bd: "#DDD6FE" },
+  verde:   { fg: "#16A34A", bg: "#ECFDF5", bd: "#A7F3D0" },
+  cielo:   { fg: "#0284C7", bg: "#F0F9FF", bd: "#BAE6FD" },
+  teal:    { fg: "#0D9488", bg: "#F0FDFA", bd: "#99F6E4" },
+  indigo:  { fg: "#4F46E5", bg: "#EEF2FF", bd: "#C7D2FE" },
+};
+
 const PROBLEMS = [
   {
-    Icon: OutOfStockIcon, title: "Quiebre de stock",
+    Icon: OutOfStockIcon, tone: T.rojo, title: "Quiebre de stock",
     cost: "Pierdes ventas cada semana",
     desc: "Un cliente pide un producto y no lo tienes. Se va a la competencia y no vuelve. Esto pasa todos los días en negocios sin predicción de demanda.",
     solution: "Pulstock te avisa 7 días antes de que se agote un producto.",
   },
   {
-    Icon: OverstockIcon, title: "Sobrestock",
+    Icon: OverstockIcon, tone: T.ambar, title: "Sobrestock",
     cost: "Plata muerta en bodega",
     desc: "Compraste de más \"por si acaso\". Ahora tienes capital estancado, productos vencidos y espacio desperdiciado.",
     solution: "Te muestra qué productos no rotan y cuánta plata tienes estancada.",
   },
   {
-    Icon: BlindBuyIcon, title: "Compras a ciegas",
+    Icon: BlindBuyIcon, tone: T.violeta, title: "Compras a ciegas",
     cost: "Compras por intuición, no por datos",
     desc: "Sin historial ni predicción, cada orden de compra es una apuesta. A veces aciertas, muchas veces no.",
-    solution: "Te dice exactamente qué comprar y cuánto, basado en tu historial de ventas.",
+    solution: "Te sugiere qué comprar y cuánto según tu historial. La decisión final es tuya.",
   },
 ];
 
@@ -54,11 +73,11 @@ const HOW_IT_WORKS = [
 ];
 
 const BENEFITS = [
-  { Icon: ProfitIcon, title: "Sabes qué productos te dan plata y cuáles te hacen perder", desc: "Ranking semanal de tus productos top y de los que están estancados. Dejas de comprar lo que no se vende.", tag: "Solo en Pulstock" },
-  { Icon: AlertBellIcon, title: "Te avisa antes de quedarte sin stock", desc: "7 días antes de que se agote un producto, recibes una alerta con la cantidad exacta a pedir.", tag: "Automático" },
-  { Icon: MailReportIcon, title: "Reporte semanal a tu correo", desc: "Cada lunes llega un email con tus ventas, tus productos estrella y los que están frenando tu negocio.", tag: "Automático" },
-  { Icon: MarginIcon, title: "Margen real de cada venta", desc: "Sabes exactamente cuánto ganaste en cada producto, no un estimado. Costos se actualizan con cada compra.", tag: "Tiempo real" },
-  { Icon: StoresIcon, title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
+  { Icon: ProfitIcon, tone: T.verde, title: "Ves qué productos te dan plata y cuáles te hacen perder", desc: "Ranking semanal de tus productos top y de los que están estancados. Dejas de comprar lo que no se vende.", tag: "Solo en Pulstock" },
+  { Icon: AlertBellIcon, tone: T.rojo, title: "Te avisa antes de quedarte sin stock", desc: "Días antes de que se agote un producto recibes una alerta con la cantidad sugerida — y con qué tanta confianza la calculó. La orden la apruebas tú.", tag: "Automático" },
+  { Icon: MailReportIcon, tone: T.cielo, title: "Reporte semanal a tu correo", desc: "Cada lunes llega un email con tus ventas, tus productos estrella y los que están frenando tu negocio.", tag: "Automático" },
+  { Icon: MarginIcon, tone: T.violeta, title: "Margen real de cada venta", desc: "El margen de cada producto calculado con tus costos reales de compra, no con un porcentaje inventado. El costo se actualiza solo con cada recepción de mercadería.", tag: "Tiempo real" },
+  { Icon: StoresIcon, tone: T.teal, title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
 ];
 
 const BUSINESS_TYPES = [
@@ -720,18 +739,19 @@ export default function LandingPage() {
             // atencion al titular, que es lo unico que tiene que ganar aca.
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />
-            Así es como los negocios chilenos dejan de perder plata
+            Pronóstico por ingrediente, no solo por producto
           </div>
           <h1 style={{ fontSize: "clamp(28px, 4.5vw, 58px)", fontWeight: 900, lineHeight: 1.08, margin: "0 0 20px", letterSpacing: "-.025em" }}>
-            Pierdes plata todos los días
+            Otros sistemas te dicen qué vendiste.
             <br />
             <span style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.violet})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              sin darte cuenta.
+              Este te dice qué te va a faltar.
             </span>
           </h1>
           <p style={{ fontSize: "clamp(15px, 2vw, 19px)", color: C.mid, lineHeight: 1.6, maxWidth: "min(580px, 90vw)", margin: "0 auto 36px" }}>
-            Tu inventario está desordenando tu negocio — aunque no lo veas.
-            Pulstock te muestra qué productos te dan plata y cuáles te hacen perder, en tiempo real.
+            Pulstock aprende de tus ventas y proyecta qué reponer antes de que se acabe.
+            Si vendes preparados calcula por ingrediente: no cuántos capuccinos vas a vender,
+            sino cuántos litros de leche te van a faltar.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <button onClick={() => go("/trial")} className="l-btn" style={{
@@ -766,8 +786,9 @@ export default function LandingPage() {
                 background: C.white, borderRadius: 16, padding: 28, height: "100%",
                 border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,.04)",
               }}>
-                <div style={{ width: 52, height: 52, borderRadius: 14, background: "#FEF2F2",
-                  display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><p.Icon size={24} /></div>
+                <div style={{ width: 54, height: 54, borderRadius: 15, background: p.tone.bg,
+                  border: `1px solid ${p.tone.bd}`, color: p.tone.fg,
+                  display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><p.Icon size={25} /></div>
                 <h3 style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>{p.title}</h3>
                 <p style={{ fontSize: 12, fontWeight: 700, color: C.red, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".04em" }}>{p.cost}</p>
                 <p style={{ fontSize: 14, color: C.mid, lineHeight: 1.7, margin: "0 0 16px" }}>{p.desc}</p>
@@ -802,7 +823,7 @@ export default function LandingPage() {
                       width: 44, height: 44, borderRadius: 12, flexShrink: 0,
                       background: activeStep === i ? `linear-gradient(135deg, ${C.accent}, ${C.violet})` : "#F3F4F6",
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 20, color: activeStep === i ? "#fff" : C.mute, transition: "all .3s",
+                      color: activeStep === i ? "#fff" : C.mute, transition: "all .3s",
                     }}><s.Icon size={21} /></div>
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 2 }}>PASO {s.num}</div>
@@ -846,10 +867,11 @@ export default function LandingPage() {
                 background: C.white, borderRadius: 16, padding: 28, height: "100%",
                 border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,.04)", position: "relative", overflow: "hidden",
               }}>
-                <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: `${C.accent}06` }} />
+                <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: `${b.tone.fg}0A` }} />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 14, background: "#EEF2FF",
-                    display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}><b.Icon size={24} /></div>
+                  <div style={{ width: 54, height: 54, borderRadius: 15, background: b.tone.bg,
+                    border: `1px solid ${b.tone.bd}`, color: b.tone.fg,
+                    display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}><b.Icon size={25} /></div>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 10,
                     background: b.tag === "Solo en Pulstock" ? "#EEF2FF" : b.tag === "Automático" ? C.greenBg : "#F4F4F5",
                     color: b.tag === "Solo en Pulstock" ? C.accent : b.tag === "Automático" ? C.green : C.mute,
