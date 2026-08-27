@@ -150,7 +150,20 @@ function useScrollReveal() {
     }
     const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } }, { threshold: 0.15 });
     obs.observe(el);
-    return () => obs.disconnect();
+
+    // Red de seguridad. El bloque arranca en opacity 0 y —desde que los
+    // iconos se dibujan— tambien con el trazo vacio, asi que un observer que
+    // por lo que sea no llegue a hablar deja la pagina EN BLANCO. Ya lo vi
+    // pasar: en una pestana que el navegador no esta pintando, el callback no
+    // corre nunca. A los 2,5s revisamos a mano si el bloque esta a la vista y
+    // lo mostramos igual. Lo que esta mas abajo del pliegue no se toca: ahi
+    // el reveal sigue siendo el correcto.
+    const red = window.setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) setVisible(true);
+    }, 2500);
+
+    return () => { obs.disconnect(); window.clearTimeout(red); };
   }, []);
   return { ref, visible };
 }
@@ -182,7 +195,7 @@ function useCounter(target: number, suffix: string, duration = 1500) {
 
 function SectionTitle({ tag, title, subtitle }: { tag: string; title: string; subtitle?: string }) {
   return (
-    <div style={{ textAlign: "center", marginBottom: 56 }}>
+    <div style={{ textAlign: "center", marginBottom: 38 }}>
       <p style={{ fontSize: 13, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>{tag}</p>
       <h2 style={{ fontSize: "clamp(26px, 4vw, 40px)", fontWeight: 900, margin: 0, lineHeight: 1.15 }}>{title}</h2>
       {subtitle && <p style={{ fontSize: 16, color: C.mid, marginTop: 12, maxWidth: 600, margin: "12px auto 0", lineHeight: 1.6 }}>{subtitle}</p>}
@@ -203,7 +216,7 @@ function RevealSection({ children, style, delay = 0, lift = 14 }: {
 }) {
   const { ref, visible } = useScrollReveal();
   return (
-    <div ref={ref} className="reveal" style={{ ...style,
+    <div ref={ref} className="reveal" data-shown={visible ? "" : undefined} style={{ ...style,
       opacity: visible ? 1 : 0,
       transform: visible ? "none" : `translateY(${lift}px)`,
       willChange: visible ? "auto" : "opacity, transform",
@@ -348,7 +361,7 @@ function FAQSection() {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   return (
-    <section id="faq" style={{ padding: "100px 24px", background: C.white }}>
+    <section id="faq" style={{ padding: "clamp(52px, 7vw, 72px) 24px", background: C.white }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <RevealSection>
           <SectionTitle tag="Preguntas frecuentes" title="Todo lo que necesitas saber"
@@ -438,7 +451,7 @@ function LiveDemoWidget() {
   };
 
   return (
-    <section ref={ref} style={{ padding: "80px 24px", background: `linear-gradient(180deg, #F7F7F8 0%, ${C.white} 100%)` }}>
+    <section ref={ref} style={{ padding: "clamp(44px, 6vw, 60px) 24px", background: `linear-gradient(180deg, #F7F7F8 0%, ${C.white} 100%)` }}>
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 8 }}>Demo en vivo</p>
@@ -642,6 +655,32 @@ export default function LandingPage() {
         .comp-row { grid-template-columns: 1fr 100px 100px; }
         html { scroll-behavior: smooth; }
 
+        /* Los iconos se DIBUJAN al entrar. Es lo unico de esta pagina que un
+           emoji nunca habria podido hacer: el trazo existe como geometria, no
+           como imagen. Cada forma trae pathLength="1", asi que una linea corta
+           y una curva larga tardan lo mismo y el icono se completa parejo.
+           Los trazos van escalonados de a 60ms para que se lea como un dibujo
+           a mano alzada y no como seis lineas apareciendo juntas. */
+        @keyframes drawIn { to { stroke-dashoffset: 0 } }
+        .li [pathLength] { stroke-dasharray: 1; stroke-dashoffset: 1; }
+        .reveal[data-shown] .li [pathLength] {
+          animation: drawIn .55s cubic-bezier(.65,0,.35,1) forwards;
+        }
+        .reveal[data-shown] .li [pathLength]:nth-child(1) { animation-delay: .10s }
+        .reveal[data-shown] .li [pathLength]:nth-child(2) { animation-delay: .16s }
+        .reveal[data-shown] .li [pathLength]:nth-child(3) { animation-delay: .22s }
+        .reveal[data-shown] .li [pathLength]:nth-child(4) { animation-delay: .28s }
+        .reveal[data-shown] .li [pathLength]:nth-child(5) { animation-delay: .34s }
+        .reveal[data-shown] .li [pathLength]:nth-child(6) { animation-delay: .40s }
+        .reveal[data-shown] .li [pathLength]:nth-child(n+7) { animation-delay: .46s }
+        /* Fuera de un bloque con reveal (pestanas, panel activo) el icono se
+           muestra entero: ahi no hay entrada que acompanar. */
+        .biz-tab .li [pathLength], .l-step .li [pathLength] { stroke-dashoffset: 0; }
+
+        /* El icono responde a la tarjeta, no al reves. */
+        .l-card .ic-box { transition: transform .25s cubic-bezier(.34,1.3,.64,1), box-shadow .25s ease; }
+        .l-card:hover .ic-box { transform: scale(1.07) rotate(-3deg); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+
         /* El movimiento es una preferencia del sistema, no una opinion nuestra.
            Para alguien con sensibilidad vestibular, 16 bloques que se deslizan
            mas dos circulos flotando en bucle infinito no son "personalidad":
@@ -658,6 +697,8 @@ export default function LandingPage() {
           }
           .l-btn:hover, .l-card:hover { transform: none !important; }
           .reveal { opacity: 1 !important; transform: none !important; }
+          .li [pathLength] { stroke-dashoffset: 0 !important; animation: none !important; }
+          .l-card:hover .ic-box { transform: none !important; }
         }
         @media (max-width: 900px) {
           .desk-nav { display: none !important; }
@@ -774,7 +815,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ 1. PROBLEMA QUE RESUELVE ═══ */}
-      <section id="problema" style={{ padding: "100px 24px", maxWidth: 1140, margin: "0 auto" }}>
+      <section id="problema" style={{ padding: "clamp(52px, 7vw, 72px) 24px", maxWidth: 1140, margin: "0 auto" }}>
         <RevealSection>
           <SectionTitle tag="El problema" title="3 costos invisibles que destruyen tu margen"
             subtitle="La mayoría de las pymes pierden entre un 5% y 15% de sus ingresos por problemas de inventario que ni siquiera miden." />
@@ -786,7 +827,7 @@ export default function LandingPage() {
                 background: C.white, borderRadius: 16, padding: 28, height: "100%",
                 border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,.04)",
               }}>
-                <div style={{ width: 54, height: 54, borderRadius: 15, background: p.tone.bg,
+                <div className="ic-box" style={{ width: 54, height: 54, borderRadius: 15, background: p.tone.bg,
                   border: `1px solid ${p.tone.bd}`, color: p.tone.fg,
                   display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><p.Icon size={25} /></div>
                 <h3 style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>{p.title}</h3>
@@ -804,7 +845,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ 2. CÓMO FUNCIONA ═══ */}
-      <section id="como-funciona" style={{ padding: "100px 24px", background: C.white }}>
+      <section id="como-funciona" style={{ padding: "clamp(52px, 7vw, 72px) 24px", background: C.white }}>
         <div style={{ maxWidth: 960, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Cómo funciona" title="En 4 pasos pasas de Excel a control total"
@@ -855,7 +896,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ 3. BENEFICIOS — What makes us different ═══ */}
-      <section id="beneficios" style={{ padding: "100px 24px", maxWidth: 1140, margin: "0 auto" }}>
+      <section id="beneficios" style={{ padding: "clamp(52px, 7vw, 72px) 24px", maxWidth: 1140, margin: "0 auto" }}>
         <RevealSection>
           <SectionTitle tag="Por qué Pulstock" title="No es otro POS. Es inteligencia de inventario."
             subtitle="Herramientas que solo encuentras en sistemas enterprise, ahora para tu pyme." />
@@ -869,7 +910,7 @@ export default function LandingPage() {
               }}>
                 <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: `${b.tone.fg}0A` }} />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ width: 54, height: 54, borderRadius: 15, background: b.tone.bg,
+                  <div className="ic-box" style={{ width: 54, height: 54, borderRadius: 15, background: b.tone.bg,
                     border: `1px solid ${b.tone.bd}`, color: b.tone.fg,
                     display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}><b.Icon size={25} /></div>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 10,
@@ -890,7 +931,7 @@ export default function LandingPage() {
       <LiveDemoWidget />
 
       {/* ═══ COMPARISON TABLE — vs tu sistema actual ═══ */}
-      <section style={{ padding: "80px 24px", background: C.white }}>
+      <section style={{ padding: "clamp(44px, 6vw, 60px) 24px", background: C.white }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Comparativa" title="Tu sistema actual vs Pulstock" subtitle="Compara lo que tienes hoy con lo que podrías tener." />
@@ -926,7 +967,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ 4. POR TIPO DE NEGOCIO ═══ */}
-      <section id="negocios" style={{ padding: "100px 24px", maxWidth: 1000, margin: "0 auto" }}>
+      <section id="negocios" style={{ padding: "clamp(52px, 7vw, 72px) 24px", maxWidth: 1000, margin: "0 auto" }}>
         <RevealSection>
           <SectionTitle tag="Tu negocio" title="Diseñado para tu tipo de negocio"
             subtitle="Cada giro tiene sus propios desafíos. Pulstock se adapta." />
@@ -968,7 +1009,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ 5. PLANES ═══ */}
-      <section id="precios" style={{ padding: "100px 24px", background: C.white }}>
+      <section id="precios" style={{ padding: "clamp(52px, 7vw, 72px) 24px", background: C.white }}>
         <div style={{ maxWidth: 1000, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Precios" title="Planes simples, sin letra chica"
@@ -1021,7 +1062,7 @@ export default function LandingPage() {
       <FAQSection />
 
       {/* ═══ 6. CONTACTO ═══ */}
-      <section id="contacto" style={{ padding: "100px 24px", background: "#F7F7F8" }}>
+      <section id="contacto" style={{ padding: "clamp(52px, 7vw, 72px) 24px", background: "#F7F7F8" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           <RevealSection>
             <SectionTitle tag="Contacto" title="¿Tienes preguntas? Conversemos" subtitle="Nuestro equipo te responde en menos de 24 horas." />
@@ -1083,7 +1124,7 @@ export default function LandingPage() {
 
       {/* ═══ CTA FINAL ═══ */}
       <section style={{
-        padding: "80px 24px", background: `linear-gradient(135deg, ${C.text} 0%, #27272A 100%)`,
+        padding: "clamp(44px, 6vw, 60px) 24px", background: `linear-gradient(135deg, ${C.text} 0%, #27272A 100%)`,
         textAlign: "center", position: "relative", overflow: "hidden",
       }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle at 30% 50%, ${C.accent}12 0%, transparent 50%)` }} />
