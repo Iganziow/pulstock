@@ -4,6 +4,11 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { getAccessToken } from "@/lib/api";
 import { LogoIcon } from "@/components/ui/Logo";
 import { BORRADOR } from "@/lib/legal/documentos";
+import {
+  OutOfStockIcon, OverstockIcon, BlindBuyIcon, CatalogUploadIcon, CartIcon,
+  ProfitIcon, ChartIcon, AlertBellIcon, MailReportIcon, MarginIcon,
+  StoresIcon, CafeIcon, RetailIcon, HardwareIcon, PharmacyIcon, TruckIcon,
+} from "@/components/landing/icons";
 
 const C = {
   accent: "#4F46E5", accentDark: "#4338CA", violet: "#7C3AED",
@@ -22,19 +27,19 @@ const fCLP = (n: number) => "$" + n.toLocaleString("es-CL");
 
 const PROBLEMS = [
   {
-    icon: "🚫", title: "Quiebre de stock",
+    Icon: OutOfStockIcon, title: "Quiebre de stock",
     cost: "Pierdes ventas cada semana",
     desc: "Un cliente pide un producto y no lo tienes. Se va a la competencia y no vuelve. Esto pasa todos los días en negocios sin predicción de demanda.",
     solution: "Pulstock te avisa 7 días antes de que se agote un producto.",
   },
   {
-    icon: "📦", title: "Sobrestock",
+    Icon: OverstockIcon, title: "Sobrestock",
     cost: "Plata muerta en bodega",
     desc: "Compraste de más \"por si acaso\". Ahora tienes capital estancado, productos vencidos y espacio desperdiciado.",
     solution: "Te muestra qué productos no rotan y cuánta plata tienes estancada.",
   },
   {
-    icon: "🎲", title: "Compras a ciegas",
+    Icon: BlindBuyIcon, title: "Compras a ciegas",
     cost: "Compras por intuición, no por datos",
     desc: "Sin historial ni predicción, cada orden de compra es una apuesta. A veces aciertas, muchas veces no.",
     solution: "Te dice exactamente qué comprar y cuánto, basado en tu historial de ventas.",
@@ -42,38 +47,38 @@ const PROBLEMS = [
 ];
 
 const HOW_IT_WORKS = [
-  { num: "01", title: "Sube tu catálogo", desc: "Exporta tu Excel o créalo desde cero en minutos. Precios, costos y categorías listos para vender.", icon: "📦" },
-  { num: "02", title: "Vende y registra compras", desc: "Cada venta y cada compra actualiza tu stock automáticamente. No más planillas desactualizadas.", icon: "🛒" },
-  { num: "03", title: "Ve qué te da plata", desc: "El sistema te muestra qué productos son los que más ganas y cuáles te están haciendo perder.", icon: "💰" },
-  { num: "04", title: "Toma decisiones con datos", desc: "Te avisa antes del quiebre, te sugiere qué comprar, y te manda un reporte semanal. Sin adivinar.", icon: "📊" },
+  { num: "01", title: "Sube tu catálogo", desc: "Exporta tu Excel o créalo desde cero en minutos. Precios, costos y categorías listos para vender.", Icon: CatalogUploadIcon },
+  { num: "02", title: "Vende y registra compras", desc: "Cada venta y cada compra actualiza tu stock automáticamente. No más planillas desactualizadas.", Icon: CartIcon },
+  { num: "03", title: "Ve qué te da plata", desc: "El sistema te muestra qué productos son los que más ganas y cuáles te están haciendo perder.", Icon: ProfitIcon },
+  { num: "04", title: "Toma decisiones con datos", desc: "Te avisa antes del quiebre, te sugiere qué comprar, y te manda un reporte semanal. Sin adivinar.", Icon: ChartIcon },
 ];
 
 const BENEFITS = [
-  { icon: "💰", title: "Sabes qué productos te dan plata y cuáles te hacen perder", desc: "Ranking semanal de tus productos top y de los que están estancados. Dejas de comprar lo que no se vende.", tag: "Solo en Pulstock" },
-  { icon: "🚨", title: "Te avisa antes de quedarte sin stock", desc: "7 días antes de que se agote un producto, recibes una alerta con la cantidad exacta a pedir.", tag: "Automático" },
-  { icon: "📈", title: "Reporte semanal a tu correo", desc: "Cada lunes llega un email con tus ventas, tus productos estrella y los que están frenando tu negocio.", tag: "Automático" },
-  { icon: "🎯", title: "Margen real de cada venta", desc: "Sabes exactamente cuánto ganaste en cada producto, no un estimado. Costos se actualizan con cada compra.", tag: "Tiempo real" },
-  { icon: "🏪", title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
+  { Icon: ProfitIcon, title: "Sabes qué productos te dan plata y cuáles te hacen perder", desc: "Ranking semanal de tus productos top y de los que están estancados. Dejas de comprar lo que no se vende.", tag: "Solo en Pulstock" },
+  { Icon: AlertBellIcon, title: "Te avisa antes de quedarte sin stock", desc: "7 días antes de que se agote un producto, recibes una alerta con la cantidad exacta a pedir.", tag: "Automático" },
+  { Icon: MailReportIcon, title: "Reporte semanal a tu correo", desc: "Cada lunes llega un email con tus ventas, tus productos estrella y los que están frenando tu negocio.", tag: "Automático" },
+  { Icon: MarginIcon, title: "Margen real de cada venta", desc: "Sabes exactamente cuánto ganaste en cada producto, no un estimado. Costos se actualizan con cada compra.", tag: "Tiempo real" },
+  { Icon: StoresIcon, title: "Multi-local + transferencias", desc: "Gestiona bodegas y sucursales. Transfiere stock entre locales con trazabilidad completa y costeo automático.", tag: "Incluido" },
 ];
 
 const BUSINESS_TYPES = [
-  { type: "restaurant", label: "Restaurant / Cafetería", icon: "🍽️",
+  { type: "restaurant", label: "Restaurant / Cafetería", Icon: CafeIcon,
     headline: "Sabe cuántos kilos de pollo necesitas el viernes",
     desc: "Maneja recetas, porciones y mermas — todo conectado con el inventario. El forecast aprende los patrones de tu carta.",
     features: ["Recetas con costeo automático", "Forecast por día de la semana", "Mesas y órdenes en tiempo real", "Unidades: OZ, tazas, porciones"] },
-  { type: "retail", label: "Minimarket / Retail", icon: "🏪",
+  { type: "retail", label: "Minimarket / Retail", Icon: RetailIcon,
     headline: "Deja de perder ventas por estantes vacíos",
     desc: "Alertas de reposición antes de que se acabe. POS rápido con scanner. Análisis ABC para saber qué rinde.",
     features: ["Alertas de stock mínimo", "POS con búsqueda por barcode", "Análisis ABC automático", "11 reportes de ventas y margen"] },
-  { type: "hardware", label: "Ferretería / Materiales", icon: "🔧",
+  { type: "hardware", label: "Ferretería / Materiales", Icon: HardwareIcon,
     headline: "Miles de SKUs bajo control real",
     desc: "Categorías jerárquicas, unidades especiales (pulgadas, m², pies), y ABC para saber cuáles generan el 80% de tu ingreso.",
     features: ["Categorías multinivel", "Unidades: PLG, M², PIE, GAL", "Análisis ABC por revenue", "Transferencias entre bodegas"] },
-  { type: "pharmacy", label: "Farmacia", icon: "💊",
+  { type: "pharmacy", label: "Farmacia", Icon: PharmacyIcon,
     headline: "Nunca le digas a un paciente 'no tenemos'",
     desc: "Control preciso con unidades farmacéuticas (mg, ml, gotas). Alertas de stock mínimo para medicamentos críticos.",
     features: ["Unidades: MG, MCG, CC, gotas", "Alertas de stock crítico", "Trazabilidad completa", "Multi-bodega"] },
-  { type: "wholesale", label: "Distribuidora / Mayorista", icon: "🚛",
+  { type: "wholesale", label: "Distribuidora / Mayorista", Icon: TruckIcon,
     headline: "Planifica tu cadena de distribución con datos",
     desc: "Multi-bodega con transferencias y costeo PPP. Forecast de demanda para planificar compras a proveedores.",
     features: ["Multi-bodega con transferencias", "Costeo PPP automático", "Forecast para planificar compras", "Unidades: bulto, pallet, tonelada"] },
@@ -114,6 +119,16 @@ function useScrollReveal() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // A prueba de fallos: si el navegador no trae IntersectionObserver, o si
+    // la persona pidio menos movimiento, se muestra todo de una. El contenido
+    // arranca en opacity 0 — sin esta salida, cualquier tropiezo del script
+    // deja la landing entera en blanco, que es mucho peor que no animar.
+    const sinMovimiento = typeof window !== "undefined"
+      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (sinMovimiento || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
     const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } }, { threshold: 0.15 });
     obs.observe(el);
     return () => obs.disconnect();
@@ -156,11 +171,24 @@ function SectionTitle({ tag, title, subtitle }: { tag: string; title: string; su
   );
 }
 
-function RevealSection({ children, style, delay = 0 }: { children: React.ReactNode; style?: React.CSSProperties; delay?: number }) {
+/**
+ * Entrada al hacer scroll.
+ *
+ * `lift` bajo a proposito: 32px se leia como una diapositiva entrando: el ojo
+ * persigue el bloque en vez de leerlo. 14px se lee como que el contenido ya
+ * estaba y termino de acomodarse. La jerarquia la da el `delay` escalonado,
+ * que sigue el orden de lectura, no la distancia.
+ */
+function RevealSection({ children, style, delay = 0, lift = 14 }: {
+  children: React.ReactNode; style?: React.CSSProperties; delay?: number; lift?: number;
+}) {
   const { ref, visible } = useScrollReveal();
   return (
-    <div ref={ref} style={{ ...style, opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(32px)",
-      transition: `opacity .7s cubic-bezier(.16,1,.3,1) ${delay}ms, transform .7s cubic-bezier(.16,1,.3,1) ${delay}ms` }}>
+    <div ref={ref} className="reveal" style={{ ...style,
+      opacity: visible ? 1 : 0,
+      transform: visible ? "none" : `translateY(${lift}px)`,
+      willChange: visible ? "auto" : "opacity, transform",
+      transition: `opacity .55s cubic-bezier(.16,1,.3,1) ${delay}ms, transform .55s cubic-bezier(.16,1,.3,1) ${delay}ms` }}>
       {children}
     </div>
   );
@@ -223,7 +251,7 @@ function DashboardMockup() {
             </div>
             {/* Alert banner */}
             <div style={{ background: "#FEF2F2", borderRadius: 10, padding: "10px 14px", border: "1px solid #FECACA", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14 }}>🚨</span>
+              <span style={{ color: C.red, display: "flex" }}><AlertBellIcon size={15} /></span>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Arroz Grado 1 se agota en 3 dias</div>
                 <div style={{ fontSize: 10, color: C.mute }}>Sugerencia: comprar 50 KG a Proveedor SA</div>
@@ -482,7 +510,7 @@ function LiveDemoWidget() {
             transition: "all .6s cubic-bezier(.16,1,.3,1)",
             display: "flex", alignItems: "center", gap: 12,
           }}>
-            <span style={{ fontSize: 20 }}>🚨</span>
+            <span style={{ color: "#DC2626", display: "flex" }}><AlertBellIcon size={20} /></span>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#DC2626" }}>
                 Arroz Grado 1 se agota en 1 día
@@ -594,6 +622,24 @@ export default function LandingPage() {
         .biz-tab:hover { background: #EEF2FF; }
         .comp-row { grid-template-columns: 1fr 100px 100px; }
         html { scroll-behavior: smooth; }
+
+        /* El movimiento es una preferencia del sistema, no una opinion nuestra.
+           Para alguien con sensibilidad vestibular, 16 bloques que se deslizan
+           mas dos circulos flotando en bucle infinito no son "personalidad":
+           son mareo. El dashboard ya respetaba esto (lib/useGlobalStyles.ts);
+           la landing, que es la pagina con MAS movimiento del producto, era la
+           unica que no. Todo llega igual, solo que ya puesto en su lugar. */
+        @media (prefers-reduced-motion: reduce) {
+          html { scroll-behavior: auto; }
+          *, *::before, *::after {
+            animation-duration: .001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .001ms !important;
+            scroll-behavior: auto !important;
+          }
+          .l-btn:hover, .l-card:hover { transform: none !important; }
+          .reveal { opacity: 1 !important; transform: none !important; }
+        }
         @media (max-width: 900px) {
           .desk-nav { display: none !important; }
           .mob-toggle { display: flex !important; }
@@ -669,7 +715,9 @@ export default function LandingPage() {
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "6px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600,
             background: C.greenBg, color: C.green, marginBottom: 20,
-            border: "1px solid #A7F3D0", animation: "pulse 2s ease-in-out infinite",
+            border: "1px solid #A7F3D0", animation: "pulse 2.4s ease-in-out 3",
+            // Tres pulsos y para. En bucle infinito le competia la
+            // atencion al titular, que es lo unico que tiene que ganar aca.
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />
             Así es como los negocios chilenos dejan de perder plata
@@ -719,7 +767,7 @@ export default function LandingPage() {
                 border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,.04)",
               }}>
                 <div style={{ width: 52, height: 52, borderRadius: 14, background: "#FEF2F2",
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 16 }}>{p.icon}</div>
+                  display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}><p.Icon size={24} /></div>
                 <h3 style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px" }}>{p.title}</h3>
                 <p style={{ fontSize: 12, fontWeight: 700, color: C.red, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".04em" }}>{p.cost}</p>
                 <p style={{ fontSize: 14, color: C.mid, lineHeight: 1.7, margin: "0 0 16px" }}>{p.desc}</p>
@@ -755,7 +803,7 @@ export default function LandingPage() {
                       background: activeStep === i ? `linear-gradient(135deg, ${C.accent}, ${C.violet})` : "#F3F4F6",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 20, color: activeStep === i ? "#fff" : C.mute, transition: "all .3s",
-                    }}>{s.icon}</div>
+                    }}><s.Icon size={21} /></div>
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 2 }}>PASO {s.num}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: activeStep === i ? C.text : C.mid }}>{s.title}</div>
@@ -766,7 +814,7 @@ export default function LandingPage() {
               <div style={{ background: "#F9FAFB", borderRadius: 20, padding: 36, border: `1px solid ${C.border}`, animation: "slideIn .35s ease" }} key={activeStep}>
                 <div style={{ width: 72, height: 72, borderRadius: 18, marginBottom: 20,
                   background: `linear-gradient(135deg, ${C.accent}14, ${C.violet}14)`,
-                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36 }}>{HOW_IT_WORKS[activeStep].icon}</div>
+                  display: "flex", alignItems: "center", justifyContent: "center", color: C.accent }}>{(() => { const I = HOW_IT_WORKS[activeStep].Icon; return <I size={34} />; })()}</div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Paso {HOW_IT_WORKS[activeStep].num}</div>
                 <h3 style={{ fontSize: 24, fontWeight: 900, margin: "0 0 12px" }}>{HOW_IT_WORKS[activeStep].title}</h3>
                 <p style={{ fontSize: 15, color: C.mid, lineHeight: 1.8, margin: 0 }}>{HOW_IT_WORKS[activeStep].desc}</p>
@@ -801,7 +849,7 @@ export default function LandingPage() {
                 <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: `${C.accent}06` }} />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                   <div style={{ width: 52, height: 52, borderRadius: 14, background: "#EEF2FF",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, position: "relative" }}>{b.icon}</div>
+                    display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}><b.Icon size={24} /></div>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 10,
                     background: b.tag === "Solo en Pulstock" ? "#EEF2FF" : b.tag === "Automático" ? C.greenBg : "#F4F4F5",
                     color: b.tag === "Solo en Pulstock" ? C.accent : b.tag === "Automático" ? C.green : C.mute,
@@ -869,14 +917,17 @@ export default function LandingPage() {
                 background: activeBiz === i ? "#EEF2FF" : "transparent",
                 color: activeBiz === i ? C.accent : C.mid,
                 border: activeBiz === i ? `1px solid #C7D2FE` : `1px solid transparent`,
+                display: "inline-flex", alignItems: "center", gap: 7,
               }}>
-                <span style={{ marginRight: 6 }}>{b.icon}</span>{b.label}
+                <b.Icon size={16} />{b.label}
               </button>
             ))}
           </div>
           <div style={{ background: C.white, borderRadius: 20, padding: "40px 36px", border: `1px solid ${C.border}`, boxShadow: "0 4px 20px rgba(0,0,0,.04)" }} key={activeBiz}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-              <span style={{ fontSize: 36 }}>{BUSINESS_TYPES[activeBiz].icon}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+              <span style={{ color: C.accent, display: "flex" }}>
+                {(() => { const I = BUSINESS_TYPES[activeBiz].Icon; return <I size={32} />; })()}
+              </span>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: ".04em" }}>{BUSINESS_TYPES[activeBiz].label}</div>
                 <h3 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>{BUSINESS_TYPES[activeBiz].headline}</h3>
@@ -1030,7 +1081,7 @@ export default function LandingPage() {
               borderRadius: 12, cursor: "pointer", textDecoration: "none",
             }}>Agenda demo</a>
           </div>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,.5)", marginTop: 20 }}>⚡ Acceso inmediato · Sin instalación · Soporte en español</p>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,.5)", marginTop: 20 }}>Acceso inmediato · Sin instalación · Soporte en español</p>
         </div>
       </section>
 
