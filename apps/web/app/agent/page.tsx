@@ -7,7 +7,7 @@ import Link from "next/link";
  * Página pública de descarga del Pulstock Printer Agent.
  * URL: https://pulstock.cl/agent
  *
- * Para Windows: un solo .exe, doble click, escribí el código.
+ * Para Windows: un solo .exe, doble clic, escribe el código.
  * Para Mac/Linux: ZIP con instalador shell (mantenido como fallback).
  */
 type OS = "windows" | "mac" | "linux";

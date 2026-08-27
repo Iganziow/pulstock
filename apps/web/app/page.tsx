@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { getAccessToken } from "@/lib/api";
 import { LogoIcon } from "@/components/ui/Logo";
+import { BORRADOR } from "@/lib/legal/documentos";
 
 const C = {
   accent: "#4F46E5", accentDark: "#4338CA", violet: "#7C3AED",
@@ -1045,7 +1046,19 @@ export default function LandingPage() {
               <a key={href} href={href} style={{ fontSize: 13, color: "rgba(255,255,255,.5)", textDecoration: "none" }}>{label}</a>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,.3)" }}>&copy; 2026 Pulstock. Todos los derechos reservados.</p>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            {/* Los legales se enlazan recien cuando dejan de ser borrador. Un
+                enlace a un contrato afirma que ese contrato existe: el registro
+                decia "aceptas nuestros terminos" sin que hubiera ninguno, y esa
+                linea hubo que retirarla el 24-ago-2026. */}
+            {!BORRADOR && (
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <a href="/legal/terminos" style={{ fontSize: 12, color: "rgba(255,255,255,.5)", textDecoration: "none" }}>Términos de Servicio</a>
+                <a href="/legal/privacidad" style={{ fontSize: 12, color: "rgba(255,255,255,.5)", textDecoration: "none" }}>Política de Privacidad</a>
+              </div>
+            )}
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,.3)", margin: 0 }}>&copy; 2026 Pulstock. Todos los derechos reservados.</p>
+          </div>
         </div>
       </footer>
     </div>
