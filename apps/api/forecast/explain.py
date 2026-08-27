@@ -31,6 +31,7 @@ from decimal import Decimal
 # Cómo se llama cada familia de algoritmo para alguien que no es estadístico.
 FAMILIAS = {
     "ingredient_derived": "receta",
+    "seasonal_naive": "mismo dia de la semana",
     "simple_avg": "promedio",
     "moving_avg": "promedio",
     "weighted_moving_average": "promedio_ponderado",
