@@ -306,6 +306,20 @@ class Command(BaseCommand):
                 trained_keys.add((product.id, wh_id))
 
                 if n_days >= min_days:
+                    # ANTES de entrenar el organic: `train_product_model`
+                    # desactiva TODOS los modelos activos del producto, el
+                    # derivado incluido. Si preguntamos despues, la respuesta
+                    # es siempre False y el derivado cae en la rama de
+                    # candidato — que lo borra. Ver el comentario largo abajo.
+                    #
+                    # `FM` es el alias con que este metodo importa
+                    # ForecastModel. Usar el nombre largo aca levanta
+                    # NameError y aborta el entrenamiento del tenant entero
+                    # (paso el 24-ago-2026: 5 modelos de 39, sin fallar).
+                    ya_activo = FM.objects.filter(
+                        tenant=tenant, product=product, warehouse_id=wh_id,
+                        algorithm="ingredient_derived", is_active=True,
+                    ).exists()
                     train_product_model(
                         tenant, product, wh_id, today,
                         min_days, horizon, window, stock_items, stats,
@@ -331,14 +345,15 @@ class Command(BaseCommand):
                         # Asi estuvo Leche deslactosada desde el 6-jun: con
                         # pronostico vigente, vendiendo 4.170 unidades cada 14
                         # dias, y sin una sola fila de accuracy.
-                        # `FM` es el alias con que este metodo importa
-                        # ForecastModel (arriba). Usar el nombre largo aca
-                        # levanta NameError y aborta el entrenamiento del
-                        # tenant a mitad de camino.
-                        ya_activo = FM.objects.filter(
-                            tenant=tenant, product=product, warehouse_id=wh_id,
-                            algorithm="ingredient_derived", is_active=True,
-                        ).exists()
+                        # `ya_activo` se calcula ARRIBA, antes de
+                        # train_product_model. Medido 3 noches seguidas en
+                        # produccion (25/26/27-ago-2026): calculado aca abajo
+                        # daba False siempre, los 6 ingredientes caian en la
+                        # rama de candidato, y el `.delete()` de esa rama se
+                        # llevaba por CASCADE la prediccion del dia en curso
+                        # antes de que llegaran las ventas para puntuarla.
+                        # La ventana se corria un dia cada noche y el producto
+                        # nunca alcanzaba a medirse.
                         try:
                             train_ingredient_product(
                                 tenant, product, wh_id, today,

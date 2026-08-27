@@ -170,3 +170,66 @@ class TestDerivadoActivoEscribeSusForecasts:
         r = find_coverage_gaps(tenant.id)
         ciegos = {c["product_id"] for c in r["ciegos"]}
         assert leche.id not in ciegos
+
+    def test_la_prediccion_del_dia_sobrevive_a_la_corrida_de_esta_noche(
+        self, tenant, store, warehouse, leche, latte,
+    ):
+        """El agujero que quedó abierto después del arreglo anterior.
+
+        `track_forecast_accuracy` corre a las 04:30 y puntúa el día ANTERIOR.
+        O sea que la fila escrita anoche tiene que seguir viva a la mañana
+        siguiente. No lo estaba: `train_product_model` desactiva todos los
+        modelos activos del producto —el derivado incluido— y recién después
+        se preguntaba `ya_activo`, que por eso daba False siempre. El producto
+        caía en la rama de candidato, cuyo `.delete()` se lleva el modelo y,
+        por `on_delete=CASCADE`, sus filas de Forecast.
+
+        Medido en producción tres noches seguidas (25/26/27-ago-2026): los
+        pronósticos arrancaban el 26, después el 27, después el 28 — la
+        ventana se corría un día cada noche y la fila del día en curso
+        desaparecía antes de que llegaran las ventas para compararla.
+        """
+        from django.core.management import call_command
+
+        _historial(tenant, warehouse, leche)
+        _historial(tenant, warehouse, latte, qty="20")
+        fm = _modelo_derivado_activo(tenant, warehouse, leche)
+
+        # La predicción de anoche para hoy: es la que el track de mañana
+        # necesita encontrar.
+        ayer = datetime.date.today() - datetime.timedelta(days=1)
+        Forecast.objects.create(
+            tenant=tenant, product=leche, warehouse=warehouse, model=fm,
+            forecast_date=ayer, qty_predicted=D("200"),
+            lower_bound=D("150"), upper_bound=D("250"),
+        )
+
+        call_command("train_forecast_models", tenant=tenant.id, horizon=14, verbosity=0)
+
+        assert Forecast.objects.filter(product=leche, forecast_date=ayer).exists(), (
+            "la corrida nocturna borró la predicción de una fecha ya cumplida: "
+            "nadie va a poder puntuarla y el producto desaparece de la métrica"
+        )
+
+    def test_el_derivado_ya_activo_no_se_borra_a_si_mismo(
+        self, tenant, store, warehouse, leche, latte,
+    ):
+        """Fija el ORDEN, que es la causa raíz.
+
+        Sin filas pasadas que lo protejan, un derivado que ya era el activo
+        tiene que seguir existiendo después de la corrida — desactivado si
+        perdió, pero no borrado. Si desaparece es que `ya_activo` se evaluó
+        tarde y el producto volvió a la rama de candidato.
+        """
+        from django.core.management import call_command
+
+        _historial(tenant, warehouse, leche)
+        _historial(tenant, warehouse, latte, qty="20")
+        fm = _modelo_derivado_activo(tenant, warehouse, leche)
+
+        call_command("train_forecast_models", tenant=tenant.id, horizon=14, verbosity=0)
+
+        assert ForecastModel.objects.filter(id=fm.id).exists(), (
+            "el derivado que ya era el activo se borró a sí mismo: "
+            "`ya_activo` se evaluó después de que train_product_model lo desactivara"
+        )

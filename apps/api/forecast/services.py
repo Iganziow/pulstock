@@ -2791,10 +2791,24 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         # Modo "candidato paralelo": ya hay un modelo organic activo y NO lo
         # tocamos. Sólo limpiamos derived previos inactivos del mismo
         # (product, warehouse) para no acumular un derived por noche.
+        #
+        # PERO nunca borramos uno que sea dueño de filas de fechas ya
+        # cumplidas: `Forecast.model` es on_delete=CASCADE, así que ese
+        # borrado se lleva puesta la predicción del día que todavía no se
+        # puntuó — y `track_forecast_accuracy` corre recién a la mañana
+        # siguiente. Medido en producción (25/26/27-ago-2026): la ventana se
+        # corría un día cada noche y seis ingredientes no volvieron a medirse
+        # desde junio. La limpieza es housekeeping; la historia no se toca.
+        con_historia = set(
+            Forecast.objects.filter(
+                tenant=tenant, product=product, warehouse_id=warehouse_id,
+                forecast_date__lte=today,
+            ).values_list("model_id", flat=True)
+        )
         ForecastModel.objects.filter(
             tenant=tenant, product=product, warehouse_id=warehouse_id,
             algorithm="ingredient_derived", is_active=False,
-        ).delete()
+        ).exclude(id__in=con_historia).delete()
 
     existing = ForecastModel.objects.filter(
         tenant=tenant, product=product, warehouse_id=warehouse_id,

@@ -18,7 +18,12 @@ from forecast.coverage import find_coverage_gaps
 from forecast.models import DailySales, Forecast, ForecastAccuracy, ForecastModel
 
 D = Decimal
-HOY = datetime.date(2026, 8, 20)
+# Relativo a hoy, no una fecha fija. La version anterior clavaba el
+# 20-ago-2026: los tests que llaman a find_coverage_gaps(today=HOY) seguian
+# pasando, pero el que invoca el comando real usa date.today() por dentro, y
+# empezo a fallar solo con que pasaran los dias. Un test con fecha quemada no
+# se rompe cuando se rompe el codigo: se rompe cuando cambia el calendario.
+HOY = datetime.date.today()
 
 
 def _vender(tenant, warehouse, product, dias, qty="100"):
@@ -34,7 +39,7 @@ def _modelo(tenant, warehouse, product):
     return ForecastModel.objects.create(
         tenant=tenant, product=product, warehouse=warehouse,
         algorithm="simple_avg", version=1, is_active=True,
-        trained_at=datetime.datetime(2026, 8, 20, tzinfo=datetime.timezone.utc),
+        trained_at=datetime.datetime.now(datetime.timezone.utc),
     )
 
 
