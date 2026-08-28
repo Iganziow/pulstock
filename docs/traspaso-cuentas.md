@@ -35,9 +35,20 @@ Verificado en producción el 24-ago-2026:
 
 | Rol | Acceso |
 |---|---|
-| Dueño de Marbrava | `mario@marbrava.cl` (rol owner, **sin** superadmin) |
+| Dueño de Marbrava | `mariodennismunoz@gmail.com` (rol owner, **sin** superadmin) |
 | Superadmin — desarrollo | `daniel@dev.cl` — cuenta de desarrollo de Ignacio (confirmado). Sin negocio asignado |
-| Superadmin — Mario | `admin@pulstock.cl` ⚠️ *pendiente de crear* |
+| Superadmin — Mario | `mariodennismunoz+admin@gmail.com` ⚠️ *pendiente de crear* |
+
+> **Corregido el 27-ago-2026.** Este documento decía `mario@marbrava.cl`, que
+> no existe: el correo real del dueño es su Gmail. Y la cuenta de superadmin
+> **no puede usar `admin@pulstock.cl`**, porque el dominio no tiene registro MX
+> y no recibe correo — el enlace de recuperación se enviaría al vacío,
+> dejando irrecuperable justo la cuenta más crítica. Con el alias de Gmail
+> llega a la bandeja de Mario y funciona hoy. Cuando el MX exista, se puede
+> cambiar desde el panel.
+>
+> El script está en `tools/traspaso/crear_superadmin_mario.py` y crea la
+> cuenta **sin contraseña**: Mario la fija él desde «Olvidé mi contraseña».
 
 **Hoy Mario no puede operar la plataforma que compró:** no accede a
 suscripciones, tenants ni al modo superadmin.
