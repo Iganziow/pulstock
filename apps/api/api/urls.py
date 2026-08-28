@@ -5,6 +5,9 @@ from django.db import connection, DatabaseError, OperationalError
 from django.conf import settings
 
 from api.auth_views import CookieTokenObtainView, CookieTokenRefreshView, CookieLogoutView
+from core.password_reset import (
+    SolicitarResetView, ConfirmarResetView, VerificarTokenView,
+)
 
 
 def health_check(request):
@@ -39,6 +42,13 @@ urlpatterns = [
     path("api/auth/token/", CookieTokenObtainView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/logout/", CookieLogoutView.as_view(), name="token_logout"),
+
+    # Recuperacion de contrasena. Va bajo /api/auth/ a proposito: ese prefijo
+    # esta exento del middleware de suscripcion, asi que un negocio suspendido
+    # igual puede recuperar su clave y volver a pagar.
+    path("api/auth/password/reset/", SolicitarResetView.as_view(), name="password_reset"),
+    path("api/auth/password/reset/confirm/", ConfirmarResetView.as_view(), name="password_reset_confirm"),
+    path("api/auth/password/reset/check/", VerificarTokenView.as_view(), name="password_reset_check"),
     path("api/reports/", include("reports.urls")),
     path("api/catalog/", include("catalog.urls")),
     path("api/core/", include("core.urls")),

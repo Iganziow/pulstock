@@ -167,7 +167,7 @@ export default function SuperadminLoginPage() {
                     fontSize: 16, padding: 4,
                   }}
                 >
-                  {showPw ? "🙈" : "👁"}
+                  {showPw ? "Ocultar" : "Ver"}
                 </button>
               </div>
             </div>
@@ -186,6 +186,16 @@ export default function SuperadminLoginPage() {
             >
               {loading ? "Verificando..." : "Acceder al panel"}
             </button>
+
+            {/* El superadmin ES el que mas necesita esto: si pierde la clave,
+                el dueno de la plataforma queda encerrado fuera de la
+                plataforma, y despues de la entrega no hay a quien llamar. */}
+            <a href="/recuperar" style={{
+              display: "block", textAlign: "center", marginTop: 14,
+              fontSize: 12.5, color: C.mute, textDecoration: "none",
+            }}>
+              Olvide mi contrasena
+            </a>
           </form>
         </div>
 

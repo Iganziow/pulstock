@@ -288,6 +288,11 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "api.exception_handler.custom_exception_handler",
 }
 
+# Vigencia del enlace de recuperacion de contrasena. El default de Django son
+# TRES DIAS: demasiado para un correo que puede quedar abierto en una bandeja
+# compartida del local. Dos horas alcanzan de sobra para leer un mail.
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 2
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),

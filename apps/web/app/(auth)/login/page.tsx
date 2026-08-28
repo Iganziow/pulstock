@@ -365,6 +365,16 @@ export default function LoginPage() {
                 ) : "Ingresar"}
               </button>
             </div>
+
+            {/* Hasta el 27-ago-2026 no habia forma de recuperar una clave
+                perdida: el unico camino era SSH. Aceptable con un
+                desarrollador cerca, no despues de la entrega. */}
+            <a href="/recuperar" style={{
+              textAlign: "center", fontSize: 13, color: C.mid,
+              textDecoration: "none", marginTop: 2,
+            }}>
+              Olvide mi contrasena
+            </a>
           </form>
         </div>
 
