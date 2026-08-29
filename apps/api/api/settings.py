@@ -281,12 +281,19 @@ REST_FRAMEWORK = {
         "login": "10/minute",
         "register": "10/hour",
         "sensitive_action": "20/hour",
+        "password_reset": "20/hour",  # anon por IP: pedir/verificar/confirmar reset
         "webhook": "60/minute",
         "agent_pair": "20/hour",  # anti-brute-force on pairing code exchange
         "agent_poll": "60/minute",  # 3s poll = 20/min normal, 60 tolera hipo
     },
     "EXCEPTION_HANDLER": "api.exception_handler.custom_exception_handler",
 }
+
+# Si el SMTP de Brevo se cuelga, sin timeout el worker de gunicorn queda
+# colgado INDEFINIDAMENTE esperando el socket. Produccion corre 5 workers:
+# bastan 5 requests al formulario de recuperacion para dejar la API entera
+# muda. Diez segundos sobran para un handshake SMTP sano.
+EMAIL_TIMEOUT = 10
 
 # Vigencia del enlace de recuperacion de contrasena. El default de Django son
 # TRES DIAS: demasiado para un correo que puede quedar abierto en una bandeja

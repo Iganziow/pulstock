@@ -86,8 +86,16 @@ class TestElCaminoFeliz:
     def test_la_pantalla_puede_verificar_antes_de_pedir_la_clave(self, api_client, persona):
         api_client.post(PEDIR, {"email": persona.email}, format="json")
         uid, token = _enlace_del_correo()
-        r = api_client.get(f"{CHEQUEAR}?uid={uid}&token={token}")
+        r = api_client.post(CHEQUEAR, {"uid": uid, "token": token}, format="json")
         assert r.status_code == 200 and r.data["valido"] is True
+
+    def test_verificar_no_acepta_GET(self, api_client, persona):
+        """El token no puede viajar en el query string: nginx lo escribiria en
+        su log de acceso, dejandolo legible por sus dos horas de vida."""
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        uid, token = _enlace_del_correo()
+        r = api_client.get(f"{CHEQUEAR}?uid={uid}&token={token}")
+        assert r.status_code == 405, "sigue aceptando GET con el token en la URL"
 
 
 @pytest.mark.django_db
@@ -208,3 +216,76 @@ class TestElSuperadminTambien:
         jefe.refresh_from_db()
         assert jefe.check_password("claveNueva456")
         assert jefe.is_superuser, "recuperar la clave no debe tocar los permisos"
+
+
+@pytest.mark.django_db
+class TestLoQueSalioDeLaRevision:
+    """Seis problemas que aparecieron revisando el codigo despues de
+    escribirlo, no antes. Cada uno con su test."""
+
+    def test_el_enlace_apunta_al_dominio_configurado(self, api_client, persona, settings, monkeypatch):
+        """`WEB_ORIGIN` NO es un atributo de settings, solo variable de
+        entorno. La primera version usaba getattr(settings, ...) y caia
+        siempre al fallback: en produccion funcionaba de casualidad y en
+        desarrollo los correos apuntaban a produccion."""
+        monkeypatch.setenv("WEB_ORIGIN", "https://ejemplo.test")
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        assert "https://ejemplo.test/recuperar/nueva" in mail.outbox[0].body
+
+    def test_toma_el_primer_origen_si_hay_varios(self, api_client, persona, monkeypatch):
+        """WEB_ORIGIN admite lista separada por comas (asi la usa CORS)."""
+        monkeypatch.setenv("WEB_ORIGIN", "https://uno.test,https://dos.test")
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        assert "https://uno.test/recuperar/nueva" in mail.outbox[0].body
+
+    def test_dos_cuentas_con_el_mismo_correo_reciben_cada_una_su_enlace(
+        self, api_client, tenant, persona,
+    ):
+        """El alta de personal valida username unico pero NO email unico. Con
+        `.first()` el enlace habria reseteado una cuenta arbitraria: la
+        persona cree recuperar la suya y le cambia la clave a otra."""
+        gemela = User.objects.create_user(
+            username="rosa2", email="rosa@marbrava.cl",
+            password="otraClave123", tenant=tenant, role="cashier",
+        )
+        api_client.post(PEDIR, {"email": "rosa@marbrava.cl"}, format="json")
+        assert len(mail.outbox) == 2, "solo una de las dos cuentas recibio enlace"
+
+        # Y cada token sirve unicamente para su propia cuenta.
+        uids = [re.search(r"uid=([^&\s]+)", m.body).group(1) for m in mail.outbox]
+        assert len(set(uids)) == 2, "los dos correos traen el mismo destinatario"
+
+    def test_cambiar_la_clave_cierra_las_sesiones_abiertas(self, api_client, persona):
+        """"Olvide mi contrasena" incluye "me robaron la cuenta". Sin revocar,
+        cambiar la clave no echa al ladron: su refresh token vale 7 dias."""
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+
+        viva = RefreshToken.for_user(persona)
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        uid, token = _enlace_del_correo()
+        r = api_client.post(CONFIRMAR, {
+            "uid": uid, "token": token, "password": "claveNuevaSegura456"}, format="json")
+        assert r.status_code == 200, r.data
+
+        assert BlacklistedToken.objects.filter(
+            token__jti=viva["jti"]
+        ).exists(), "la sesion anterior sigue viva despues de cambiar la clave"
+
+    def test_rechaza_una_clave_comun(self, api_client, persona):
+        """AUTH_PASSWORD_VALIDATORS existe y el resto de la app lo usa. Mirar
+        solo el largo dejaba la recuperacion MAS DEBIL que el registro."""
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        uid, token = _enlace_del_correo()
+        r = api_client.post(CONFIRMAR, {
+            "uid": uid, "token": token, "password": "password123"}, format="json")
+        assert r.status_code == 400, "acepto una contrasena del diccionario"
+        persona.refresh_from_db()
+        assert persona.check_password("claveVieja123")
+
+    def test_rechaza_una_clave_solo_numeros(self, api_client, persona):
+        api_client.post(PEDIR, {"email": persona.email}, format="json")
+        uid, token = _enlace_del_correo()
+        r = api_client.post(CONFIRMAR, {
+            "uid": uid, "token": token, "password": "84726194"}, format="json")
+        assert r.status_code == 400, "acepto una contrasena puramente numerica"

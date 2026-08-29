@@ -42,7 +42,14 @@ function Formulario() {
 
   useEffect(() => {
     if (!uid || !token) { setValidando(false); return; }
-    fetch(`${API}/auth/password/reset/check/?uid=${encodeURIComponent(uid)}&token=${encodeURIComponent(token)}`)
+    // POST y no GET: nginx registra el query string en su log de acceso, asi
+    // que con GET cada token valido quedaba escrito en texto plano y legible
+    // durante sus dos horas de vida.
+    fetch(`${API}/auth/password/reset/check/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid, token }),
+    })
       .then((r) => r.json())
       .then((d) => setValido(Boolean(d?.valido)))
       .catch(() => setValido(false))
