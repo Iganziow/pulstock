@@ -23,7 +23,10 @@ export function SaveConfirmModal({ edits, rows, onCancel, onConfirm }: SaveConfi
   const changedCount = Object.keys(edits).length;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {/* Sin onClick en el fondo, a proposito (Mario, PC): apuntando a la
+          barra de scroll del modal es facil errar por un pixel, y ese clic
+          caia aca y botaba la edicion en curso. Se cierra con Cancelar o X. */}
       <div style={{ background: C.surface, borderRadius: C.rMd, width: 520, maxWidth: "95vw", maxHeight: "80vh", overflow: "auto", boxShadow: C.shLg, padding: 24 }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700 }}>Confirmar cambios de precio</h3>
         <p style={{ margin: "0 0 12px", fontSize: 13, color: C.mid }}>Se actualizaran {changedCount} producto(s):</p>

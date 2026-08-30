@@ -13,6 +13,7 @@ import {
   type Warehouse, type StockRow,
 } from "@/components/inventory/StockShared";
 import { ReceiveModal, IssueModal, AdjustModal, TransferModal } from "@/components/inventory/StockModals";
+import { OfflineSalesModal } from "@/components/inventory/OfflineSalesModal";
 
 export default function StockPage() {
   useGlobalStyles();
@@ -76,6 +77,7 @@ export default function StockPage() {
 
   // ── TRANSFER state ────────────────────────────────────────────────────────
   const [trOpen, setTrOpen] = useState(false);
+  const [offOpen, setOffOpen] = useState(false);
   const [trProdId, setTrProdId] = useState<number | null>(null);
   const [trTarget, setTrTarget] = useState<number | null>(null);
   const [trQty, setTrQty] = useState("");
@@ -229,6 +231,10 @@ export default function StockPage() {
           <p style={{ margin: 0, fontSize: 13, color: C.mute, paddingLeft: 14 }}>Stock teorico (on_hand) por bodega</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn variant="secondary" size="sm" onClick={() => setOffOpen(true)} disabled={!!meErr || !warehouseId || loading}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M13 2 3 14h7l-1 8 10-12h-7z" /></svg>
+            Ventas sin sistema
+          </Btn>
           <Btn variant="danger" size="sm" onClick={() => router.push("/dashboard/inventory/salidas")} disabled={!!meErr || !warehouseId}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
             Salida masiva
@@ -457,6 +463,7 @@ export default function StockPage() {
       {recOpen && sel && <ReceiveModal sel={sel} whName={whName} recQty={recQty} setRecQty={setRecQty} recCost={recCost} setRecCost={setRecCost} recNote={recNote} setRecNote={setRecNote} recBusy={recBusy} recErr={recErr} setRecErr={setRecErr} onClose={() => setRecOpen(false)} onSubmit={submitRec} />}
       {issOpen && sel && <IssueModal sel={sel} whName={whName} issQty={issQty} setIssQty={setIssQty} issReason={issReason} setIssReason={setIssReason} issNote={issNote} setIssNote={setIssNote} issBusy={issBusy} issErr={issErr} setIssErr={setIssErr} onClose={() => setIssOpen(false)} onSubmit={submitIss} />}
       {adjOpen && sel && <AdjustModal sel={sel} whName={whName} adjQty={adjQty} setAdjQty={setAdjQty} adjCost={adjCost} setAdjCost={setAdjCost} adjNote={adjNote} setAdjNote={setAdjNote} adjBusy={adjBusy} adjErr={adjErr} setAdjErr={setAdjErr} onClose={() => setAdjOpen(false)} onSubmit={submitAdj} />}
+      {offOpen && warehouseId && <OfflineSalesModal items={items} warehouseId={warehouseId} whName={whName} onClose={() => setOffOpen(false)} onDone={load} />}
       {trOpen && <TransferModal whName={whName} warehouseId={warehouseId} activeWh={activeWh} items={items} trTarget={trTarget} setTrTarget={setTrTarget} trProdId={trProdId} setTrProdId={setTrProdId} trQty={trQty} setTrQty={setTrQty} trNote={trNote} setTrNote={setTrNote} trBusy={trBusy} trErr={trErr} setTrErr={setTrErr} onClose={() => setTrOpen(false)} onSubmit={submitTr} />}
     </div>
   );
