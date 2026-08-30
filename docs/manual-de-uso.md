@@ -21,6 +21,12 @@ Pulstock tiene cuatro roles, y la barra lateral cambia según cuál tengas:
 Si alguien no encuentra una pantalla de este manual, lo más probable es que su
 rol no la tenga. No está roto.
 
+> **Un detalle de las ventanas:** las que piden confirmar algo importante
+> —guardar precios en bloque, por ejemplo— ya **no se cierran** haciendo clic
+> fuera de ellas. Se cierran con *Cancelar* o con la ✕. Antes, apuntando a la
+> barra de desplazamiento y errándole por un pixel, se perdía el trabajo en
+> curso.
+
 > **Si el negocio tiene más de una sucursal: cada persona con su propia
 > cuenta, siempre.** El local activo sigue al **usuario**, no al aparato. Si
 > dos sucursales comparten una misma cuenta y una cambia de local en el
@@ -130,6 +136,40 @@ Tres acciones por fila:
 > configurarlo a mano producto por producto y casi nadie lo hacía: en Marbrava
 > solo 8 de 252 lo tenían. Hoy lo tienen 188, calculados según cuánto se
 > consume de cada cosa y qué tan parejo es ese consumo.
+
+### Ventas sin sistema — cuando se vendió con la luz cortada
+
+Arriba de la tabla hay un botón **Ventas sin sistema**. Es para el día que se
+cortó la luz, se cayó internet o el sistema estuvo abajo un buen rato, y se
+siguió vendiendo con papel y lápiz.
+
+**Por qué no sirve simplemente ajustar el stock.** Un ajuste normal descuenta
+*hoy*. Si el corte fue el jueves y cuadras el sábado, el sábado aparece
+consumiendo 40 empanadas que se vendieron dos días antes — el turno del
+sábado queda sucio, que es justamente lo que no se quiere. Y hay un segundo
+problema, invisible: para la predicción esas ventas nunca existieron. El
+sistema aprende que el jueves no se vendió nada, y a la larga te sugiere
+comprar de menos.
+
+**Cómo se usa:**
+
+1. Abre **Ventas sin sistema** y elige el **día del corte** (hasta 60 días atrás)
+2. Agrega cada producto con la cantidad que se vendió ese día
+3. Escribe una nota que a los tres meses siga explicando qué pasó — por
+   ejemplo *"corte de luz de 14:00 a 19:00"*
+4. Registrar
+
+El stock se descuenta **con fecha del día del corte**: el turno de hoy queda
+intacto, y la predicción aprende la demanda real de ese día.
+
+> **Si al terminar aparece un aviso naranja**, dice que lo que declaraste
+> superaba el stock que el sistema creía tener. **No es un error del
+> registro**: significa que el inventario ya estaba descuadrado *antes* del
+> corte, y el sistema recién ahora te lo muestra. El stock de esos productos
+> queda en cero y conviene hacerles un conteo físico.
+
+Esto es para inventario y dueño; un cajero no puede hacerlo, porque corrige
+historia hacia atrás.
 
 ---
 
