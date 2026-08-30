@@ -21,6 +21,13 @@ Pulstock tiene cuatro roles, y la barra lateral cambia según cuál tengas:
 Si alguien no encuentra una pantalla de este manual, lo más probable es que su
 rol no la tenga. No está roto.
 
+> **Si el negocio tiene más de una sucursal: cada persona con su propia
+> cuenta, siempre.** El local activo sigue al **usuario**, no al aparato. Si
+> dos sucursales comparten una misma cuenta y una cambia de local en el
+> selector de arriba, las ventas y el stock de la otra empiezan a caer en el
+> local equivocado — sin ningún aviso. Crear un usuario por persona cuesta un
+> minuto y elimina el problema de raíz.
+
 ---
 
 ## Dashboard — la foto del día
