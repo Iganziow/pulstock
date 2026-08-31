@@ -71,6 +71,11 @@ rol no la tenga. No está roto.
 
 **Para quién:** el dueño, primera cosa de la mañana.
 
+![El Dashboard de Cafetería Marbrava un domingo por la mañana](img/dashboard.png)
+
+*Los cuatro números de arriba y, abajo, la semana. El domingo aparece casi en
+cero porque Marbrava cierra: el sistema lo aprendió solo.*
+
 Cuatro números arriba, que son los que importan antes del café:
 
 - **Ventas hoy** — total y cuántas ventas, con la utilidad al lado
