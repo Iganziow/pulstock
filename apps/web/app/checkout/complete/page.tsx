@@ -3,6 +3,9 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { C } from "@/lib/theme";
+import {
+  Disco, CheckIcon, ListoIcon, RelojIcon, AlertaIcon, VencidoIcon, Cargando,
+} from "@/components/checkout/EstadoIconos";
 import { fetchWithTimeout } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
@@ -232,12 +235,12 @@ function CheckoutCompleteInner() {
           {/* PENDING — polling activo, no expirado todavía */}
           {!checking && !timedOut && session?.status === "pending" && (
             <div style={{ textAlign: "center", padding: 30 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{"⏳"}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
-                Verificando tu pago
+              <Disco tono="indigo"><Cargando size={24} /></Disco>
+              <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 6, letterSpacing: "-0.01em" }}>
+                Confirmando tu pago
               </div>
-              <div style={{ fontSize: 13, color: C.mute, marginBottom: 4 }}>
-                Esto puede tomar unos segundos…
+              <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.55 }}>
+                Estamos esperando la confirmación del banco. Toma unos segundos.
               </div>
               {pollNum > 2 && (
                 <div style={{ fontSize: 11, color: C.mute, marginTop: 8 }}>
@@ -262,28 +265,36 @@ function CheckoutCompleteInner() {
           {/* PAID — pago confirmado, creando cuenta automáticamente */}
           {!checking && !timedOut && session?.status === "paid" && (
             <div style={{ textAlign: "center", padding: 30 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>✓</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.green, marginBottom: 6 }}>
-                Pago confirmado — ${fmt(session.amount_clp)}
-              </div>
-              <div style={{ fontSize: 13, color: C.mute, marginBottom: 16 }}>
-                Creando tu cuenta… {session.plan_name}
+              <Disco tono="verde"><CheckIcon /></Disco>
+              <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 6, letterSpacing: "-0.01em" }}>
+                Pago confirmado
               </div>
               <div style={{
-                display: "inline-block", width: 24, height: 24,
-                border: `3px solid ${C.border}`, borderTopColor: C.accent,
-                borderRadius: "50%", animation: "spin 0.8s linear infinite",
-              }} />
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                display: "inline-flex", alignItems: "baseline", gap: 8,
+                marginBottom: 18,
+              }}>
+                <span style={{ fontSize: 24, fontWeight: 800, color: C.text, fontFamily: C.mono }}>
+                  ${fmt(session.amount_clp)}
+                </span>
+                <span style={{ fontSize: 13, color: C.mute }}>{session.plan_name}</span>
+              </div>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                padding: "12px 16px", borderRadius: C.r,
+                background: C.bg, border: `1px solid ${C.border}`,
+              }}>
+                <Cargando size={18} />
+                <span style={{ fontSize: 13.5, color: C.mid }}>Preparando tu cuenta…</span>
+              </div>
             </div>
           )}
 
           {/* COMPLETED — todo listo */}
           {!checking && session?.status === "completed" && (
             <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: C.text, marginBottom: 6 }}>
-                ¡Tu cuenta está lista!
+              <Disco tono="verde"><ListoIcon size={28} /></Disco>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 6, letterSpacing: "-0.02em" }}>
+                Tu cuenta está lista
               </div>
               <div style={{ fontSize: 13, color: C.mute, marginBottom: 6 }}>
                 Plan {session.plan_name} · ${fmt(session.amount_clp)} pagado
@@ -316,22 +327,30 @@ function CheckoutCompleteInner() {
           {/* TIMED OUT — esperamos 40s y no llegó nada del webhook */}
           {!checking && timedOut && (
             <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{"⏱️"}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
-                No recibimos confirmación del pago
+              {/* El texto viejo decia "No recibimos confirmacion del pago" y
+                  aparecia INCLUSO cuando el pago si estaba confirmado en la
+                  base: el tiempo de espera se agota antes de que termine de
+                  crearse la cuenta. Es el peor mensaje posible -- le dice a
+                  alguien que acaba de pagar que su plata no llego, y lo empuja
+                  a reclamar o a pagar dos veces.
+                  Ahora dice lo unico que sabemos con certeza: que esto esta
+                  tomando mas de lo normal. */}
+              <Disco tono="ambar"><RelojIcon /></Disco>
+              <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 8, letterSpacing: "-0.01em" }}>
+                Esto está tomando más de lo normal
               </div>
-              <div style={{ fontSize: 13, color: C.mute, marginBottom: 6, lineHeight: 1.55 }}>
-                Si completaste el pago en Flow, puede demorar unos minutos en confirmarse.
-                Si lo cancelaste o cerraste la ventana, puedes volver a intentarlo.
+              <div style={{ fontSize: 14, color: C.mid, marginBottom: 4, lineHeight: 1.6 }}>
+                Si completaste el pago, <strong style={{ color: C.text }}>tu plata está bien</strong> —
+                la confirmación del banco a veces demora unos minutos.
               </div>
               <div style={{
-                margin: "14px 0", padding: "10px 14px", borderRadius: C.r,
+                margin: "18px 0", padding: "12px 15px", borderRadius: C.r,
                 background: C.amberBg, border: `1px solid ${C.amberBd}`,
-                fontSize: 11, color: "#92400E", textAlign: "left",
+                fontSize: 13, color: C.amber, textAlign: "left", lineHeight: 1.6,
               }}>
-                <strong>Importante:</strong> si efectivamente pagaste, NO vuelvas a pagar.
-                Espera unos minutos y presiona &ldquo;Verificar de nuevo&rdquo;.
-                Si el problema persiste, contáctanos a pulstock.admin@gmail.com con tu RUT.
+                <strong>No vuelvas a pagar.</strong> Espera un momento y presiona
+                “Verificar de nuevo”. Si sigue igual, escríbenos a
+                pulstock.admin@gmail.com con tu RUT y lo resolvemos nosotros.
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 16 }}>
                 <button onClick={handleRetry} style={{
@@ -351,7 +370,7 @@ function CheckoutCompleteInner() {
           {/* FAILED / CANCELLED — explícitamente fallido o cancelado por Flow */}
           {!checking && !timedOut && (session?.status === "failed" || session?.status === "cancelled") && (
             <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{"⚠️"}</div>
+              <Disco tono="rojo"><AlertaIcon /></Disco>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
                 {session.status === "cancelled" ? "Pago cancelado" : "El pago no se pudo procesar"}
               </div>
@@ -378,7 +397,7 @@ function CheckoutCompleteInner() {
           {/* EXPIRED — sesión vencida del lado del backend (ej. >24h) */}
           {!checking && session?.status === "expired" && (
             <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{"⚠️"}</div>
+              <Disco tono="rojo"><AlertaIcon /></Disco>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
                 Sesión expirada
               </div>
@@ -400,7 +419,7 @@ function CheckoutCompleteInner() {
             const friendly = friendlyError(error, !!token && error !== "__no_token__");
             return (
               <div style={{ textAlign: "center", padding: 20 }}>
-                <div style={{ fontSize: 28, marginBottom: 12 }}>{"⚠️"}</div>
+                <Disco tono="rojo"><AlertaIcon /></Disco>
                 <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
                   {friendly.title}
                 </div>
