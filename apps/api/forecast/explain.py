@@ -32,6 +32,7 @@ from decimal import Decimal
 FAMILIAS = {
     "ingredient_derived": "receta",
     "seasonal_naive": "mismo dia de la semana",
+    "tsb": "demanda intermitente",
     "simple_avg": "promedio",
     "moving_avg": "promedio",
     "weighted_moving_average": "promedio_ponderado",

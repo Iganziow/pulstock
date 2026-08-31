@@ -91,6 +91,7 @@ class ForecastModel(models.Model):
         ("croston_sba", "Croston SBA"),
         ("ensemble", "Ensemble"),
         ("seasonal_naive", "Mismo dia de la semana anterior"),
+        ("tsb", "TSB (Demanda Intermitente que decae)"),
         ("ingredient_derived", "Derivado de Receta"),
     ]
 
