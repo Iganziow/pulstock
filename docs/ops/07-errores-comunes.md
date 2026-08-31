@@ -394,3 +394,46 @@ volumen, apagarlo cambia poco; si es `adaptive_ma` o `theta`, mueve harto.
 
 `category_prior` no se puede apagar por acá: no compite en la selección, lo
 asigna el código directamente a productos sin historia propia.
+
+---
+
+## Cambié el `.env` y no pasó nada
+
+**El síntoma es traicionero:** editas una variable, recargas el servicio, ves
+«recargado con éxito», y el sistema sigue comportándose con el valor viejo.
+Nada falla, nada avisa. Simplemente el cambio no existe.
+
+**La causa** está en cómo systemd arranca la API:
+
+```
+EnvironmentFile=/var/www/pulstock/apps/api/.env
+ExecReload=/bin/kill -s HUP $MAINPID
+```
+
+Systemd lee el `.env` **al arrancar el proceso**. Un `reload` manda un `HUP`,
+que recarga el *código* pero **no vuelve a leer el archivo de entorno**. El
+proceso maestro conserva el entorno con el que arrancó y se lo pasa a los
+workers nuevos.
+
+**La regla:**
+
+| Cambiaste… | Comando |
+|---|---|
+| Código Python | `sudo systemctl reload pulstock-api` |
+| **Cualquier cosa del `.env`** | `sudo systemctl restart pulstock-api` |
+
+**Cómo se descubrió (31-ago-2026):** se configuró Flow en producción, se
+recargó el servicio, y el link de pago que generaba el sistema seguía
+apuntando a `sandbox.flow.cl`. Un script suelto leía la URL correcta —porque
+era un proceso nuevo— mientras el servidor web seguía con la vieja. Sin
+haberlo notado, se habría creído estar cobrando de verdad mientras todo iba
+al ambiente de pruebas.
+
+**Cómo comprobarlo** sin adivinar — pregúntale al proceso que atiende, no a
+uno nuevo:
+
+```bash
+sudo cat /proc/$(pgrep -f "gunicorn api.wsgi" | head -1)/environ | tr '\0' '\n' | grep FLOW_BASE_URL
+```
+
+Si eso no muestra el valor nuevo, el `restart` no se hizo.
