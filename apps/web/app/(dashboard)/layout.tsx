@@ -37,6 +37,16 @@ body{font-family:'DM Sans','Helvetica Neue',system-ui,sans-serif;overscroll-beha
 .sb-item:hover .sb-tooltip{opacity:1;}
 .topbar-btn{background:none;border:1px solid transparent;cursor:pointer;border-radius:8px;display:flex;align-items:center;gap:8px;padding:6px 10px;transition:all 0.12s ease;font-family:inherit;color:${C.mid};}
 .topbar-btn:hover{background:${C.bg};border-color:${C.border};}
+/* Con el dedo, este boton medía 32px de alto. Es el UNICO control de la app
+   que quedaba fuera de la regla tactil de lib/useGlobalStyles.ts: no usa .xb
+   ni .ib ni lleva aria-label. Medido recorriendo las 16 pantallas en
+   produccion el 30-ago-2026.
+   Va aca y no en useGlobalStyles porque ESTE layout no carga ese hook, y
+   varias paginas del dashboard tampoco -- la regla tiene que vivir junto al
+   boton para aplicar siempre.
+   Importa mas de lo que parece: es el selector de local, y en multi-sucursal
+   un toque errado manda las ventas del turno al local equivocado. */
+@media (pointer: coarse){.topbar-btn{min-height:44px}}
 /* ── Impresión ──────────────────────────────────────────────────────────
    Al imprimir cualquier página del dashboard, ocultar TODO el chrome de la
    app (sidebar, topbar, navs — marcados con .no-print) y liberar los
