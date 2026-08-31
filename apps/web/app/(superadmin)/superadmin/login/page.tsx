@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { RECUPERACION_ACTIVA } from "@/lib/legal/flags";
 import { useRouter } from "next/navigation";
 import { setTokens, setSuperAdmin } from "@/lib/api";
 
@@ -189,13 +190,14 @@ export default function SuperadminLoginPage() {
 
             {/* El superadmin ES el que mas necesita esto: si pierde la clave,
                 el dueno de la plataforma queda encerrado fuera de la
-                plataforma, y despues de la entrega no hay a quien llamar. */}
-            <a href="/recuperar" style={{
+                plataforma, y despues de la entrega no hay a quien llamar.
+                Apagado hasta desplegar el backend: ver lib/legal/flags.ts */}
+            {RECUPERACION_ACTIVA && <a href="/recuperar" style={{
               display: "block", textAlign: "center", marginTop: 14,
               fontSize: 12.5, color: C.mute, textDecoration: "none",
             }}>
               Olvide mi contrasena
-            </a>
+            </a>}
           </form>
         </div>
 

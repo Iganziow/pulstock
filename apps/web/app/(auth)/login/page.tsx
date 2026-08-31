@@ -1,5 +1,6 @@
 "use client";
 import { LogoIcon } from "@/components/ui/Logo";
+import { RECUPERACION_ACTIVA } from "@/lib/legal/flags";
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 
@@ -368,13 +369,15 @@ export default function LoginPage() {
 
             {/* Hasta el 27-ago-2026 no habia forma de recuperar una clave
                 perdida: el unico camino era SSH. Aceptable con un
-                desarrollador cerca, no despues de la entrega. */}
-            <a href="/recuperar" style={{
+                desarrollador cerca, no despues de la entrega.
+                El enlace espera a que el backend este desplegado: ver
+                lib/legal/flags.ts */}
+            {RECUPERACION_ACTIVA && <a href="/recuperar" style={{
               textAlign: "center", fontSize: 13, color: C.mid,
               textDecoration: "none", marginTop: 2,
             }}>
               Olvide mi contrasena
-            </a>
+            </a>}
           </form>
         </div>
 
