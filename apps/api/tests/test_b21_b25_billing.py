@@ -241,3 +241,68 @@ class TestB25Reconciliacion:
 
         assert r["revisadas"] == 0
         assert not mock_estado.called
+
+
+@pytest.mark.django_db
+class TestNoSeCobraSiNoSePuedeEntregar:
+    """El sistema aceptaba iniciar un cobro sin los datos del negocio.
+
+    Pero la cuenta la crea el webhook a partir de ESOS datos, asi que sin
+    ellos el cliente pagaba y quedaba con la sesion en `paid` para siempre,
+    mirando una espera que nunca termina.
+
+    Comprobado en produccion el 31-ago-2026 con un cobro real de $1.000: la
+    sesion quedo huerfana. Hay 5 asi en la base.
+    """
+
+    def _plan(self, db):
+        from billing.models import Plan
+        p, _ = Plan.objects.get_or_create(
+            key="test_validacion",
+            defaults=dict(name="Test", price_clp=1000, max_products=10,
+                          max_stores=1, max_users=1, is_active=True),
+        )
+        return p
+
+    def test_sin_datos_del_negocio_no_inicia_el_cobro(self, api_client, db):
+        from billing.models import CheckoutSession
+        self._plan(db)
+        antes = CheckoutSession.objects.count()
+
+        r = api_client.post("/api/billing/checkout/create/", {
+            "email": "alguien@ejemplo.cl", "plan_key": "test_validacion",
+        }, format="json")
+
+        assert r.status_code == 400, (
+            "acepto iniciar un cobro sin los datos para crear la cuenta"
+        )
+        assert CheckoutSession.objects.count() == antes, "creo la sesion igual"
+
+    def test_el_mensaje_dice_QUE_falta(self, api_client, db):
+        """Un 400 mudo obliga a adivinar. El texto tiene que nombrar el campo."""
+        self._plan(db)
+        r = api_client.post("/api/billing/checkout/create/", {
+            "email": "alguien@ejemplo.cl", "plan_key": "test_validacion",
+            "business_name": "Cafe Test", "owner_username": "test_user",
+        }, format="json")
+        assert r.status_code == 400
+        assert "contrasena" in r.data["detail"].lower()
+
+    def test_con_todos_los_datos_si_procede(self, api_client, db, settings):
+        """La otra mitad: exigir no puede romper el flujo bueno."""
+        from billing.models import CheckoutSession
+        settings.PAYMENT_GATEWAY = "mock"
+        self._plan(db)
+
+        r = api_client.post("/api/billing/checkout/create/", {
+            "email": "nuevo@ejemplo.cl", "plan_key": "test_validacion",
+            "business_name": "Cafe Nuevo", "business_type": "restaurant",
+            "owner_name": "Persona Test", "owner_username": "persona_test",
+            "owner_password": "claveSegura123",
+        }, format="json")
+
+        assert r.status_code in (200, 201), r.data
+        s = CheckoutSession.objects.filter(email="nuevo@ejemplo.cl").first()
+        assert s is not None
+        assert s.business_name == "Cafe Nuevo"
+        assert s.owner_password_hash, "no guardo la clave para crear la cuenta"

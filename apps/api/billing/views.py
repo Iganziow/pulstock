@@ -1085,7 +1085,36 @@ class CheckoutCreateView(APIView):
         if plan.price_clp <= 0:
             return Response({"detail": "Este plan es gratuito y no requiere pago. Ve a la página de planes para activarlo."}, status=400)
 
-        # Validate new required fields (backward-compatible: optional if missing)
+        # NO SE COBRA SI NO SE PUEDE ENTREGAR.
+        #
+        # Esto era "backward-compatible: optional if missing": si no venian
+        # los datos del negocio, la sesion se creaba igual y el cobro se
+        # ejecutaba. Pero la cuenta la crea el webhook a partir de ESOS datos
+        # (`_auto_create_checkout_account`), asi que sin ellos el cliente
+        # pagaba y quedaba con la sesion en `paid` para siempre, mirando una
+        # pantalla de espera que nunca termina.
+        #
+        # Comprobado en produccion el 31-ago-2026: un cobro real de $1.000 sin
+        # datos del negocio dejo la sesion huerfana. Hay 5 asi en la base.
+        #
+        # El unico consumidor de este endpoint (app/checkout/page.tsx) SIEMPRE
+        # manda los tres campos, asi que exigirlos no rompe ningun flujo real
+        # -- solo cierra el camino por el que se cobra sin poder entregar.
+        faltantes = [
+            etiqueta for valor, etiqueta in (
+                (business_name, "el nombre del negocio"),
+                (owner_username, "el nombre de usuario"),
+                (owner_password, "la contrasena"),
+            ) if not valor
+        ]
+        if faltantes:
+            return Response(
+                {"detail": "Faltan datos para crear tu cuenta: %s. "
+                           "No iniciamos el cobro hasta tenerlos."
+                           % ", ".join(faltantes)},
+                status=400,
+            )
+
         if business_name and owner_username and owner_password:
             if len(owner_password) < 8:
                 return Response({"detail": "La contraseña es muy corta. Debe tener al menos 8 caracteres."}, status=400)
