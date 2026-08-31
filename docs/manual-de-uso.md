@@ -7,6 +7,37 @@ así que los ejemplos son datos verdaderos y no inventados.
 
 ---
 
+## Contenido
+
+**Para empezar**
+- [Quién ve qué](#antes-de-empezar-quién-ve-qué) — los cuatro roles y qué toca cada uno
+
+**El día a día**
+- [Dashboard](#dashboard--la-foto-del-día) — la foto del negocio al abrir
+- [Punto de Venta](#punto-de-venta--vender-rápido) — vender con el teclado
+- [Mesas](#mesas--el-salón) — el salón y las comandas
+- [Caja](#caja--el-dinero-del-turno) — apertura, cierre y propinas
+
+**Inventario**
+- [Stock](#stock--qué-hay-en-bodega) — qué hay en bodega y los mínimos automáticos
+  - [Ventas sin sistema](#ventas-sin-sistema--cuando-se-vendió-con-la-luz-cortada) — cuadrar tras un corte de luz
+- [Catálogo, Recetas y Precios](#catálogo-recetas-y-precios) — qué vendes y qué lleva cada cosa
+
+**Comprar con datos**
+- [Predicción](#predicción--qué-comprar) — qué te va a faltar
+- [Pedidos sugeridos](#pedidos-sugeridos--la-lista-de-compra) — la lista antes de llamar al proveedor
+
+**Revisar**
+- [Ventas](#ventas--el-historial) — el historial y la utilidad
+- [Reportes](#reportes--ocho-informes) — ocho informes, y cuál sirve para qué
+- [Configuración](#configuración) — usuarios, impresoras, negocio
+
+**Lo que pasa sin que nadie lo toque**
+- [De madrugada](#lo-que-el-sistema-hace-solo-de-madrugada) — el trabajo nocturno
+- [De qué depende](#los-servicios-de-los-que-depende) — los servicios detrás
+
+---
+
 ## Antes de empezar: quién ve qué
 
 Pulstock tiene cuatro roles, y la barra lateral cambia según cuál tengas:
