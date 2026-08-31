@@ -18,4 +18,7 @@
  * Se comprueba con:  curl -X POST https://pulstock.cl/api/auth/password/reset/
  * Debe responder 400 (falta el correo), no 404.
  */
-export const RECUPERACION_ACTIVA = false;
+// ENCENDIDO el 31-ago-2026, despues de desplegar el backend.
+// Comprobado contra produccion: POST /api/auth/password/reset/ responde 400
+// (falta el correo), no 404. El endpoint existe.
+export const RECUPERACION_ACTIVA = true;
