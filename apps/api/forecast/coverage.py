@@ -50,6 +50,15 @@ COVERAGE_WINDOW_DAYS = 14
 # se midio no es un caso de "recien empieza": es una falla.
 MUTE_WINDOW_DAYS = 30
 
+# Ventana para juzgar CALIDAD (no cobertura). Mas larga: el WAPE de una semana
+# en demanda intermitente es ruido.
+CALIDAD_WINDOW_DAYS = 30
+
+# Que fraccion de la venta define el "nucleo". Pareto, no un umbral de
+# unidades fijo: 90% del volumen significa lo mismo en una cafeteria que en
+# una ferreteria, y se adapta solo cuando el negocio cambia.
+NUCLEO_FRACCION = 0.90
+
 
 def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
                        today: date | None = None) -> dict:
@@ -124,6 +133,105 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
         "sin_puntaje": sin_puntaje,
         "ventana_dias": days,
         "ventana_mudos_dias": MUTE_WINDOW_DAYS,
+        "desde": desde,
+        "hasta": hoy,
+    }
+
+
+def calidad_por_peso(tenant_id: int, days: int = CALIDAD_WINDOW_DAYS,
+                     today: date | None = None,
+                     fraccion: float = NUCLEO_FRACCION) -> dict:
+    """Precision del forecast separando el catalogo que pesa del que no.
+
+    Por que existe
+    --------------
+    El WAPE global de un catalogo real esta dominado por productos que casi no
+    venden, y eso lo vuelve ilegible en las dos direcciones: exagera el error
+    cuando todo anda bien, y —peor— puede TAPAR una degradacion real del
+    nucleo bajo el ruido de la cola.
+
+    Medido en Marbrava el 02/09/26, ventana de 30 dias:
+
+        segmento   prod   medic   sesgo    WAPE   unidades
+        nucleo        4      74    +13%     43%     31.103
+        cola        188   4.545   +116%    246%      3.448
+        total       192   4.619    +23%     63%     34.551
+
+    CUATRO productos son el 90% de la venta. Los otros 188 aportan el 10% --
+    y se llevan el 98% de las mediciones. Lo que reportabamos como calidad
+    del forecast (63%) era, en los hechos, la calidad sobre el 10% del
+    negocio: el nucleo esta en 43% y +13%, que es defendible.
+
+    Errarle a un producto que vende 1 unidad al mes pesa en el WAPE global lo
+    mismo que errarle al que vende 3.000. 38 productos no vendieron NADA en
+    el mes, y el 89% de las mediciones de `adaptive_ma` se toman contra un
+    real de cero: de ahi salia su +198% de sesgo aparente.
+
+    Esto no arregla el modelo: arregla el termometro. Sin separar, nadie puede
+    distinguir "el forecast se degrado" de "entraron productos nuevos a la
+    cola", y una alarma que no distingue eso termina ignorandose.
+
+    Devuelve {"nucleo": {...}, "cola": {...}, "total": {...}, ...} donde cada
+    segmento trae n_productos, n_mediciones, sesgo_pct, wape_pct y unidades.
+    """
+    from forecast.models import ForecastAccuracy
+
+    hoy = today or date.today()
+    desde = hoy - timedelta(days=days)
+
+    filas = list(
+        ForecastAccuracy.objects
+        .filter(tenant_id=tenant_id, date__gte=desde, date__lt=hoy)
+        .values_list("product_id", "qty_predicted", "qty_actual")
+    )
+    vacio = {"n_productos": 0, "n_mediciones": 0, "unidades": 0.0,
+             "sesgo_pct": None, "wape_pct": None}
+    if not filas:
+        return {"nucleo": dict(vacio), "cola": dict(vacio), "total": dict(vacio),
+                "ventana_dias": days, "fraccion_nucleo": fraccion,
+                "desde": desde, "hasta": hoy}
+
+    real_por_prod: dict[int, float] = {}
+    for pid, _p, r in filas:
+        real_por_prod[pid] = real_por_prod.get(pid, 0.0) + float(r or 0)
+
+    # Pareto: ordenar por volumen y cortar donde se acumula la fraccion.
+    # Los productos con venta 0 nunca entran al nucleo (aportan 0 al acumulado).
+    total_real = sum(real_por_prod.values())
+    nucleo: set[int] = set()
+    if total_real > 0:
+        acum = 0.0
+        for pid, v in sorted(real_por_prod.items(), key=lambda kv: -kv[1]):
+            if v <= 0:
+                break
+            nucleo.add(pid)
+            acum += v
+            if acum >= total_real * fraccion:
+                break
+
+    def _seg(ids):
+        n = pred = real = aerr = 0
+        prods = set()
+        for pid, p, r in filas:
+            if ids is not None and pid not in ids:
+                continue
+            p, r = float(p or 0), float(r or 0)
+            n += 1; prods.add(pid); pred += p; real += r; aerr += abs(p - r)
+        return {
+            "n_productos": len(prods),
+            "n_mediciones": n,
+            "unidades": round(real, 1),
+            "sesgo_pct": round((pred - real) / real * 100, 1) if real else None,
+            "wape_pct": round(aerr / real * 100, 1) if real else None,
+        }
+
+    cola_ids = set(real_por_prod) - nucleo
+    return {
+        "nucleo": _seg(nucleo),
+        "cola": _seg(cola_ids),
+        "total": _seg(None),
+        "ventana_dias": days,
+        "fraccion_nucleo": fraccion,
         "desde": desde,
         "hasta": hoy,
     }

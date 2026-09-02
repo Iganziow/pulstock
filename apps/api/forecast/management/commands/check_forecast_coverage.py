@@ -13,7 +13,9 @@ Uso:
 from django.core.management.base import BaseCommand
 
 from core.cron_utils import cron_wrapper
-from forecast.coverage import COVERAGE_WINDOW_DAYS, find_coverage_gaps
+from forecast.coverage import (
+    COVERAGE_WINDOW_DAYS, calidad_por_peso, find_coverage_gaps,
+)
 
 
 class Command(BaseCommand):
@@ -79,6 +81,29 @@ class Command(BaseCommand):
                 for f in solo_sin_puntaje[:5]:
                     self.stdout.write("    %-34s %10.1f unidades" % (
                         f["nombre"][:34], f["unidades"]))
+
+            # CALIDAD, separando lo que pesa de lo que no.
+            #
+            # Va aca a proposito: ANTES del RuntimeError de mas abajo. Si se
+            # imprimiera despues, no se veria nunca justo en la corrida en que
+            # la alarma salta, que es cuando mas falta hace saber si el nucleo
+            # esta sano o si el problema es solo la cola.
+            q = calidad_por_peso(t.id)
+            nuc, tot = q["nucleo"], q["total"]
+            if nuc["n_mediciones"]:
+                self.stdout.write("  calidad %d dias — %.0f%% de la venta esta en %d producto(s):" % (
+                    q["ventana_dias"], q["fraccion_nucleo"] * 100, nuc["n_productos"]))
+                self.stdout.write("    nucleo   sesgo %+5.0f%%  WAPE %4.0f%%   (%d mediciones)" % (
+                    nuc["sesgo_pct"] or 0, nuc["wape_pct"] or 0, nuc["n_mediciones"]))
+                if tot["n_mediciones"]:
+                    self.stdout.write("    todo     sesgo %+5.0f%%  WAPE %4.0f%%   (%d mediciones)" % (
+                        tot["sesgo_pct"] or 0, tot["wape_pct"] or 0, tot["n_mediciones"]))
+                # La brecha es el ruido de la cola. Si es grande, el WAPE
+                # global no sirve para juzgar nada — hay que mirar el nucleo.
+                if (tot["wape_pct"] or 0) - (nuc["wape_pct"] or 0) > 10:
+                    self.stdout.write(self.style.WARNING(
+                        "    (el WAPE global esta inflado por la cola: "
+                        "juzga por el nucleo, no por el total)"))
 
         if total_ciegos:
             # Falla para que cron/monitoreo lo registre: es una alarma, no un
