@@ -209,13 +209,27 @@ def choose_best(candidates, demand_pattern):
             return (_wape_total(c), _mase(c), _err(c), c["metrics"]["mae"])
 
         best_overall = min(pool, key=_key)
-        croston = [
+        # TSB va DENTRO de la familia protegida (02/09/26).
+        #
+        # El guard existe para conservar "el algoritmo disenado para demanda
+        # intermitente" salvo que otro le gane por margen claro. TSB es
+        # exactamente eso -- es el sucesor de Croston para intermitente con
+        # obsolescencia (Teunter-Syntetos-Babai 2011) -- pero al agregarlo
+        # quedo FUERA de esta lista por omision.
+        #
+        # El efecto era que TSB tenia que superar a Croston por 15%
+        # (MASE_OVERRIDE_MARGIN) para ganarle, aunque fuese el mejor candidato
+        # absoluto. Medido sobre las 79 series intermitentes reales de
+        # produccion: TSB ganaba 5; con esta linea gana 25, y adaptive_ma
+        # --el peor sesgo real del sistema, +198%-- baja de 6 a 2.
+        # De los 20 cambios: 15 mejoran el wape_total y 5 lo empeoran.
+        familia = [
             c for c in pool
-            if c["algorithm"] in ("croston", "croston_sba")
+            if c["algorithm"] in ("croston", "croston_sba", "tsb")
             and c["metrics"]["mae"] < 998
         ]
-        if croston:
-            best_croston = min(croston, key=_key)
+        if familia:
+            best_croston = min(familia, key=_key)
             # Cuando Croston mismo no vence al naive (MASE > umbral), la ventana
             # de backtest tenía demasiado pocos eventos → ruido. Exigir margen
             # más estricto para no abandonar el algoritmo teóricamente correcto.

@@ -156,3 +156,65 @@ class TestNoRompeElEntrenamiento:
 
         log = ForecastTrainingLog.objects.order_by("-id").first()
         assert log.models_failed == 0, (log.error_message or "")[:200]
+
+
+class TestTSBEstaEnLaFamiliaProtegida:
+    """El guard de `choose_best` conserva "el algoritmo disenado para demanda
+    intermitente" salvo que otro le gane por 15% (MASE_OVERRIDE_MARGIN).
+
+    Al agregar TSB quedo FUERA de esa lista: tenia que superar a Croston por
+    ese margen aunque fuese el mejor candidato absoluto. Medido sobre las 79
+    series intermitentes reales de produccion, TSB ganaba 5 de 79; con el
+    arreglo gana 25, y adaptive_ma --el peor sesgo real, +198%-- baja de 6 a 2.
+    """
+
+    def _cand(self, alg, wape_total, mase=0.8, n=14):
+        return {
+            "algorithm": alg,
+            "forecasts": [{"qty_predicted": Decimal("1.0")} for _ in range(n)],
+            "metrics": {"mae": 1.0, "mape": 50, "rmse": 1.0, "bias": 0,
+                        "wape": wape_total, "wape_total": wape_total, "mase": mase},
+        }
+
+    def test_tsb_le_gana_a_croston_sin_necesitar_margen(self):
+        """Antes: TSB mejor que Croston pero por <15% -> ganaba Croston."""
+        from forecast.engine.selection import choose_best
+
+        cands = [
+            self._cand("croston_sba", 60.0),
+            self._cand("tsb", 55.0),          # mejor, pero solo 8% mejor
+        ]
+        ganador = choose_best(cands, "intermittent")
+        assert ganador["algorithm"] == "tsb", (
+            "TSB era el mejor de la familia intermitente y perdio contra "
+            "Croston: sigue fuera del guard"
+        )
+
+    def test_croston_sigue_ganando_cuando_es_mejor(self):
+        """El arreglo no puede volverse un favoritismo hacia TSB."""
+        from forecast.engine.selection import choose_best
+
+        cands = [
+            self._cand("croston_sba", 40.0),
+            self._cand("tsb", 70.0),
+        ]
+        assert choose_best(cands, "intermittent")["algorithm"] == "croston_sba"
+
+    def test_un_forastero_claramente_mejor_sigue_ganando(self):
+        """El guard nunca fue un veto: con ventaja clara (>15%) el de afuera
+        gana igual. Si esto se rompe, adaptive_ma/theta quedan bloqueados."""
+        from forecast.engine.selection import choose_best
+
+        cands = [
+            self._cand("croston_sba", 80.0),
+            self._cand("tsb", 75.0),
+            self._cand("adaptive_ma", 20.0),   # muy por debajo del margen
+        ]
+        assert choose_best(cands, "adaptive_ma" and "intermittent")["algorithm"] == "adaptive_ma"
+
+    def test_en_smooth_el_guard_no_aplica(self):
+        """La familia protegida es solo para intermittent/lumpy."""
+        from forecast.engine.selection import choose_best
+
+        cands = [self._cand("tsb", 60.0), self._cand("theta", 30.0)]
+        assert choose_best(cands, "smooth")["algorithm"] == "theta"
