@@ -69,6 +69,11 @@ semana obtiene "high" si acierta los otros tres. En la cola, el 89% de las
 mediciones son contra cero. Discrepa con `calidad_por_peso` y con el `wape_real`
 que usa el breaker.
 
+### 2.7 Ocho modelos activos apuntan a productos desactivados
+8 de 196 modelos activos (Jugo Natural, Alfajor, Muffin, Twinings, entre
+otros) pertenecen a productos con `is_active=False`, invisibles para el
+manager por defecto. Se siguen entrenando cada noche.
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
@@ -94,17 +99,20 @@ Dos lecturas independientes llegaron a lo mismo, y se confirmó con datos el
 = 2026-09-02, cero filas para el 03. El relleno llega hasta el 03 → cada serie
 termina en (2026-09-03, 0). **Pasa a [E].**
 
-### 3.2 Los post-procesos no llegan a la tabla `Forecast`
+### 3.2 Los post-procesos no llegan a la tabla `Forecast` [E]
 `services.py:1742-1747`: el fresh path llama `_regen_from_existing` **después**
 de `save_forecasts`; el regen re-ejecuta el algoritmo crudo y vuelve a guardar,
 pisando lo anterior. Factores mensuales, tendencia, corrección de sesgo,
 estacionalidad anual, YoY y elasticidad quedan solo en `model_params`, que
-`explain.py:126` le muestra al usuario como aplicados. Una de las dos lecturas
-sostiene que esto pasa en fresh y kept; la otra, solo en kept. La medición de
-"lo publicado / lo que dijo el algoritmo" (mediana 0,53x a 0,94x según
-algoritmo) es consistente con que **no** se apliquen. Verificar: producto con
-`model_params.trend` o `bias_correction`, comparar filas `Forecast` contra
-`algo.forecast(cleaned)` crudo.
+`explain.py:126` le muestra al usuario como aplicados. **Confirmado con datos el
+03-09** (Syrup avellana, Croston, `avg_daily` 0,264): las filas son planas en
+0,294 de lunes a sábado, iguales en septiembre y en octubre, aunque
+`model_params` guarda estacionalidad sep 0,53 / oct 1,44 y sesgo por día de
+la semana de ±0,13. Lo único que las mueve es `save_forecasts`: domingos en
+0, Fiestas Patrias en 0,029 y una rampa previa. Pasa en fresh y en kept: el
+regen corre después de `save_forecasts` en ambos. Consecuencia práctica
+descubierta de paso: el regen tampoco pasaba `best_beta`, así que `1be7dd9`
+no cambiaba ninguna fila; corregido en el commit siguiente.
 
 Consecuencia de diseño: seis multiplicadores encadenados sin tope global
 (mes × tendencia ≤2 × mensual sin tope × YoY ≤1,5 × precio ≤1,5 × feriado ≤5)
