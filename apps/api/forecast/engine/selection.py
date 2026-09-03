@@ -89,6 +89,9 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         result = algo.forecast(
             daily_series, horizon_days=horizon,
             best_alpha=metrics.get("best_alpha"),
+            # TSB tunea tambien beta (02/09/26): sin esto el grid elegia una
+            # beta y el forecast final usaba siempre la de fabrica (0.10).
+            best_beta=metrics.get("best_beta"),
             **extra_kwargs,
         )
         if result is None:
