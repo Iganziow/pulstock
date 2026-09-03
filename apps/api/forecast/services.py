@@ -1893,6 +1893,10 @@ def _regen_from_existing(tenant, product, warehouse_id, fm,
                 # Sprint A: el alpha tuneado del modelo (Croston) — el regen
                 # re-ejecuta el algoritmo y sin esto usaba el default 0.15.
                 best_alpha=(fm.metrics or {}).get("best_alpha"),
+                # 03/09/26: el regen es lo que ESCRIBE la tabla (pisa lo que
+                # dejo select_best_model), asi que sin esto la beta tuneada de
+                # TSB nunca llegaba a produccion aunque selection.py la pasara.
+                best_beta=(fm.metrics or {}).get("best_beta"),
             )
             if res and res.get("forecasts"):
                 forecasts = res["forecasts"]
