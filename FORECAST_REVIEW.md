@@ -74,6 +74,34 @@ que usa el breaker.
 otros) pertenecen a productos con `is_active=False`, invisibles para el
 manager por defecto. Se siguen entrenando cada noche.
 
+### 2.8 Las sugerencias de compra piden productos que Mario desactivó
+La sugerencia pendiente #177 (03-09, 10 líneas, todas CRITICAL) incluye
+Muffin (comprar 3) y Caja galletas/chocolates (comprar 1): ambos con
+`is_active=False`, sin receta que los use, última venta a mediados de junio y
+stock 0. **60 de las últimas 60 sugerencias incluyeron productos
+desactivados** (100 líneas). El razonamiento que ve Mario dice "vendes
+alrededor de 1 unidades al día" para una demanda de 0,14.
+
+La cadena, con líneas:
+- `train_forecast_models.py:209-223`: elegible = vendió alguna vez en Pulstock
+  (sin ventana de tiempo) o es ingrediente. `is_active` del producto no se
+  mira, aunque el comentario diga que se desactivan los descontinuados. Un
+  producto desactivado que vendió una unidad en junio sigue en el pool.
+- `services.py:2085+` (`generate_suggestions`): parte de los modelos activos,
+  no de los productos activos. `Product.objects` (manager que oculta
+  inactivos) solo se usa para leer `min_stock`.
+- `services.py:2384`: el guardián de zombis exime a los "lentos"
+  (`avg_daily_raw <= 0.2`). Muffin tiene 0,142 y Caja 0,081: pasan por ahí.
+- `services.py:2395-2402`: el tope de 4× el consumo real se salta cuando el
+  consumo de 30 días es cero (`if cap_basis > 0`), y luego se fuerza mínimo
+  1. Cero consumo, que debería ser la razón más fuerte para no sugerir, es
+  justo el caso sin red.
+
+Arreglo propuesto (dos filtros, sin migración): excluir de la elegibilidad
+y de las sugerencias a los productos `is_active=False` que no sean
+ingredientes de una receta activa. Twinings (73 en stock, última venta en
+mayo) y Alfajor caen también.
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
