@@ -188,10 +188,12 @@ ensemble no trae (`algorithms/ensemble.py:74-79`) → penalización 0 mientras
 sus miembros pagan hasta +15 pp. Gana justo cuando los miembros comparten el
 signo del sesgo, que es lo que un promedio no corrige.
 
-### 3.10 Bandas que no contienen la predicción
+### 3.10 Bandas que no contienen la predicción [?] (no observado)
 `weighted_moving_average.py:167-176` (intervalo empírico de un solo holdout) y
 `croston_bootstrap.py:30-50` (bootstrap sin suavizado ni factor SBA) pueden
 dar `lower_bound > qty_predicted`. Afecta `days_to_stockout` conservador.
+Medido el 03-09: **0 de 5.689 filas futuras** tienen ese defecto. Posible en
+teoría, no ocurre con los datos actuales.
 
 ### 3.11 Multiplicadores de feriado: cross-tenant y con contaminación de VOID
 `train_forecast_models.py:415` filtra `Holiday` solo por fecha; con dos
@@ -202,11 +204,16 @@ filtrar anuladas para el tope de seguridad y el gate de `category_prior`.
 
 ## 4. Lo que ve el usuario [L]
 
-### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos
-`services.py:234-240`: `at_risk_7d` incluye a `imminent_3d`;
-`app/(dashboard)/dashboard/forecast/page.tsx:217` los suma. Dos productos (uno
-crítico) se muestran como 3. El home usa la semántica exclusiva, así que las
-dos pantallas pueden discrepar.
+### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
+`services.py:234-240`: `at_risk_7d` (≤7 días) incluye a `imminent_3d`
+(≤3 días); `app/(dashboard)/dashboard/forecast/page.tsx:217` los suma.
+**Medido el 03-09 con datos reales:** 68 productos con quiebre a 7 días, 63
+de ellos a 3 días (subconjunto confirmado). La pantalla muestra **131**; los
+productos distintos son **68**. El subtítulo "63 críticos · 68 en riesgo"
+refuerza la suma. El home (`dashboard/views.py:136-137`) usa la semántica
+exclusiva y mostraría 68, así que las dos pantallas discrepan. Tres de los 68
+son productos desactivados (ver 2.8). Arreglo: mostrar `at_risk_7d` y en el
+subtítulo `at_risk_7d - imminent_3d` como "en riesgo".
 
 ### 4.2 La única "confianza" visible es un contador de días
 `page.tsx:150-165` promete "predicciones confiables (día 30)" según días desde
