@@ -80,7 +80,7 @@ corridas con log.
 
 ## 3. Alta probabilidad por lectura [L]. Cada uno se verifica con una consulta
 
-### 3.1 Todas las series terminan con un cero falso: "hoy"
+### 3.1 Todas las series terminan con un cero falso: "hoy" [E]
 `services.py:1428-1436` rellena hasta `span_end = today`, pero
 `aggregate_daily_sales` solo escribe **ayer** y el pipeline corre de madrugada.
 Resultado: `serie[-1] == (hoy, 0)` para todos los productos, todas las noches.
@@ -89,8 +89,10 @@ ventana 7, 11% con 21) → sesgo a la baja sistemático; TSB decae un día extra
 `detect_trend` ve un cero en la última semana ISO y con pocas semanas declara
 tendencia a la baja (factor 0,71 a 14 días sobre demanda plana,
 `engine/enhancements.py:260-271, 313-326`); `_collapse_guard` lo suma.
-Dos lecturas independientes llegaron a lo mismo. Verificar: en shell, mirar
-`raw_series[-1]` dentro de `train_product_model`.
+Dos lecturas independientes llegaron a lo mismo, y se confirmó con datos el
+03-09: `date.today()` del servidor = 2026-09-03, última fecha con `DailySales`
+= 2026-09-02, cero filas para el 03. El relleno llega hasta el 03 → cada serie
+termina en (2026-09-03, 0). **Pasa a [E].**
 
 ### 3.2 Los post-procesos no llegan a la tabla `Forecast`
 `services.py:1742-1747`: el fresh path llama `_regen_from_existing` **después**
