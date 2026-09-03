@@ -562,7 +562,9 @@ function LiveDemoWidget() {
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 20 }}>📋</span>
+              {/* Trazo, no emoji: el 📋 se dibujaba distinto en cada sistema y era
+                  el unico que quedo tras reemplazar los otros 17. */}
+              <span style={{ display: "inline-flex", color: C.accent }}><CartIcon size={20} /></span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>
                   Sugerencia de compra generada
