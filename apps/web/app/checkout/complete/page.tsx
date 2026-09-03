@@ -7,6 +7,8 @@ import {
   Disco, CheckIcon, ListoIcon, RelojIcon, AlertaIcon, VencidoIcon, Cargando,
 } from "@/components/checkout/EstadoIconos";
 import { fetchWithTimeout } from "@/lib/api";
+import { extractErr } from "@/lib/format";
+import { friendlyError } from "@/components/checkout/friendlyError";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -38,48 +40,6 @@ export default function CheckoutCompletePage() {
       <CheckoutCompleteInner />
     </Suspense>
   );
-}
-
-// Mapea los códigos de error técnicos del backend a un copy amigable.
-// Si el user no es técnico, "Token no proporcionado" no le dice nada; le
-// decimos qué hacer en concreto.
-function friendlyError(rawError: string, hasToken: boolean): { title: string; message: string; primaryAction: "back" | "retry" | "support" } {
-  const e = (rawError || "").toLowerCase();
-
-  if (!hasToken) {
-    return {
-      title: "Esta página no es accesible directamente",
-      message: "Llegaste aquí por error. Esta pantalla solo se abre desde el enlace que envía Flow después de pagar. Vuelve a planes para iniciar el proceso.",
-      primaryAction: "back",
-    };
-  }
-  if (e.includes("token") && (e.includes("no proporcionado") || e.includes("requerido"))) {
-    return {
-      title: "Falta el código de la sesión",
-      message: "El enlace de pago está incompleto. Inicia una nueva sesión de pago desde la página de planes.",
-      primaryAction: "back",
-    };
-  }
-  if (e.includes("sesión no encontrada") || e.includes("session not found") || e.includes("404")) {
-    return {
-      title: "No encontramos esta sesión de pago",
-      message: "El enlace puede haber expirado, o la sesión fue eliminada. Inicia una nueva desde planes.",
-      primaryAction: "back",
-    };
-  }
-  if (e.includes("conexión") || e.includes("network") || e.includes("failed to fetch")) {
-    return {
-      title: "Sin conexión a internet",
-      message: "Verifica tu WiFi o datos móviles y presiona Reintentar.",
-      primaryAction: "retry",
-    };
-  }
-  // Fallback genérico
-  return {
-    title: "Algo no salió como esperábamos",
-    message: rawError || "No pudimos cargar la información del pago. Prueba Reintentar; si el problema continúa, escríbenos a pulstock.admin@gmail.com.",
-    primaryAction: "support",
-  };
 }
 
 function CheckoutCompleteInner() {
@@ -122,7 +82,10 @@ function CheckoutCompleteInner() {
       if (!mountedRef.current) return;
 
       if (!res.ok) {
-        setError(data?.detail || "sesión no encontrada");
+        // `detail` de DRF puede ser texto, lista u objeto. Guardarlo crudo
+        // hacía caer la página entera con un token mal formado (02/09/26):
+        // {"detail": ["“x” no es un UUID válido."]} llegaba como lista.
+        setError(extractErr({ data }, "sesión no encontrada"));
         setChecking(false);
         return;
       }
