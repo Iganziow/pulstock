@@ -318,6 +318,17 @@ promesas por calendario. Barrido de emojis.
 
 ## 7. Qué NO salió mal
 
+**Fiestas Patrias 2026, verificado el 03-09.** El pronóstico del 18 y 19 de
+septiembre va a ~0 (×0,11) y coincide con la historia: en 2025 Marbrava
+vendió 0 esos dos días. El 20-09-2026 es domingo (cerrado) y va en 0, bien.
+El único matiz es la víspera: en 2025 el 17 vendió 141% del promedio de
+septiembre y el pronóstico 2026 sube solo 17% los días 16 y 17
+(`Holiday.pre_multiplier`, `learned_multiplier=None`: nunca se aprendió del
+año anterior porque esa historia está importada como `forecast_only`). Riesgo
+acotado de comprar de menos para la víspera.
+
+
+
 Aislamiento por tenant en la API: sin hallazgos (`_require` en todas las
 vistas, `test_aislamiento_modulos_nuevos.py` lo fija). Idempotencia de
 `DailySales`, `ForecastAccuracy` y `Forecast` (upsert). Todos los algoritmos
