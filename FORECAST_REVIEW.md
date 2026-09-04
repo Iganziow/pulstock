@@ -128,6 +128,41 @@ producto #5 aparece "en riesgo" con más de dos semanas de stock. Arreglo
 propuesto: acotar el techo usado para el quiebre (por ejemplo, a 2× la
 predicción) o usar el cuantil del backtest real.
 
+### 2.11 Retrospectiva de las sugerencias de compra: 4× en el núcleo, 27× en la cola
+Mario nunca aprobó una sugerencia (145 generadas, 144 descartadas por el
+propio sistema cada noche, 0 aprobadas) y `SuggestionOutcome` tiene 0 filas
+(lo escribe una tarea de Celery, que no corre en producción). Sin
+retroalimentación, se midió hacia atrás el 04-09: cada línea contra el
+consumo real de los 14 días siguientes (7 de cobertura más plazo de
+proveedor, ventana generosa con el sistema), sobre 3.344 líneas de abril a
+agosto.
+
+| segmento | líneas | sugerido / necesario | sin consumo en 14 d |
+|---|---|---|---|
+| núcleo | 148 | **4,0×** | 0% |
+| cola | 3.196 | **26,8×** | 35% |
+
+Solo el 4% de las líneas fue razonable. En el núcleo, 93 líneas decían
+"quiebre en 9 días" (mediana) cuando el stock real alcanzaba para **44**.
+Por mes: abril 23×, mayo 52×, junio 5×, julio 1,9×, agosto 8,5×.
+
+Quién empuja el exceso (sugerido menos consumido, acumulado):
+- **Jamón granel**, 98 sugerencias, 66.174 g: el modelo (Croston, hoy TSB)
+  sobre-predice un 70% (15,3/día contra 9 reales). Sobre-predicción pura.
+- **Chocolate Premium**, 71 sugerencias, 42.685: el techo 6,5× del cálculo
+  conservador (2.10).
+- Leche deslactosada, 9 sugerencias, 46.083: períodos en que el derivado
+  estaba mudo (2.4).
+- "helado ingrediente" y Caja galletas: productos desactivados (2.8, ya
+  corregido).
+- **Cinco productos de aseo** (Cif, jabón, papel higiénico, lavaloza) con
+  un exceso idéntico de ~4.050 cada vez, 8 veces cada uno, todos el
+  04-05-2026 con `avg_daily=328,497`: `category_prior` heredó el promedio
+  de la categoría "Insumos", dominado por la leche, y sugirió 4.927 unidades
+  de Cif crema. Es de mayo y el gate de `category_prior` (junio) lo mitigó,
+  pero muestra el riesgo de una categoría que mezcla leche con jabón.
+- Agosto empeoró por Jamón granel (20.222) y Chocolate Premium (16.855).
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
