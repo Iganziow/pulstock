@@ -213,7 +213,16 @@ class Command(BaseCommand):
             ).values_list("product_id", flat=True).distinct()
         )
         # Set unificado: productos elegibles = venta real Pulstock O ingrediente
-        eligible_ids = pulstock_sold_ids | ingredient_ids
+        #
+        # 03/09/26: menos los desactivados que no son ingrediente. "Vendio
+        # alguna vez" no tiene ventana de tiempo, asi que un producto dado
+        # de baja que vendio una unidad en junio seguia entrenandose y
+        # sugiriendose para siempre (Muffin, Caja galletas: 60 de 60 noches).
+        # El comentario de mas abajo decia que se desactivaban los
+        # descontinuados; el codigo nunca lo hizo hasta ahora. Los
+        # ingredientes desactivados de recetas activas SI se quedan.
+        from forecast.services import get_inactive_products_to_skip
+        eligible_ids = (pulstock_sold_ids | ingredient_ids) - get_inactive_products_to_skip(tenant.id)
 
         # Clean up: deactivate forecast models for discontinued products
         # (is_active=False) y para productos sin venta Pulstock que no son

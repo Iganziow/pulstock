@@ -199,6 +199,40 @@ def get_products_with_active_recipe(tenant_id) -> set[int]:
         .values_list("product_id", flat=True)
     )
 
+
+def get_active_recipe_ingredient_ids(tenant_id) -> set[int]:
+    """IDs de ingredientes de recetas ACTIVAS.
+
+    Un ingrediente puede estar desactivado en el catalogo (el dueno lo saca
+    del POS porque no se vende directo) y aun asi consumirse via recetas:
+    necesita forecast y sugerencias de compra igual.
+    """
+    return set(
+        RecipeLine.objects.filter(tenant_id=tenant_id, recipe__is_active=True)
+        .values_list("ingredient_id", flat=True)
+    )
+
+
+def get_inactive_products_to_skip(tenant_id) -> set[int]:
+    """Productos desactivados que NO son ingredientes de una receta activa.
+
+    Fuera del entrenamiento y de las sugerencias. Medido el 03/09/26 en
+    Marbrava: 60 de las ultimas 60 sugerencias de compra incluian productos
+    que el dueno habia desactivado (Muffin, Caja galletas: ultima venta en
+    junio, stock 0, sin receta que los use). La elegibilidad del
+    entrenamiento miraba "vendio alguna vez" sin ventana de tiempo y nunca
+    `is_active`, asi que un producto dado de baja que vendio una unidad en
+    junio seguia en el pool para siempre.
+
+    `Product.objects` es el manager que OCULTA inactivos; aca se necesita
+    `all_objects` justamente para encontrarlos.
+    """
+    inactivos = set(
+        Product.all_objects.filter(tenant_id=tenant_id, is_active=False)
+        .values_list("id", flat=True)
+    )
+    return inactivos - get_active_recipe_ingredient_ids(tenant_id)
+
 def get_warehouse_ids(tenant_id, store_id, warehouse_id=None):
     """Return list of warehouse IDs for the given store (optionally filtered)."""
     filt = Q(store_id=store_id, tenant_id=tenant_id)
@@ -2112,6 +2146,13 @@ def generate_suggestions(tenant, today, threshold, target_days):
     active_models = ForecastModel.objects.filter(tenant=tenant, is_active=True)
     if products_with_recipe:
         active_models = active_models.exclude(product_id__in=products_with_recipe)
+    # 03/09/26: un producto que el dueno desactivo no se compra. El
+    # entrenamiento ya los saca del pool, pero esto no puede depender del
+    # orden de los pasos: si alguien regenera sugerencias a mano antes de
+    # entrenar, el modelo viejo sigue activo y volveria a pedir Muffin.
+    fuera = get_inactive_products_to_skip(tenant.id)
+    if fuera:
+        active_models = active_models.exclude(product_id__in=fuera)
     if not active_models.exists():
         return 0, 0
 
