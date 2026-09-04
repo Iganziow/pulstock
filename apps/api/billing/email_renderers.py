@@ -512,6 +512,18 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
             else:
                 on_hand = round(on_hand_raw, 1)
             out.append({
+                # La plantilla lee `name`, igual que los otros dos correos de
+                # producto (render_abc_weekly y render_low_stock lo traducen
+                # asi). Este mandaba `product_name` y el HTML quedaba con el
+                # nombre VACIO: Django resuelve una clave inexistente como
+                # cadena vacia, sin avisar. Visto en produccion el 03/09/26:
+                # el correo listaba "Sin stock" cuatro veces sin decir de que
+                # producto. El texto plano si los mostraba (usa las alertas
+                # originales), asi que el defecto solo se veia en HTML, que es
+                # lo que abre casi todo el mundo.
+                "name": a["product_name"],
+                # Se mantiene tambien con el nombre largo por si alguna
+                # plantilla futura lo espera asi.
                 "product_name": a["product_name"],
                 "sku": a["sku"],
                 "warehouse": a["warehouse"],
