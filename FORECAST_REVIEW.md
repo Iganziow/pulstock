@@ -102,6 +102,29 @@ y de las sugerencias a los productos `is_active=False` que no sean
 ingredientes de una receta activa. Twinings (73 en stock, última venta en
 mayo) y Alfajor caen también.
 
+### 2.9 Stock cero es "crítico" aunque nadie compre el producto
+`engine/utils.py:401-402`: `calculate_days_to_stockout` devuelve 0 en cuanto
+`current_stock <= 0`, antes de mirar la demanda. Medido el 03-09: de los 14
+"críticos" que cuenta el KPI, **8 no vendieron nada en 30 días** (Muffin,
+Caja galletas, dos cafés de grano, bombones, Gretel, promo alfajor, "helado
+ingrediente"); 4 venden entre 1 y 5 al mes; solo Té (60/mes, stock 0 tras una
+entrada el 02-09) y Empanada (18/mes) son quiebres reales. Mario ve "14
+críticos" en rojo cada día por 2 que importan: fatiga de alerta. Antes de la
+exclusión de recetas, la lista de 63 "críticos" representaba el 0,7% de la
+venta. Arreglo de una condición: con stock 0 y pronóstico total ≈ 0 en el
+horizonte, devolver `None` (sin demanda no hay quiebre).
+
+### 2.10 Con confianza baja, el quiebre se calcula con un techo absurdo
+Chocolate Premium (#5 del negocio, theta, `confidence_label=low`): 560 en
+stock, predicción 31/día (18 días de cobertura), pero la alerta dice **5
+días**. Con confianza baja `calculate_days_to_stockout(conservative=True)`
+descuenta `upper_bound`, que para este modelo es **201,9/día, 6,5 veces la
+predicción** (`utils.py:405`). El intervalo empírico de theta sobre una serie
+errática (WAPE 112%) produce techos sin relación con la demanda. Efecto: el
+producto #5 aparece "en riesgo" con más de dos semanas de stock. Arreglo
+propuesto: acotar el techo usado para el quiebre (por ejemplo, a 2× la
+predicción) o usar el cuantil del backtest real.
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
@@ -207,13 +230,15 @@ filtrar anuladas para el tope de seguridad y el gate de `category_prior`.
 ### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
 `services.py:234-240`: `at_risk_7d` (≤7 días) incluye a `imminent_3d`
 (≤3 días); `app/(dashboard)/dashboard/forecast/page.tsx:217` los suma.
-**Medido el 03-09 con datos reales:** 68 productos con quiebre a 7 días, 63
-de ellos a 3 días (subconjunto confirmado). La pantalla muestra **131**; los
-productos distintos son **68**. El subtítulo "63 críticos · 68 en riesgo"
+**Medido el 03-09 con datos reales, aplicando la misma exclusión de productos
+con receta que hace el backend:** 18 productos con quiebre a 7 días, 14 de
+ellos a 3 días (subconjunto confirmado). La pantalla muestra **32**; los
+productos distintos son **18**. El subtítulo "14 críticos · 18 en riesgo"
 refuerza la suma. El home (`dashboard/views.py:136-137`) usa la semántica
-exclusiva y mostraría 68, así que las dos pantallas discrepan. Tres de los 68
-son productos desactivados (ver 2.8). Arreglo: mostrar `at_risk_7d` y en el
-subtítulo `at_risk_7d - imminent_3d` como "en riesgo".
+exclusiva y mostraría 18, así que las dos pantallas discrepan. (Una primera
+medición sin la exclusión dio 131 contra 68; esas cifras eran incorrectas.)
+Arreglo: mostrar `at_risk_7d` y en el subtítulo `at_risk_7d - imminent_3d`
+como "en riesgo".
 
 ### 4.2 La única "confianza" visible es un contador de días
 `page.tsx:150-165` promete "predicciones confiables (día 30)" según días desde
