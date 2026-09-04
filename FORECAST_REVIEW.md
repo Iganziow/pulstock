@@ -163,6 +163,38 @@ Quién empuja el exceso (sugerido menos consumido, acumulado):
   pero muestra el riesgo de una categoría que mezcla leche con jabón.
 - Agosto empeoró por Jamón granel (20.222) y Chocolate Premium (16.855).
 
+### 2.12 El núcleo medido por semana está en 7-31%, y un modelo directo le gana al derivado
+Experimento del 04-09 sobre las series reales de 120 días del núcleo:
+backtest hacia adelante de 4 semanas (entrenando solo con el pasado de cada
+una) con un modelo directo sobre el consumo del ingrediente, comparado con el
+error real del derivado en producción. Domingos excluidos, como en producción.
+Mermas: cero en todo el núcleo (no explican el sesgo).
+
+| producto | derivado real 30d | directo diario | naive diario | **directo semanal** |
+|---|---|---|---|---|
+| Leche entera (74% del volumen) | 43% | 39% (adaptive_ma) | 47% | **20%** |
+| Leche deslactosada | 81% | 68% (croston_sba) | 89% | **31%** |
+| Café tolva caturra | 43% | 35% (adaptive_ma) | 43% | **7%** |
+| Queso | 96% | 95% (tsb) | 147% | 45% |
+| Chocolate Premium | 98% | 108% | 121% | 67% |
+| Cacao | 51% | 58% (tsb) | 73% | 43% |
+
+Tres conclusiones:
+1. **El WAPE diario del núcleo es en gran parte ruido de día a día que se
+   cancela en la semana.** Las compras se deciden por semana: Leche entera
+   20%, Café 7%. Medir y reportar el núcleo por semana es más honesto y
+   más útil que el 43-49% diario.
+2. **Un modelo directo sobre el consumo del ingrediente le gana al derivado
+   en los tres grandes** (~90% del volumen), a pesar de que el ganador
+   (adaptive_ma) todavía arrastra el defecto de ignorar la última semana
+   (2.1). Hoy el derivado se activa siempre para los ingredientes, sin
+   competir por backtest contra el directo.
+3. Queso (+96% de sesgo heredado de padres intermitentes) y Chocolate
+   Premium son genuinamente difíciles: series erráticas donde ni el directo
+   ni la regla tonta bajan de 95% diario. Requieren tratamiento propio
+   (evaluación semanal, y revisar por qué el derivado de Queso duplica el
+   consumo real).
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
