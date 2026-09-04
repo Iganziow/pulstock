@@ -97,10 +97,13 @@ La cadena, con líneas:
   1. Cero consumo, que debería ser la razón más fuerte para no sugerir, es
   justo el caso sin red.
 
-Arreglo propuesto (dos filtros, sin migración): excluir de la elegibilidad
-y de las sugerencias a los productos `is_active=False` que no sean
-ingredientes de una receta activa. Twinings (73 en stock, última venta en
-mayo) y Alfajor caen también.
+**Corregido en `78bda25` (04-09):** helper `get_inactive_products_to_skip`
+aplicado en la elegibilidad del entrenamiento y en `generate_suggestions`.
+Simulado contra producción: 51 desactivados, 0 ingredientes de receta
+activa, 8 con modelo activo que se desactivan en la siguiente corrida
+(Muffin, Caja galletas, Jugo Natural, dos Alfajores, dos Twinings, "helado
+ingrediente"). El correo de stock bajo ya filtraba `is_active`: verificado,
+no manda desactivados.
 
 ### 2.9 Stock cero es "crítico" aunque nadie compre el producto
 `engine/utils.py:401-402`: `calculate_days_to_stockout` devuelve 0 en cuanto
