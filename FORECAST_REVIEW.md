@@ -227,10 +227,15 @@ derivado del núcleo falla por ambos lados) a 18× (theta: la banda no dice
 nada, y es el techo que declara "quiebre en 5 días" a Chocolate Premium con
 18 días de stock, ver 2.10). Todo lo que se apoya en las bandas (stock de
 seguridad `z·RMSE·√L`, quiebre conservador, sugerencias con confianza baja)
-hereda esto. Técnica que falta: calibración empírica de intervalos por
-producto a partir de los errores reales de los últimos 28 días (cuantiles
-10/90 del cociente real/predicho), que corrige piso y ancho de una vez sin
-tocar los algoritmos.
+hereda esto. **Corregido en `745fd83` (04-09):** calibración empírica por producto,
+cuantiles 10/90 del cociente real/predicho de los últimos 28 días, en
+`save_forecasts` antes del cálculo del quiebre. Validado fuera de muestra
+con producción (2.486 mediciones): cobertura total 33% → 92%, theta 42% →
+92% con ancho 8,3× → 1,0×, derivado del núcleo 24% → 79% y su fallo por el
+techo 36% → 5%. Chocolate Premium: quiebre conservador de 4 a 6 días.
+Interruptor `FORECAST_CALIBRACION_OFF=1`. La cobertura del 92% supera la
+meta del 80%: es el lado seguro para inventario; si con dos semanas de datos
+sigue sobre 90%, se puede estrechar a cuantiles 15/85.
 
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
