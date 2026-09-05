@@ -38,6 +38,15 @@ usa ese mismo promedio. Ejecutado: 21 días a 10/día seguidos de 7 días a
 sigue en 10. El algoritmo va siempre una semana atrasado. Es el algoritmo con
 más modelos activos (78) y el de peor sesgo real en la cola (+198%).
 
+**Corregido el 04-09:** el nivel y los factores por día de la semana del
+pronóstico se recalculan sobre la serie completa con la configuración que
+eligió el grid (4 tests: cae con una semana en cero, sube con una en alza,
+la serie plana no se mueve, los domingos cerrados siguen en cero). Backtest
+fiel a producción, 99 productos, 4 semanas: WAPE total 133,3% → 132,1%, cola
+160,2% → 158,0%, lumpy 204,5% → 180,8% con sesgo +55% → +24%. Modesto en el
+agregado, grande en lumpy, sin ningún segmento peor. Se aplica también a los
+74 modelos "kept" porque el regen nocturno re-ejecuta el algoritmo.
+
 ### 2.2 `simple_avg` pronostica una venta única como demanda diaria
 `engine/algorithms/simple_average.py:18, 40-44`. Es el único candidato cuando
 hay entre 7 y 13 días de datos, no tiene tope de valores atípicos y su
@@ -219,6 +228,27 @@ Dos lecturas independientes llegaron a lo mismo, y se confirmó con datos el
 03-09: `date.today()` del servidor = 2026-09-03, última fecha con `DailySales`
 = 2026-09-02, cero filas para el 03. El relleno llega hasta el 03 → cada serie
 termina en (2026-09-03, 0). **Pasa a [E].**
+
+**Intentado y revertido el 04-09.** Se cambió `span_end` a ayer y se midió
+con backtest fiel a producción (99 productos, 4 semanas, replicando
+`clean_series`, el patrón con domingos filtrados, `window=7` y la historia
+importada), con y sin el `adaptive_ma` corregido:
+
+| | con cero (hoy) | sin cero |
+|---|---|---|
+| WAPE total | 132,1% | **154,0%** |
+| sesgo total | +2,0% | **+25,0%** |
+| cola, WAPE / sesgo | 158% / +31% | **179% / +55%** |
+| intermitentes, sesgo | +37% | **+68%** |
+| productos mejoran / empeoran | | 32 / 56 |
+
+El cero es un dato falso, pero hoy actúa como **freno** sobre modelos que
+sobre-predicen la demanda intermitente. Quitarlo destapa el sesgo. Queda
+fijado en `tests/test_serie_termina_ayer.py` con la explicación; se cambia
+solo cuando exista una corrección de sesgo real (3.5) y el mismo backtest
+muestre que la cola no empeora. Lección: un backtest **no fiel** (serie
+cruda, `window=21`, sin domingos filtrados) había dado casi lo mismo con y
+sin el cero; solo la réplica exacta de producción mostró el daño.
 
 ### 3.2 Los post-procesos no llegan a la tabla `Forecast` [E]
 `services.py:1742-1747`: el fresh path llama `_regen_from_existing` **después**
