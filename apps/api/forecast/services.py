@@ -922,6 +922,7 @@ def get_suggestions(tenant_id, status_filter=None, warehouse_id=None):
                 {
                     "product_id": l.product_id,
                     "product_name": l.product.name,
+                    "unit": l.product.unit or "UN",
                     "current_stock": str(l.current_stock),
                     "avg_daily_demand": str(l.avg_daily_demand),
                     "days_to_stockout": l.days_to_stockout,
@@ -2062,6 +2063,60 @@ def _compute_target_days(margin_per_unit, avg_daily, median_margin, median_daily
     return DEFAULT_PURCHASE_CYCLE_DAYS
 
 
+_UNIDADES_MASA = {"G", "GR", "GRAMO", "GRAMOS"}
+_UNIDADES_VOLUMEN = {"ML", "MILILITRO", "MILILITROS"}
+_UNIDADES_PIEZA = {"", "UN", "UND", "UNIDAD", "UNIDADES", "U", "PZA", "PIEZA"}
+
+
+def _num_es(v: float, decimales: int = 0) -> str:
+    """1234.5 -> '1.234,5' (es-CL). Sin decimales de relleno."""
+    txt = f"{float(v):,.{decimales}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    if "," in txt:
+        txt = txt.rstrip("0").rstrip(",")
+    return txt
+
+
+def _cantidad(v, unit: str) -> str:
+    """Una cantidad en la unidad del producto, como la diria el dueno:
+    '453 g', '1,2 kg', '1,8 L', '3 unidades', '1 unidad', '2 cajas'."""
+    v = float(v)
+    u = (unit or "UN").strip().upper()
+    if u in _UNIDADES_MASA:
+        return f"{_num_es(v / 1000, 1)} kg" if v >= 1000 else f"{_num_es(v)} g"
+    if u in _UNIDADES_VOLUMEN:
+        return f"{_num_es(v / 1000, 1)} L" if v >= 1000 else f"{_num_es(v)} ml"
+    if u in _UNIDADES_PIEZA:
+        n = int(round(v))
+        return "1 unidad" if n == 1 else f"{_num_es(n)} unidades"
+    return f"{_num_es(v, 1)} {u.lower()}"
+
+
+def _ritmo_de_venta(venta_diaria: float, unit: str) -> str:
+    """El ritmo REAL, en la escala en que se entiende. 'vendes 1 al dia' para
+    0,14 al dia era un redondeo: la verdad es 'cerca de 4 al mes'."""
+    if venta_diaria <= 0:
+        return "no se vendió en el último mes"
+    if venta_diaria >= 1:
+        return f"vendes cerca de {_cantidad(venta_diaria, unit)} al día"
+    semanal = venta_diaria * 7
+    if semanal >= 1:
+        return f"vendes cerca de {_cantidad(semanal, unit)} a la semana"
+    return f"vendes cerca de {_cantidad(max(venta_diaria * 30, 1), unit)} al mes"
+
+
+def _cobertura(suggested_qty, venta_diaria: float) -> str:
+    """Cuanto alcanza DE VERDAD lo sugerido, no el ciclo de compra."""
+    if venta_diaria <= 0:
+        return ""
+    dias = float(suggested_qty) / venta_diaria
+    if dias >= 60:
+        return "más de dos meses"
+    if dias >= 14:
+        return f"unas {int(round(dias / 7))} semanas"
+    d = max(1, int(round(dias)))
+    return "un día" if d == 1 else f"unos {d} días"
+
+
 def _natural_reasoning(
     current_stock: Decimal,
     avg_daily: Decimal,
@@ -2069,65 +2124,57 @@ def _natural_reasoning(
     suggested_qty: Decimal,
     target_days: int,
     buffer_pct: Decimal,
+    unit: str = "UN",
+    venta_diaria=None,
 ) -> str:
-    """Genera el reasoning en español neutro y lenguaje natural.
+    """Genera el razonamiento en español neutro, en la unidad del producto y
+    con la venta real.
 
-    Reemplaza el texto técnico tipo:
-      "Stock actual: 0. Demanda 10d: 120. Lead time: 2d. Quiebre en
-       ~0 día(s). Margen bajo, rotación alta → cobertura 10 días.
-       Pedir 181 unidades. Incluye +25% de seguridad..."
+    Lo que decia antes y por que estaba mal (medido el 04/09/26):
+      - "453 unidades" para Chocolate Premium: eran GRAMOS.
+      - "vendes alrededor de 1 unidades al dia" para 0,14 al dia: un
+        redondeo `max(1, round(x))` que convertia cualquier cosa en 1.
+      - "vendes unas 64 al dia" cuando se consumen 43: mostraba la demanda
+        de planificacion (inflada para modelos con confianza baja), no la
+        venta.
+      - "te alcanzan para 7 dias": era el ciclo de compra, no la cobertura
+        real. 30 tés a 2 por dia alcanzan 15.
 
-    Por algo que un dueño de cafetería entiende sin explicación:
-      1. Situación actual (sin stock / poco stock / preventivo)
-      2. Cuántas unidades se sugieren y para cuántos días alcanzan
-      3. Por qué la cobertura elegida (7/10/14/21) según margen y
-         rotación, expresado en lenguaje normal
-      4. (Opcional) Aclaración del colchón de seguridad si aplica
+    `venta_diaria` es la venta/consumo real de los ultimos 30 dias por dia;
+    si no viene, se usa `avg_daily` (la demanda de planificacion) como
+    ultimo recurso.
     """
-    # Redondeos para que el texto se vea limpio (sin decimales feos).
-    cs = int(current_stock) if current_stock and current_stock > 0 else 0
-    ad = max(1, round(float(avg_daily)))  # mínimo 1 para no decir "0 al día"
-    sq = int(suggested_qty)
-    # "vendes 1 al día" se lee mejor que "vendes unas 1 al día".
-    venta_label = f"alrededor de {ad}" if ad == 1 else f"unas {ad}"
+    vd = float(venta_diaria) if venta_diaria is not None else float(avg_daily or 0)
+    stock = float(current_stock or 0)
+    ritmo = _ritmo_de_venta(vd, unit)
+    alcanza = _cobertura(suggested_qty, vd)
+    pedido = _cantidad(suggested_qty, unit)
+    con_pedido = f" Con {pedido} te alcanza para {alcanza}." if alcanza else ""
 
-    # ── Frase 1: situación actual ────────────────────────────────────
-    if current_stock <= 0:
-        situacion = (
-            f"Te quedaste sin stock y vendes {venta_label} unidades al día. "
-            f"Estas {sq} unidades te alcanzan para aproximadamente {target_days} días."
-        )
+    if stock <= 0:
+        situacion = f"Te quedaste sin stock y {ritmo}.{con_pedido}"
     elif days_out is not None and days_out <= 3:
-        dias_label = "día" if days_out == 1 else "días"
-        situacion = (
-            f"Te quedan {cs} unidades (te alcanzan para unos {days_out} {dias_label}) "
-            f"y vendes {venta_label} al día. Estas {sq} unidades cubren las próximas "
-            f"{target_days} jornadas."
-        )
+        dias_label = "un día" if days_out == 1 else f"unos {days_out} días"
+        situacion = f"Te quedan {_cantidad(stock, unit)} para {dias_label} y {ritmo}.{con_pedido}"
     else:
         situacion = (
-            f"Te quedan {cs} unidades y vendes {venta_label} al día. "
-            "Es una sugerencia preventiva: pedirlo ahora te evita quedarte corto "
-            "en los próximos días."
+            f"Te quedan {_cantidad(stock, unit)} y {ritmo}. "
+            f"Es preventivo: pedir ahora evita quedarte corto.{con_pedido}"
         )
 
-    # ── Frase 2: por qué la cobertura elegida ────────────────────────
-    # La cobertura es el CICLO DE COMPRA (más el tiempo que tarda en llegar el
-    # pedido), no una función del margen: alcanza hasta la próxima compra.
     explicacion = (
-        f"¿Por qué {target_days} días? Es lo que necesitas hasta tu próxima "
-        "compra, más los días que tarda en llegar. Pedir para más tiempo "
-        "inmoviliza dinero y arriesga que se te venza el producto."
+        f"El pedido se calcula para cubrir hasta tu próxima compra más el tiempo "
+        f"de entrega, {target_days} días en total. Pedir para más tiempo inmoviliza "
+        "dinero y arriesga que se venza el producto."
     )
 
-    # ── Frase 3 (opcional): colchón de seguridad ─────────────────────
     buffer_note = ""
     if buffer_pct > Decimal("0.10"):
         pct = int(buffer_pct * 100)
         buffer_note = (
             f" Sumamos un colchón de seguridad de aproximadamente {pct}% mientras "
-            "el sistema termina de aprender tu ritmo de venta — a más historial, "
-            "menos colchón vamos a necesitar."
+            "el sistema termina de aprender tu ritmo de venta; a más historial, "
+            "menos colchón."
         )
 
     return f"{situacion} {explicacion}{buffer_note}"
@@ -2301,6 +2348,13 @@ def generate_suggestions(tenant, today, threshold, target_days):
     product_min_stock = {
         p.id: p.min_stock or Decimal("0")
         for p in CatalogProduct.objects.filter(id__in=product_ids).only("id", "min_stock")
+    }
+    # Unidad del producto para el texto de la sugerencia ("453 g", no "453
+    # unidades"). all_objects: los ingredientes desactivados en el POS
+    # tambien reciben sugerencias.
+    product_unit = {
+        p.id: (p.unit or "UN")
+        for p in CatalogProduct.all_objects.filter(id__in=product_ids).only("id", "unit")
     }
 
     # Margin data for smart target_days
@@ -2522,6 +2576,13 @@ def generate_suggestions(tenant, today, threshold, target_days):
                 suggested_qty=suggested_qty,
                 target_days=product_target,
                 buffer_pct=buffer_pct,
+                unit=product_unit.get(pid, "UN"),
+                # La venta REAL (directa o via receta) de los ultimos 30 dias:
+                # el texto dice lo que se vende, no la demanda de planificacion.
+                venta_diaria=max(
+                    float(real_sales_30d.get(pid, 0.0)),
+                    float(real_consumption_30d.get(pid, 0.0)),
+                ) / 30.0,
             ),
         })
 
