@@ -109,7 +109,7 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   // Más padding arriba (pT) para que las etiquetas "Pasado/Futuro" no
   // queden pegadas al borde. Más pL para que números grandes (1.500, etc.)
   // no se corten.
-  const pL = 44, pR = 14, pT = 36, pB = 28;
+  const pL = 44, pR = 14, pT = 22, pB = 30;
   const plotW = W - pL - pR, plotH = H - pT - pB;
   const n = allPts.length, dx = plotW / Math.max(n - 1, 1);
   const xp = (i: number) => pL + i * dx;
@@ -127,73 +127,21 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
     bandPath = `M${up.join("L")}L${lo.join("L")}Z`;
   }
 
-  let stockPts = "", soX: number | null = null, soDaysOut: number | null = null;
-  if (forecast.length > 0 && stockLevel > 0) {
-    let cur = stockLevel;
-    const pts: string[] = [`${xp(fcStart)},${yp(Math.min(cur, maxV))}`];
-    for (let i = 0; i < forecast.length; i++) {
-      cur -= num(forecast[i].qty_predicted);
-      const sv = Math.max(0, cur);
-      const xi = fcStart + i + (i < forecast.length - 1 ? 1 : 0);
-      pts.push(`${xp(xi)},${yp(Math.min(sv, maxV))}`);
-      if (cur <= 0 && soX === null) {
-        soX = xp(fcStart + i);
-        soDaysOut = i;  // días desde hoy hasta el agotamiento
-      }
-    }
-    stockPts = pts.join(" ");
-  }
-  // Estilo del marker de agotamiento según urgencia. Antes el rojo "SE ACABA"
-  // aparecía siempre, asustando al usuario aun cuando faltaban 14+ días. Ahora:
-  //   ≤ 3 días → rojo "SE ACABA" (urgente real)
-  //   4-7 días → ámbar "REPONER PRONTO"
-  //   8-14 días → azul "PRÓXIMO A REPONER"
-  //   > 14 días → no se muestra el marker (no hay nada que alarme)
-  const stockoutBadge = soDaysOut !== null && soDaysOut <= 14
-    ? (soDaysOut <= 3
-        ? { color: C.red, label: "SE ACABA", show: true }
-        : soDaysOut <= 7
-        ? { color: C.amber, label: "REPONER PRONTO", show: true }
-        : { color: C.accent, label: "PRÓXIMO A REPONER", show: true })
-    : { color: C.mute, label: "", show: false };
-
   // Ticks Y como pasos enteros del "step" calculado (0, step, 2*step, …, maxV).
-  // Eso garantiza números limpios (5, 10, 15, 20) en vez de 4, 7, 11, 14.
   const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => {
     const v = i * step;
     return { v: Math.round(v), y: yp(v) };
   });
-  const lEvery = Math.max(1, Math.floor(n / (mob ? 5 : 10)));
+  // Pocas etiquetas en X, grandes: 6 en escritorio, 4 en móvil.
+  const lEvery = Math.max(1, Math.round(n / (mob ? 4 : 6)));
   const sepX = fcStart >= 0 ? xp(fcStart) : null;
-  // Etiquetas "Pasado/Futuro": solo se dibujan si la sección tiene al menos
-  // ~40px de ancho (suficiente para que el texto entre sin cortarse). Antes
-  // usábamos textAnchor="end" con sepX-10 → cuando no había historia (o muy
-  // poca), "Pasado" quedaba con la P recortada por el límite del SVG.
-  const pastWidth = sepX !== null ? sepX - pL : 0;
-  const futureWidth = sepX !== null ? (W - pR) - sepX : 0;
-  const showPasado = sepX !== null && pastWidth >= 40;
-  const showFuturo = sepX !== null && futureWidth >= 40;
 
-  // ─── Flags para legenda condicional ─────────────────────────────────────
-  // Ocultamos items de la leyenda cuyas líneas no se dibujan — antes
-  // mostrábamos "Ya vendido" aunque no hubiera ventas (totalSold = 0),
-  // generando confusión: el cliente buscaba la línea azul y no la veía.
+  // ─── Flags para leyenda condicional ────────────────────────────────────
   const hasActuals = !!actLine && history.some(h => num(h.qty_sold) > 0);
-  const hasStockLine = !!stockPts;
   const hasBand = !!bandPath;
   const hasPrediction = !!predLine;
 
-  // ─── Promedio diario predicho (línea de referencia horizontal) ──────────
-  // Es la métrica más útil para la lectura rápida — "vendés ~2 al día" es
-  // más accionable que mirar día por día. Solo la dibujamos si hay
-  // predicciones y el promedio es > 0.
-  const avgRefY = (avgDemand > 0 && avgDemand <= maxV) ? yp(avgDemand) : null;
-
   // ─── Marker "Hoy" ──────────────────────────────────────────────────────
-  // Buscamos el punto de hoy en el array. Si está dentro del rango,
-  // pintamos una línea vertical sutil + label "Hoy" para anclar visualmente
-  // dónde está el presente. Funciona aunque "hoy" caiga en la frontera
-  // pasado/futuro (típico — la frontera ES hoy).
   const todayISO = (() => {
     const d = new Date();
     const y = d.getFullYear();
@@ -204,22 +152,33 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
   const todayIdx = allPts.findIndex(p => p.iso === todayISO);
   const todayX = todayIdx >= 0 ? xp(todayIdx) : null;
 
-  // ─── Día de mayor venta predicha (visual peak) ──────────────────────────
-  // Marcamos el punto más alto del forecast con un pequeño label encima.
-  // Útil cuando hay un "viernes pico" o un evento — Mario lo ve a la primera.
-  const fcPts = allPts.filter(p => p.isFc && p.pred !== null && Number.isFinite(p.pred as number));
-  const peakPt = fcPts.length > 0
-    ? fcPts.reduce((a, b) => ((b.pred as number) > (a.pred as number) ? b : a))
+  // ─── Resumen por semana ────────────────────────────────────────────────
+  // Rediseño del 05/09/26. El gráfico anterior dibujaba cinco líneas, una
+  // banda y tres marcadores en 200px de alto, con etiquetas de 9px: decía
+  // demasiado a la vez. La compra se decide por semana (medido: el error
+  // semanal del núcleo es 7-31% contra 39-68% diario), así que el resumen en
+  // palabras va por semana y el gráfico se queda con lo esencial.
+  const last7 = history.slice(-7);
+  const next7 = forecast.slice(0, 7);
+  const soldLast7 = last7.reduce((acc, h) => acc + num(h.qty_sold), 0);
+  const predNext7 = next7.reduce((acc, f) => acc + num(f.qty_predicted), 0);
+  const weekDelta = (soldLast7 > 0 && last7.length === 7 && next7.length === 7)
+    ? Math.round((predNext7 - soldLast7) / soldLast7 * 100)
     : null;
-  const peakIdx = peakPt ? allPts.indexOf(peakPt) : -1;
-  // Solo destacamos el peak si es claramente más alto que el promedio
-  // (mínimo 30% sobre el average) — si todos los días son parecidos, el
-  // "pico" es ruido y mejor no destacar nada.
-  const showPeak = peakPt !== null && avgDemand > 0
-    && (peakPt.pred as number) >= avgDemand * 1.3;
+
+  // ─── Barra de stock (reemplaza la línea roja y el badge sobre el gráfico)
+  const stockoutLabel = (() => {
+    if (daysOut === null) return "Alcanza para más de un mes";
+    if (daysOut === 0) return "Sin stock";
+    const d = new Date();
+    d.setDate(d.getDate() + daysOut);
+    const fecha = `${DOW_ES[d.getDay()]} ${d.getDate()} ${MONTH_ES[d.getMonth()]}`;
+    return `Alcanza hasta el ${fecha} (${daysOut} día${daysOut === 1 ? "" : "s"})`;
+  })();
+  const stockTone = daysOut === null ? C.green : daysOut <= 3 ? C.red : daysOut <= 7 ? C.amber : daysOut <= 14 ? C.accent : C.green;
+  const stockFill = daysOut === null ? 1 : Math.max(0.03, Math.min(1, daysOut / 30));
 
   // ─── Total previsto en el período del forecast ──────────────────────────
-  // Útil para repuesto: "vas a vender ~50 unidades en 30 días".
   const totalPredicted = forecast.reduce((s, f) => s + num(f.qty_predicted), 0);
 
   return (
@@ -233,7 +192,6 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
           fontSize: 13, lineHeight: 1.6,
         }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <span style={{ fontSize: 20, lineHeight: 1 }}>⏳</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, color: C.amber, marginBottom: 4 }}>
                 Estamos recopilando datos
@@ -267,10 +225,10 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
             <><b style={{ color: C.red }}>⚠ ¡Urgente!</b> Quedan <b>{fmtQty(stockLevel, unitInfo)}</b> y vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. <b>Se acaba en {daysOut} día{daysOut > 1 ? "s" : ""}</b> si no repones. Te sugerimos pedir <b>{fmtQty(reorderQty, unitInfo)}</b> para cubrir {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
           )}
           {daysOut !== null && daysOut > 3 && daysOut <= 7 && (
-            <><b style={{ color: C.amber }}>⏰ Atención:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b>. Vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{fmtQty(reorderQty, unitInfo)}</b> para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
+            <><b style={{ color: C.amber }}>Atención:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b>. Vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>, alcanza para <b>{daysOut} días</b>. Conviene pedir esta semana: <b>{fmtQty(reorderQty, unitInfo)}</b> para {coverageLabel}{avgCost > 0 && <> ({fmtMoney(reorderCost)} aprox.)</>}.</>
           )}
           {daysOut !== null && daysOut > 7 && (
-            <><b style={{ color: C.accent }}>👁 Bajo vigilancia:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b> y vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
+            <><b style={{ color: C.accent }}>Bajo vigilancia:</b> Tienes <b>{fmtQty(stockLevel, unitInfo)}</b> y vendes <b>{fmtQtyDaily(avgDemand, unitInfo)}</b>. Alcanza para <b>{daysOut} días</b>. No es urgente, pero tenlo en cuenta para tu próximo pedido.</>
           )}
         </div>
       )}
@@ -325,190 +283,107 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
       })()}
 
       {/* GRÁFICO */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "10px 6px" : "14px 12px", marginBottom: 8 }}>
-        <div style={{
-          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-          flexWrap: "wrap", gap: 8, paddingLeft: mob ? 4 : 8, paddingRight: mob ? 4 : 8,
-          marginBottom: 8,
-        }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.mid, marginBottom: 2 }}>
-              📈 Cuánto vas a vender
-            </div>
-            <div style={{ fontSize: 11, color: C.mute }}>
-              {/* Caption dinámica: solo mencionamos las líneas que realmente
-                  se dibujan, así no quedamos prometiendo una "línea azul"
-                  que no existe cuando el producto no tiene historia. */}
-              {hasActuals && hasPrediction ? (
-                <>La línea <b style={{ color: C.accent }}>continua azul</b> es lo que ya vendiste. La <b style={{ color: C.amber }}>cortada naranja</b> es la predicción.</>
-              ) : hasActuals ? (
-                <>Línea <b style={{ color: C.accent }}>azul</b>: tus ventas reales.</>
-              ) : hasPrediction ? (
-                <>Línea <b style={{ color: C.amber }}>cortada naranja</b>: lo que vas a vender los próximos días.</>
-              ) : null}
-            </div>
-          </div>
-          {/* Tarjeta resumen al lado derecho del título — mensaje accionable
-              de un vistazo. En móvil cae debajo automáticamente. */}
-          {avgDemand > 0 && (() => {
-            const avgFmt = formatQty(avgDemand, unitInfo, { perDay: true });
-            const totalFmt = formatQty(totalPredicted, unitInfo, { unitWord: "" });
-            return (
-              <div style={{
-                background: C.amberBg, border: `1px solid ${C.amberBd}`,
-                borderRadius: 6, padding: "6px 12px", textAlign: "right",
-                fontSize: 11, color: C.mid, lineHeight: 1.3,
-              }}>
-                <div style={{ fontWeight: 700, color: C.amber, fontSize: 11 }}>Promedio</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: C.text }} title={avgFmt.tooltip}>
-                  {fmtQtyDaily(avgDemand, unitInfo)}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: mob ? "12px 8px" : "16px 14px", marginBottom: 8 }}>
+        <div style={{ paddingLeft: mob ? 4 : 8, paddingRight: mob ? 4 : 8, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Cuánto vendes y cuánto vas a vender</div>
+          {(last7.length > 0 || next7.length > 0) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: mob ? 10 : 20, marginTop: 8 }}>
+              {last7.length > 0 && (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ width: 12, height: 3, background: C.accent, borderRadius: 2, display: "inline-block" }} />
+                  <span style={{ fontSize: 12, color: C.mute }}>Últimos {last7.length} días</span>
+                  <b style={{ fontSize: 15, color: C.text }}>{fmtQty(soldLast7, unitInfo)}</b>
                 </div>
-                {totalPredicted > 0 && (
-                  <div style={{ fontSize: 10, color: C.mute }} title={totalFmt.tooltip}>
-                    ≈ {totalFmt.text}{totalFmt.suffix || ""} en {forecast.length} días
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+              )}
+              {next7.length > 0 && (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ width: 12, height: 0, borderTop: `3px dashed ${C.amber}`, display: "inline-block" }} />
+                  <span style={{ fontSize: 12, color: C.mute }}>Próximos {next7.length} días</span>
+                  <b style={{ fontSize: 15, color: C.text }}>{fmtQty(predNext7, unitInfo)}</b>
+                  {weekDelta !== null && (
+                    <span style={{ fontSize: 12, fontWeight: 700, color: weekDelta > 0 ? C.amber : weekDelta < 0 ? C.accent : C.mute }}>
+                      {weekDelta > 0 ? "+" : ""}{weekDelta}%
+                    </span>
+                  )}
+                </div>
+              )}
+              {avgDemand > 0 && (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: C.mute }}>Promedio</span>
+                  <b style={{ fontSize: 15, color: C.text }}>{fmtQtyDaily(avgDemand, unitInfo)}</b>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
         <div style={{ overflowX: "auto" }}>
-          <svg width={W} height={H} style={{ display: "block" }}>
-            {/* Y-axis grid + ticks. La etiqueta de la unidad y los números
-                del eje se adaptan al tipo de producto: para un producto en
-                ml, mostramos "L/día" y los números convertidos (1.78 L en
-                vez de 1781 ml). */}
+          <svg width={W} height={H} style={{ display: "block" }} role="img" aria-label="Ventas pasadas y predicción de los próximos días">
+            {/* El futuro lleva un fondo apenas más cálido: se distingue sin
+                necesitar las etiquetas "Pasado" y "Futuro". */}
+            {sepX !== null && <rect x={sepX} y={pT} width={Math.max(0, W - pR - sepX)} height={plotH} fill={C.amber} opacity={0.05} />}
+
             {(() => {
               const code = (unitInfo.unit_code || "").trim().toUpperCase();
               const isMl = code === "ML" || code === "MILILITRO" || code === "MILILITROS";
               const isG = code === "G" || code === "GR" || code === "GRAMO" || code === "GRAMOS";
-              // ¿Convertimos? Solo si la escala del eje supera 1000 en su unidad nativa
               const convertVolume = isMl && maxV >= 1000;
               const convertMass = isG && maxV >= 1000;
               const convert = convertVolume || convertMass;
-              const axisLabel = convertVolume ? "L/día" : convertMass ? "kg/día" : (isMl ? "ml/día" : isG ? "g/día" : "uds/día");
+              const axisLabel = convertVolume ? "L/día" : convertMass ? "kg/día" : (isMl ? "ml/día" : isG ? "g/día" : "por día");
               const fmtTick = (v: number): string => {
                 if (!convert) return String(v);
                 const conv = v / 1000;
-                // Decimales según magnitud: 100+ entero, 10+ una decimal, resto dos
                 const d = conv >= 100 ? 0 : conv >= 10 ? 1 : 2;
                 return conv.toLocaleString("es-CL", { maximumFractionDigits: d });
               };
               return (
                 <>
-                  <text x={pL - 6} y={pT - 6} fontSize={9} fill={C.mute} textAnchor="end" fontWeight={600}>{axisLabel}</text>
+                  <text x={pL - 6} y={pT - 8} fontSize={10} fill={C.mute} textAnchor="end" fontWeight={600}>{axisLabel}</text>
                   {yTicks.map(t => (
                     <g key={t.v}>
                       <line x1={pL} x2={W - pR} y1={t.y} y2={t.y} stroke={C.border} strokeWidth={.5} />
-                      <text x={pL - 6} y={t.y + 3} fontSize={9} fill={C.mute} textAnchor="end">{fmtTick(t.v)}</text>
+                      <text x={pL - 6} y={t.y + 3.5} fontSize={10} fill={C.mute} textAnchor="end">{fmtTick(t.v)}</text>
                     </g>
                   ))}
                 </>
               );
             })()}
 
-            {/* Línea de promedio horizontal — referencia visual potente.
-                Va atrás de las líneas de datos pero adelante del grid. */}
-            {avgRefY !== null && (
-              <g>
-                <line
-                  x1={pL} x2={W - pR} y1={avgRefY} y2={avgRefY}
-                  stroke={C.accent} strokeWidth={1} strokeDasharray="2,3" opacity={0.45}
-                />
-                <text
-                  x={W - pR - 4} y={avgRefY - 3}
-                  fontSize={9} fill={C.accent} textAnchor="end" fontWeight={700}
-                >
-                  promedio {fmtQtyDaily(avgDemand, unitInfo)}
-                </text>
-              </g>
-            )}
-
-            {sepX !== null && (
-              <g>
-                <line x1={sepX} x2={sepX} y1={pT - 6} y2={pT + plotH} stroke={C.border} strokeWidth={1} strokeDasharray="4,3" />
-                {showPasado && (
-                  <text x={pL + pastWidth / 2} y={pT - 12} fontSize={11} fill={C.accent} textAnchor="middle" fontWeight="700">Pasado</text>
-                )}
-                {showFuturo && (
-                  <text x={sepX + futureWidth / 2} y={pT - 12} fontSize={11} fill={C.amber} textAnchor="middle" fontWeight="700">Futuro</text>
-                )}
-              </g>
-            )}
-
-            {/* Marker "Hoy" — vertical sutil con etiqueta. Solo se dibuja si
-                hoy cae dentro del rango del gráfico. */}
             {todayX !== null && (
               <g>
-                <line
-                  x1={todayX} x2={todayX} y1={pT} y2={pT + plotH}
-                  stroke={C.green} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.7}
-                />
-                <rect
-                  x={todayX - 16} y={pT + plotH + 2}
-                  width={32} height={13} rx={3} fill={C.green}
-                />
-                <text
-                  x={todayX} y={pT + plotH + 11}
-                  fontSize={9} fill="#fff" textAnchor="middle" fontWeight={700}
-                >Hoy</text>
+                <line x1={todayX} x2={todayX} y1={pT} y2={pT + plotH} stroke={C.green} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.8} />
+                <rect x={todayX - 16} y={pT + plotH + 3} width={32} height={14} rx={3} fill={C.green} />
+                <text x={todayX} y={pT + plotH + 13} fontSize={10} fill="#fff" textAnchor="middle" fontWeight={700}>Hoy</text>
               </g>
             )}
 
-            {bandPath && <path d={bandPath} fill={C.amber} opacity={.08} />}
-            {stockPts && <polyline points={stockPts} fill="none" stroke={stockoutBadge.color} strokeWidth={2} strokeDasharray="6,4" opacity={.5} />}
-            {soX !== null && stockoutBadge.show && (() => {
-              // Ancho del badge dinámico para que el texto entre cómodo
-              // (REPONER PRONTO es más largo que SE ACABA).
-              const labelW = Math.max(80, stockoutBadge.label.length * 6.5 + 18);
-              return (
-                <g>
-                  <line x1={soX} x2={soX} y1={pT} y2={pT + plotH} stroke={stockoutBadge.color} strokeWidth={1.5} strokeDasharray="3,3" opacity={.3} />
-                  <rect x={soX - labelW / 2} y={pT - 2} width={labelW} height={16} rx={4} fill={stockoutBadge.color} opacity={.9} />
-                  <text x={soX} y={pT + 10} fontSize={9} fill="#fff" textAnchor="middle" fontWeight="700">{stockoutBadge.label}</text>
-                  <circle cx={soX} cy={yp(0)} r={5} fill={stockoutBadge.color} />
-                  <circle cx={soX} cy={yp(0)} r={9} fill="none" stroke={stockoutBadge.color} strokeWidth={1.5} opacity={.3} />
-                </g>
-              );
-            })()}
+            {bandPath && <path d={bandPath} fill={C.amber} opacity={.12} />}
             {actLine && <polyline points={actLine} fill="none" stroke={C.accent} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />}
             {allPts.map((p, i) => p.actual !== null ? <circle key={`a${i}`} cx={xp(i)} cy={yp(p.actual)} r={2} fill={C.accent} /> : null)}
             {predLine && <polyline points={predLine} fill="none" stroke={C.amber} strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="6,4" />}
             {allPts.map((p, i) => p.pred !== null ? <circle key={`p${i}`} cx={xp(i)} cy={yp(p.pred)} r={2.5} fill={C.amber} /> : null)}
 
-            {/* Marker "pico" — destacamos el día con mayor venta predicha
-                cuando es claramente más alto que el promedio (>30%). */}
-            {showPeak && peakPt && peakIdx >= 0 && (() => {
-              // El pico también se formatea con la unidad: para leche en ml,
-              // un pico de 8282 se ve como "★ 8,3 L" en vez de "★ 8282.2".
-              const peakFmt = formatQty(peakPt.pred as number, unitInfo, { unitWord: "" });
-              return (
-                <g>
-                  <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={5} fill={C.amber} />
-                  <circle cx={xp(peakIdx)} cy={yp(peakPt.pred as number)} r={9} fill="none" stroke={C.amber} strokeWidth={1.5} opacity={0.5} />
-                  <text
-                    x={xp(peakIdx)}
-                    y={yp(peakPt.pred as number) - 14}
-                    fontSize={10} fill={C.amber} textAnchor="middle" fontWeight={800}
-                  >★ {peakFmt.text}{peakFmt.suffix}</text>
-                  <text
-                    x={xp(peakIdx)}
-                    y={yp(peakPt.pred as number) - 4}
-                    fontSize={8} fill={C.mid} textAnchor="middle" fontWeight={600}
-                  >{fmtFullDate(peakPt.iso).split(" ")[0]}</text>
-                </g>
-              );
-            })()}
-
-            {allPts.map((p, i) => i % lEvery === 0 ? <text key={`x${i}`} x={xp(i)} y={H - 6} fontSize={9} fill={C.mute} textAnchor="middle">{p.label}</text> : null)}
+            {allPts.map((p, i) => (i % lEvery === 0 && (todayX === null || Math.abs(xp(i) - todayX) > 22)) ? <text key={`x${i}`} x={xp(i)} y={H - 8} fontSize={10} fill={C.mute} textAnchor="middle">{p.label}</text> : null)}
           </svg>
         </div>
 
-        {/* Leyenda condicional — solo mostramos los items cuyas líneas
-            realmente aparecen en el gráfico. Antes mostrábamos "Ya vendido"
-            aunque no hubiera ventas → el cliente buscaba la línea azul y
-            no la veía, generando dudas. */}
-        <div style={{ display: "flex", gap: mob ? 10 : 16, marginTop: 6, fontSize: 11, color: C.mid, flexWrap: "wrap", paddingLeft: mob ? 4 : 8 }}>
+        {/* Barra de stock: cuánto hay y hasta qué día alcanza. Antes esto
+            era una línea roja punteada cruzando las de venta, más un badge
+            "SE ACABA" encima de todo. */}
+        {(stockLevel > 0 || daysOut !== null) && (
+          <div style={{ marginTop: 12, paddingLeft: mob ? 4 : 8, paddingRight: mob ? 4 : 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 12, color: C.mid, marginBottom: 5 }}>
+              <span>En bodega: <b style={{ color: C.text }}>{fmtQty(stockLevel, unitInfo)}</b></span>
+              <span style={{ color: stockTone, fontWeight: 700 }}>{stockoutLabel}</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 99, background: C.bg, border: `1px solid ${C.border}`, overflow: "hidden" }} aria-hidden>
+              <div style={{ width: `${Math.round(stockFill * 100)}%`, height: "100%", background: stockTone, borderRadius: 99, transition: "width .3s" }} />
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: mob ? 10 : 16, marginTop: 10, fontSize: 11, color: C.mid, flexWrap: "wrap", paddingLeft: mob ? 4 : 8 }}>
           {hasActuals && (
             <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 14, height: 3, background: C.accent, borderRadius: 2, display: "inline-block" }} /> Ya vendido
@@ -519,24 +394,9 @@ export function ForecastDetailPanel({ detail, loading, mob }: { detail: Detail |
               <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.amber}`, display: "inline-block" }} /> Predicción
             </span>
           )}
-          {avgRefY !== null && (
-            <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.accent }}>
-              <span style={{ width: 14, height: 0, borderTop: `2px dashed ${C.accent}`, opacity: 0.6, display: "inline-block" }} /> Promedio diario
-            </span>
-          )}
-          {hasStockLine && (
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 14, height: 0, borderTop: `3px dashed ${C.red}`, display: "inline-block" }} /> Stock disponible
-            </span>
-          )}
           {hasBand && (
-            <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.mute }} title="Rango con margen de error de la predicción">
+            <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.mute }} title="Rango en el que suele caer la venta real">
               <span style={{ width: 14, height: 8, background: C.amber + "20", border: `1px solid ${C.amberBd}`, borderRadius: 2, display: "inline-block" }} /> Margen de error
-            </span>
-          )}
-          {todayX !== null && (
-            <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.green }}>
-              <span style={{ width: 14, height: 0, borderTop: `2px dashed ${C.green}`, display: "inline-block" }} /> Hoy
             </span>
           )}
         </div>

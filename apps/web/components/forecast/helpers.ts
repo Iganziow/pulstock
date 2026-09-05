@@ -91,8 +91,14 @@ export function formatQty(
     };
   }
 
-  // Caso general: redondea a entero y pone el sufijo correspondiente
+  // Gramos y mililitros chicos: la unidad legible, no el codigo del catalogo
+  // ("453 g", no "453 gr"; "450 ml", no "450 mililitros"). Coincide con el
+  // texto que arma el backend en la sugerencia.
   const rounded = Math.round(n);
+  if (MASS_G_CODES.has(code)) return { text: rounded.toLocaleString("es-CL"), suffix: ` g${perDay}` };
+  if (VOLUME_ML_CODES.has(code)) return { text: rounded.toLocaleString("es-CL"), suffix: ` ml${perDay}` };
+
+  // Caso general: redondea a entero y pone el sufijo correspondiente
   if (UNIT_CODES.has(code)) {
     const word = opts?.unitWord === "" ? "" : opts?.unitWord || "unidades";
     const suf = word ? ` ${word === "unidades" && perDay ? "uds" : word}${perDay}` : perDay;
@@ -133,5 +139,9 @@ export function fmtQtyDaily(value: number | string, unit?: UnitInfo | null): str
     const d = n < 10 ? 1 : 0;
     return `${n.toLocaleString("es-CL", { maximumFractionDigits: d })} uds/día`;
   }
+  // Gramos y mililitros chicos: la unidad legible, no el codigo del catalogo
+  // ("39,4 g/dia", no "39,4 gr/dia").
+  if (MASS_G_CODES.has(code)) return `${n.toLocaleString("es-CL", { maximumFractionDigits: 1 })} g/día`;
+  if (VOLUME_ML_CODES.has(code)) return `${n.toLocaleString("es-CL", { maximumFractionDigits: 1 })} ml/día`;
   return `${n.toLocaleString("es-CL", { maximumFractionDigits: 1 })} ${code.toLowerCase()}/día`;
 }
