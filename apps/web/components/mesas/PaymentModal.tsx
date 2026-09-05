@@ -58,7 +58,12 @@ export function PaymentModal({
   const [tipRows, setTipRows] = useState<PaymentRow[]>([]);
   const [splitN, setSplitN] = useState("");
   const [checkoutMode, setCheckoutMode] = useState<"all" | "partial">("all");
-  const [selLines, setSelLines] = useState<Set<number>>(new Set(unpaidLines.map(l => l.id)));
+  // "Por items" parte SIN nada seleccionado (Mario, 05/09/26): una mesa de
+  // 20 productos aparecia con los 20 marcados y el cajero tenia que
+  // desmarcar 19 para cobrarle al primero que solo consumio uno. Ahora se
+  // agregan de a uno los items que paga cada cliente. En "Cobrar todo" la
+  // seleccion no se usa (el padre manda line_ids vacio).
+  const [selLines, setSelLines] = useState<Set<number>>(new Set());
   // Mario reporto (25/05/26): en "Por items", line con qty=2 solo permitia
   // pagar las 2 o ninguna. Ahora cada line tiene un stepper +/- para elegir
   // cuantas unidades cobrar. Por default: line.qty completa (compatibilidad
