@@ -387,6 +387,15 @@ históricas, las pendientes antiguas desaparecen. Unidades hardcodeadas
 estimada" del panel de detalle no aplica cap 4×, zombie, MOQ ni lead time del
 generador real → panel y tarjeta pueden dar cantidades distintas.
 
+**Parcialmente corregido el 05-09:** el texto de cada línea habla en la
+unidad del producto y con la venta real ("453 g", "vendes cerca de 43 g al
+día", "te alcanza para unos 11 días"), la tarjeta muestra la cantidad en su
+unidad y ya no redondea los miles, y el gráfico del detalle se rediseñó
+(resumen por semana, barra de stock con fecha, sin promedio ni pico ni badge
+sobre las líneas). Pendientes: el 1,5× para confianza baja, el tope 50 y la
+paginación, el margen en riesgo por línea, y la estimación del panel que no
+coincide con el generador.
+
 ### 4.4 Matriz de permisos vs API
 `core/role_permissions.py:29,38` permite habilitar forecast para cajero e
 inventario y el sidebar muestra el enlace; `billing/permissions.py:50-56`
