@@ -5,6 +5,7 @@ Business logic for the forecast module.
 Views and management commands delegate here — they handle HTTP / CLI concerns only.
 """
 import logging
+import os
 import math
 import statistics
 from datetime import date, timedelta
@@ -57,6 +58,10 @@ from forecast.explain import explicar_ingredientes, explicar_modelo
 from forecast.models import (
     DailySales, ForecastModel, Forecast,
     PurchaseSuggestion, SuggestionLine,
+)
+from forecast.engine.calibracion import (
+    factores_de_calibracion, aplicar_calibracion,
+    VENTANA_DIAS as VENTANA_CALIBRACION,
 )
 from forecast.engine import (
     select_best_model, calculate_days_to_stockout,
@@ -1202,6 +1207,23 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
     )
 
 
+def _razones_recientes(tenant, product, warehouse_id, dias=VENTANA_CALIBRACION):
+    """Cocientes real / predicho de los ultimos `dias`, sin dias de quiebre
+    (la venta real estaba censurada) ni dias con prediccion 0."""
+    from forecast.models import ForecastAccuracy
+    desde = date.today() - timedelta(days=dias)
+    razones = []
+    pares = ForecastAccuracy.objects.filter(
+        tenant=tenant, product=product, warehouse_id=warehouse_id,
+        date__gte=desde, was_stockout=False,
+    ).values_list("qty_predicted", "qty_actual")
+    for p, y in pares:
+        p = float(p or 0)
+        if p > 0:
+            razones.append(float(y or 0) / p)
+    return razones
+
+
 def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                    confidence_base, stock_items):
     """Delete old forecasts, apply holiday adjustments, and bulk-insert."""
@@ -1222,6 +1244,26 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # proyección de stock tampoco descuente consumo en esos días.
     closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     _apply_closed_weekdays(daily_forecasts, closed_dows)
+
+    # Calibracion empirica de las bandas (04/09/26). Medido: las bandas
+    # cubrian el 43% de los dias reales en vez del 80%, con el piso por
+    # encima de la realidad la mitad de las veces y anchos de 0,6x a 18x.
+    # Piso y techo pasan a ser los cuantiles 10/90 del cociente real/predicho
+    # de los ultimos 28 dias, por producto. Va ANTES de calculate_days_to_
+    # stockout para que el quiebre conservador use el techo calibrado, y
+    # DESPUES de feriados y dias cerrados para escalar la prediccion final.
+    # La prediccion puntual no se toca. Ver forecast/engine/calibracion.py.
+    if not os.environ.get("FORECAST_CALIBRACION_OFF"):
+        factores = factores_de_calibracion(
+            _razones_recientes(tenant, product, warehouse_id),
+        )
+        if factores:
+            aplicar_calibracion(daily_forecasts, factores)
+            params = dict(fm.model_params or {})
+            if params.get("calibracion") != factores:
+                params["calibracion"] = factores
+                fm.model_params = params
+                fm.save(update_fields=["model_params"])
 
     # Apply confidence decay for stale models
     confidence_base = compute_confidence_decay(fm.trained_at, confidence_base)
