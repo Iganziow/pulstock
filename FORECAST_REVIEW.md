@@ -204,6 +204,34 @@ Tres conclusiones:
    (evaluación semanal, y revisar por qué el derivado de Queso duplica el
    consumo real).
 
+### 2.13 Las bandas de confianza no están calibradas: cubren el 43% en vez del 80%
+Medido el 04-09 sobre 4.599 mediciones de 30 días, cruzando cada día real con
+la banda (piso, techo) publicada para ese día. Una banda "del 80%" debería
+contener ~80% de los días reales.
+
+| algoritmo | n | dentro | bajo el piso | sobre el techo | ancho / predicción |
+|---|---|---|---|---|---|
+| **total** | 4.599 | **43%** | **48%** | 9% | 4,4× |
+| adaptive_ma | 2.048 | 47% | 44% | 8% | 0,6× |
+| theta | 1.082 | 61% | 36% | 4% | **18,4×** |
+| croston_sba | 645 | 20% | 64% | 16% | 1,6× |
+| croston | 364 | **3%** | **85%** | 12% | 1,1× |
+| ingredient_derived (núcleo) | 70 | 23% | 46% | 31% | 0,6× |
+| seasonal_naive | 30 | 93% | 3% | 3% | 1,0× |
+
+Dos defectos distintos: (1) el **piso está por encima de la realidad** casi
+la mitad de las veces (48%), que es la sobrepredicción vista desde otro
+ángulo: en Croston, el 85% de los días reales quedan bajo el piso; (2) el
+**ancho es arbitrario**, de 0,6× la predicción (demasiado angosto: el
+derivado del núcleo falla por ambos lados) a 18× (theta: la banda no dice
+nada, y es el techo que declara "quiebre en 5 días" a Chocolate Premium con
+18 días de stock, ver 2.10). Todo lo que se apoya en las bandas (stock de
+seguridad `z·RMSE·√L`, quiebre conservador, sugerencias con confianza baja)
+hereda esto. Técnica que falta: calibración empírica de intervalos por
+producto a partir de los errores reales de los últimos 28 días (cuantiles
+10/90 del cociente real/predicho), que corrige piso y ancho de una vez sin
+tocar los algoritmos.
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
