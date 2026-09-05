@@ -11,6 +11,51 @@ from ..utils import (
 _ADDITIVE_PATTERNS = ("intermittent", "lumpy")
 
 
+
+def _nivel_y_dow(serie, decay, win):
+    """Nivel (media movil ponderada por `decay` sobre los ultimos `win` dias)
+    y factores por dia de la semana calculados sobre TODA `serie`.
+
+    Existe para poder llamarlo dos veces: sobre `train` (serie menos los
+    ultimos 7 dias) al elegir decay/window en el grid, y sobre la serie
+    completa para el pronostico final. Antes el pronostico final usaba el
+    nivel del `train`, asi que el modelo iba siempre una semana atrasado
+    (ver el comentario en el cuerpo principal).
+    """
+    import datetime as _dt
+    recent = serie[-win:]
+    n = len(recent)
+    raw_weights = [decay ** (n - 1 - i) for i in range(n)]
+    w_sum = sum(raw_weights)
+    avg = sum(float(item[1]) * raw_weights[i] / w_sum for i, item in enumerate(recent))
+
+    # DOW factors. Si un dia de la semana NO tuvo ventas en TODO el rango
+    # (con >= 4 ocurrencias), asumimos que el local no abre ese dia ->
+    # factor=0. Mario reporto ventas pronosticadas en domingos cerrados.
+    dow_totals = {}
+    dates = [item[0] for item in serie]
+    for item in serie:
+        dow_totals.setdefault(item[0].weekday(), []).append(float(item[1]))
+    if dates:
+        min_d, max_d = min(dates), max(dates)
+        total_days = (max_d - min_d).days + 1
+        dow_occ = {dow: 0 for dow in range(7)}
+        for i in range(total_days):
+            dow_occ[(min_d + _dt.timedelta(days=i)).weekday()] += 1
+    else:
+        dow_occ = {dow: 0 for dow in range(7)}
+    overall = avg if avg > 0 else 1.0
+    dow_factors = {}
+    for d in range(7):
+        vals = dow_totals.get(d, [])
+        if vals:
+            dow_factors[d] = round(sum(vals) / len(vals) / overall, 3)
+        elif dow_occ.get(d, 0) >= 4:
+            dow_factors[d] = 0.0  # dia cerrado
+        else:
+            dow_factors[d] = 1.0  # poca data, neutro
+    return avg, dow_factors
+
 def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None, use_additive=False):
     """
     Moving Average with optimized decay parameter.
@@ -34,42 +79,9 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None, 
             if len(train) < win:
                 continue
 
-            # Manual WMA with this decay
-            recent = train[-win:]
-            n = len(recent)
-            raw_weights = [decay ** (n - 1 - i) for i in range(n)]
-            w_sum = sum(raw_weights)
-            avg = sum(float(item[1]) * raw_weights[i] / w_sum for i, item in enumerate(recent))
-
-            # DOW factors. Si un día de la semana NO tuvo ventas en
-            # TODO el rango (con >= 4 ocurrencias), asumimos que el
-            # local no abre ese día → factor=0 (forecast=0 ese día).
-            # Mario reportó: forecast predecía ventas en domingos
-            # cuando la cafetería no abre ese día.
-            import datetime as _dt
-            dow_totals = {}
-            train_dates = [item[0] for item in train]
-            for item in train:
-                dow_totals.setdefault(item[0].weekday(), []).append(float(item[1]))
-            if train_dates:
-                min_d, max_d = min(train_dates), max(train_dates)
-                total_days = (max_d - min_d).days + 1
-                dow_occ = {dow: 0 for dow in range(7)}
-                for i in range(total_days):
-                    dd = min_d + _dt.timedelta(days=i)
-                    dow_occ[dd.weekday()] += 1
-            else:
-                dow_occ = {dow: 0 for dow in range(7)}
-            overall = avg if avg > 0 else 1.0
-            dow_factors = {}
-            for d in range(7):
-                vals = dow_totals.get(d, [])
-                if vals:
-                    dow_factors[d] = round(sum(vals) / len(vals) / overall, 3)
-                elif dow_occ.get(d, 0) >= 4:
-                    dow_factors[d] = 0.0  # día cerrado
-                else:
-                    dow_factors[d] = 1.0  # poca data, neutro
+            # Nivel y factores DOW sobre el train (sin la ultima semana),
+            # solo para ELEGIR decay/window contra esa semana.
+            avg, dow_factors = _nivel_y_dow(train, decay, win)
 
             # Test
             preds = [avg * dow_factors.get(item[0].weekday(), 1.0) for item in test]
@@ -82,6 +94,17 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None, 
 
     if not best_config:
         return None
+
+    # 04/09/26: el nivel y los factores DOW del PRONOSTICO se recalculan
+    # sobre la serie COMPLETA con la configuracion elegida. Antes se usaban
+    # los del `train` (serie menos los ultimos 7 dias), asi que el modelo
+    # iba siempre una semana atrasado: 21 dias a 10/dia seguidos de 7 dias
+    # a CERO seguia pronosticando 10; 28 dias a 10 y luego 7 a 30, tambien
+    # 10. Con 74 modelos activos en Marbrava, era el algoritmo que mas
+    # tardaba en enterarse de que un producto dejo (o empezo) de venderse.
+    best_config["avg"], best_config["dow_factors"] = _nivel_y_dow(
+        daily_series, best_config["decay"], best_config["window"],
+    )
 
     # Generate forecasts with optimal config
     avg_daily = _q3(best_config["avg"])
