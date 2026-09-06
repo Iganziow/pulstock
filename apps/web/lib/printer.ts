@@ -80,6 +80,34 @@ export function generateId(): string {
 
 let cachedUSBDevice: any = null;
 
+/**
+ * La impresora configurada no esta disponible y NO se puede abrir el
+ * selector del navegador (impresion automatica, sin gesto del usuario).
+ *
+ * Nadia (06/09/26): al cobrar una mesa saltaba "pulstock.cl quiere
+ * conectarse / No se han podido encontrar dispositivos compatibles". Era el
+ * picker de Web Bluetooth/USB abierto por la boleta automatica: la impresora
+ * guardada en ese PC no estaba y sendBluetooth/sendUSB caian a requestDevice.
+ * El picker solo tiene sentido cuando la persona toco "Imprimir".
+ */
+export class ImpresoraNoConectada extends Error {
+  constructor(nombre: string, via: "Bluetooth" | "USB") {
+    super(
+      `La impresora "${nombre}" no está conectada por ${via}. ` +
+      `Enciéndela y toca Imprimir para volver a conectarla, o quita esta impresora ` +
+      `en Configuración → Impresoras para imprimir por el agente del local.`,
+    );
+    this.name = "ImpresoraNoConectada";
+  }
+}
+
+export interface SendOpts {
+  /** true = no abrir el selector de dispositivos (impresion automatica). */
+  silent?: boolean;
+  /** Nombre de la impresora, para el mensaje. */
+  nombre?: string;
+}
+
 export async function pairUSBPrinter(): Promise<any> {
   if (!navigator.usb) throw new Error("WebUSB no disponible en este navegador");
   const device = await navigator.usb.requestDevice({
@@ -89,7 +117,7 @@ export async function pairUSBPrinter(): Promise<any> {
   return device;
 }
 
-async function sendUSB(data: Uint8Array): Promise<void> {
+async function sendUSB(data: Uint8Array, opts: SendOpts = {}): Promise<void> {
   if (!navigator.usb) throw new Error("WebUSB no disponible");
 
   let device = cachedUSBDevice;
@@ -103,6 +131,7 @@ async function sendUSB(data: Uint8Array): Promise<void> {
   }
 
   if (!device) {
+    if (opts.silent) throw new ImpresoraNoConectada(opts.nombre || "USB", "USB");
     device = await navigator.usb.requestDevice({ filters: [{ classCode: 7 }] });
   }
 
@@ -345,7 +374,7 @@ async function connectAndFindCharacteristic(device: any): Promise<any> {
   throw new Error("No se encontró característica de escritura en la impresora Bluetooth");
 }
 
-async function sendBluetooth(data: Uint8Array): Promise<void> {
+async function sendBluetooth(data: Uint8Array, opts: SendOpts = {}): Promise<void> {
   if (!navigator.bluetooth) throw new Error("Web Bluetooth no disponible");
 
   // 1. Try cached characteristic
@@ -375,6 +404,9 @@ async function sendBluetooth(data: Uint8Array): Promise<void> {
   //    Usamos los filtros estrictos por defecto — solo aparecen impresoras
   //    térmicas en el picker (MAHAVEER, XP-, POS, MTP, etc.). Eso evita
   //    que Mario tenga que adivinar entre 6 "Dispositivos desconocidos".
+  //    En impresion automatica (silent) NO: el picker es solo para cuando
+  //    la persona toco Imprimir.
+  if (opts.silent) throw new ImpresoraNoConectada(opts.nombre || "Bluetooth", "Bluetooth");
   let device: any;
   try {
     device = await navigator.bluetooth.requestDevice({
@@ -556,19 +588,20 @@ async function sendAgent(data: Uint8Array, printer: PrinterConfig): Promise<void
 
 // ── Main print function ──────────────────────────────────────────────────────
 
-export async function printBytes(data: Uint8Array, printer?: PrinterConfig | null): Promise<void> {
+export async function printBytes(data: Uint8Array, printer?: PrinterConfig | null, opts: SendOpts = {}): Promise<void> {
   const p = printer || getDefaultPrinter();
 
   if (!p) {
     throw new Error("No hay impresora configurada");
   }
 
+  const sendOpts: SendOpts = { ...opts, nombre: opts.nombre || p.name };
   switch (p.type) {
     case "usb":
-      await sendUSB(data);
+      await sendUSB(data, sendOpts);
       break;
     case "bluetooth":
-      await sendBluetooth(data);
+      await sendBluetooth(data, sendOpts);
       break;
     case "network":
       // Las impresoras de red ahora se manejan exclusivamente vía el agente
@@ -667,6 +700,13 @@ export interface UniversalPrintInput {
    * backend rutea a una impresora online asignada a esa estación.
    */
   stationId?: number | null;
+  /**
+   * Impresión AUTOMÁTICA (boleta tras el cobro, sin gesto del usuario):
+   * usa solo dispositivos ya autorizados y nunca abre el selector del
+   * navegador. Si la impresora local no está, devuelve ok:false con un
+   * mensaje claro (ImpresoraNoConectada) en vez del picker.
+   */
+  silent?: boolean;
 }
 
 /**
@@ -740,10 +780,16 @@ async function _printUniversalImpl(input: UniversalPrintInput): Promise<{ method
     }
 
     try {
-      await printBytes(input.bytes, p);
+      await printBytes(input.bytes, p, { silent: !!input.silent });
       return { method: p.type, ok: true, printer: p.name };
     } catch (localErr: any) {
       const localErrMsg = localErr?.message || String(localErr);
+
+      // Impresion automatica sin la impresora a mano: el mensaje ya dice
+      // que hacer (encender y tocar Imprimir, o quitar la impresora local).
+      if (localErr instanceof ImpresoraNoConectada) {
+        return { method: p.type, ok: false, error: localErrMsg, printer: p.name };
+      }
 
       // Si el user CANCELÓ el picker (BT/USB), NO es un error real — es
       // decisión consciente. Retornamos `cancelled: true` para que el

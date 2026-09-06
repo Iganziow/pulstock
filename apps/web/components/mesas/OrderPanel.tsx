@@ -432,7 +432,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
       // backend pero NO bloqueamos el cobro.
       if (saleId) {
         try {
-          await handlePrintReceipt(saleId);
+          await handlePrintReceipt(saleId, { auto: true });
         } catch (e) {
           // eslint-disable-next-line no-console
           console.warn("[auto-print] falló:", e);
@@ -451,7 +451,11 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
     } finally { setPayLoading(false); }
   }
 
-  async function handlePrintReceipt(saleId: number) {
+  // `auto`: boleta automatica tras el cobro. Sin gesto del usuario no se
+  // abre el selector de dispositivos del navegador (Nadia 06/09/26: al
+  // cerrar una mesa saltaba "pulstock.cl quiere conectarse"). El boton
+  // "Imprimir" sigue pudiendo abrirlo para (re)parear.
+  async function handlePrintReceipt(saleId: number, opts: { auto?: boolean } = {}) {
     if (printing) return;  // anti doble-click
     setPrinting("boleta");
     try {
@@ -486,6 +490,7 @@ export function OrderPanel({ order, tableName, isCounter, onRefresh, onClose, on
         html: buildReceiptHTML(receiptData),
         paperWidth,
         source: "pos",
+        silent: !!opts.auto,
       });
       if (!r.ok) {
         // Cancelación del picker = no es error (mismo trato que pre-cuenta).
