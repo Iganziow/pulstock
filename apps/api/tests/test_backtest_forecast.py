@@ -101,6 +101,31 @@ class TestComandoBacktest:
         assert "base" in texto and "ahora" in texto and "delta" in texto
         assert "productos que mejoran: 1 | empeoran: 0" in texto
 
+    def test_los_derivados_se_saltan_y_se_dice_cuanta_venta_son(self, tenant, store, warehouse, product, product_b, tmp_path):
+        """Leche y cafe son el nucleo y tienen derivado activo: sin esta nota la
+        tabla mostraba un 'nucleo' de dos productos chicos y engañaba."""
+        from forecast.models import ForecastModel
+        _cargar_historia(tenant, warehouse, product, [80, 70, 90, 80, 100, 60, 0])   # el grande, derivado
+        _cargar_historia(tenant, warehouse, product_b, [2, 0, 0, 3, 0, 0, 0])
+        ForecastModel.objects.create(
+            tenant=tenant, product=product, warehouse=warehouse, algorithm="ingredient_derived",
+            version=1, is_active=True, model_params={}, metrics={"wape": 40}, data_points=30,
+            demand_pattern="smooth", confidence_label="medium",
+        )
+        out = io.StringIO()
+        salida = tmp_path / "s.json"
+        call_command("backtest_forecast", tenant=tenant.id, semanas=1, salida=str(salida), stdout=out)
+        texto = out.getvalue()
+        assert "no evaluados (derivado de receta activo): 1 productos, 1 del nucleo" in texto
+        d = json.loads(salida.read_text(encoding="utf-8"))
+        assert {p["nombre"] for p in d["productos"]} == {product_b.name}
+        assert d["meta"]["derivados_no_evaluados"]["pct_venta_30d"] > 90
+        # con --incluir-derivados se evalua igual
+        out2 = io.StringIO()
+        call_command("backtest_forecast", tenant=tenant.id, semanas=1, incluir_derivados=True, stdout=out2)
+        assert "no evaluados" not in out2.getvalue()
+        assert "nucleo                 1" in out2.getvalue() or "nucleo" in out2.getvalue()
+
     def test_tenant_inexistente(self):
         from django.core.management.base import CommandError
         with pytest.raises(CommandError):

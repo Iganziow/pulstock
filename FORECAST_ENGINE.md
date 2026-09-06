@@ -532,7 +532,10 @@ elige con `select_best_model` + `_collapse_guard`, pronostica D+1..D+7 y
 compara con la venta real. Resume WAPE y sesgo por segmento (núcleo = 90% de
 la venta de 30 días, cola) y por patrón, y con `--comparar` cuenta cuántos
 productos mejoran o empeoran. No replica el kept-path ni la corrección de
-sesgo: mide el motor de selección.
+sesgo: mide el motor de selección. Los ingredientes con derivado de receta
+activo no se evalúan (no los publica el motor de selección) y el comando
+dice cuántos son y qué parte de la venta pesan; con `--incluir-derivados`
+se mide el motor directo sobre ellos.
 
 ## Directo contra derivado (ingredientes con receta)
 

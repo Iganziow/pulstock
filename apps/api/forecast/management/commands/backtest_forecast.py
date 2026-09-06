@@ -68,10 +68,14 @@ def _perfil(tenant):
     return perfiles.get(getattr(tenant, "business_type", "other") or "other", perfiles["other"])
 
 
-def productos_a_evaluar(tenant, hasta, solo_producto=None):
-    """(product_id, warehouse_id, nombre) con historia en el tenant. Se saltan
-    los ingredientes cuyo modelo activo es el derivado de receta: a esos no
-    los pronostica el motor de seleccion."""
+def productos_a_evaluar(tenant, hasta, solo_producto=None, incluir_derivados=False):
+    """(lista de (product_id, warehouse_id, nombre), pares saltados).
+
+    Por defecto se saltan los ingredientes cuyo modelo activo es el derivado
+    de receta: en produccion a esos no los pronostica el motor de seleccion,
+    asi que evaluarlos no describe lo que se publica. Con
+    `incluir_derivados` se evaluan igual (mide que haria el directo sobre
+    ellos: util para la competencia directo/derivado)."""
     pares = (
         DailySales.objects.filter(tenant=tenant, date__lte=hasta)
         .values_list("product_id", "warehouse_id").distinct()
@@ -84,15 +88,18 @@ def productos_a_evaluar(tenant, hasta, solo_producto=None):
         ).values_list("product_id", "warehouse_id")
     )
     nombres = dict(Product.objects.filter(tenant=tenant).values_list("id", "name"))
-    return sorted(
+    saltados = set() if incluir_derivados else {(pid, wh) for pid, wh in pares if (pid, wh) in derivados}
+    lista = sorted(
         (pid, wh, nombres[pid]) for pid, wh in pares
-        if pid in nombres and (pid, wh) not in derivados
+        if pid in nombres and (pid, wh) not in saltados
     )
+    return lista, saltados
 
 
 def nucleo_de_ventas(tenant, hasta, dias=VENTANA_NUCLEO_DIAS, fraccion=NUCLEO_FRACCION):
-    """Los productos que, ordenados por venta, acumulan `fraccion` de la venta
-    de los ultimos `dias`. Misma regla que forecast.coverage.calidad_por_peso."""
+    """(nucleo, venta_por_producto): los productos que, ordenados por venta,
+    acumulan `fraccion` de la venta de los ultimos `dias`. Misma regla que
+    forecast.coverage.calidad_por_peso."""
     desde = hasta - timedelta(days=dias - 1)
     por_prod = defaultdict(float)
     for pid, q in DailySales.objects.filter(
@@ -106,7 +113,7 @@ def nucleo_de_ventas(tenant, hasta, dias=VENTANA_NUCLEO_DIAS, fraccion=NUCLEO_FR
         acum += q
         if total and acum >= fraccion * total:
             break
-    return nucleo
+    return nucleo, por_prod
 
 
 def backtest_producto(tenant, product, warehouse_id, hasta, horizonte, semanas,
@@ -204,6 +211,8 @@ class Command(BaseCommand):
         parser.add_argument("--horizonte", type=int, default=7, help="Dias evaluados por corrida (default 7)")
         parser.add_argument("--hasta", help="Ultimo dia evaluado, YYYY-MM-DD (default: ayer)")
         parser.add_argument("--producto", type=int, help="Solo este product_id")
+        parser.add_argument("--incluir-derivados", action="store_true",
+                            help="Evaluar tambien los ingredientes con derivado de receta activo (mide el motor directo sobre ellos)")
         parser.add_argument("--salida", help="Guarda el detalle por producto en este JSON")
         parser.add_argument("--comparar", help="JSON de una corrida anterior: imprime la diferencia")
         parser.add_argument("--etiqueta", default="", help="Nombre de la corrida (aparece en el titulo)")
@@ -218,8 +227,21 @@ class Command(BaseCommand):
         window, min_days = max(7, perfil["window"]), max(7, perfil["min_days"])
 
         t0 = time.time()
-        productos = productos_a_evaluar(tenant, hasta, o.get("producto"))
-        nucleo = nucleo_de_ventas(tenant, hasta)
+        productos, saltados = productos_a_evaluar(
+            tenant, hasta, o.get("producto"), incluir_derivados=o.get("incluir_derivados", False),
+        )
+        nucleo, venta_por_prod = nucleo_de_ventas(tenant, hasta)
+        # Los derivados saltados suelen SER el nucleo (leche, cafe): decirlo,
+        # si no el "nucleo" de la tabla son dos productos y engaña.
+        venta_total = sum(venta_por_prod.values())
+        venta_saltada = sum(venta_por_prod.get(pid, 0.0) for pid, _ in saltados)
+        nota_derivados = None
+        if saltados:
+            nota_derivados = {
+                "productos": len(saltados),
+                "del_nucleo": sum(1 for pid, _ in saltados if pid in nucleo),
+                "pct_venta_30d": round(venta_saltada / venta_total * 100, 1) if venta_total else 0.0,
+            }
         desde_eval = hasta - timedelta(days=horizonte * semanas - 1)
         ventas = defaultdict(float)
         for pid, wh, d, q in DailySales.objects.filter(
@@ -245,6 +267,7 @@ class Command(BaseCommand):
                 "semanas": semanas, "horizonte": horizonte, "window": window,
                 "min_days": min_days, "productos": len(resultados),
                 "generado": date.today().isoformat(),
+                "derivados_no_evaluados": nota_derivados,
             },
             "productos": resultados,
         }
@@ -299,3 +322,10 @@ class Command(BaseCommand):
             self.stdout.write("  productos que mejoran: %d | empeoran: %d | iguales: %d" % (mejoran, empeoran, iguales))
         ganadores = Counter(p["alg"] for p in salida["productos"]).most_common(8)
         self.stdout.write("  algoritmos elegidos: %s" % ", ".join("%s=%d" % kv for kv in ganadores))
+        nd = m.get("derivados_no_evaluados")
+        if nd:
+            self.stdout.write(
+                "  no evaluados (derivado de receta activo): %d productos, %d del nucleo, %.1f%% de la venta "
+                "de 30 dias. Con --incluir-derivados se mide el motor directo sobre ellos."
+                % (nd["productos"], nd["del_nucleo"], nd["pct_venta_30d"])
+            )
