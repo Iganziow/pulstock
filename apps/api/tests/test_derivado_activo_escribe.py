@@ -211,25 +211,31 @@ class TestDerivadoActivoEscribeSusForecasts:
             "nadie va a poder puntuarla y el producto desaparece de la métrica"
         )
 
-    def test_el_derivado_ya_activo_no_se_borra_a_si_mismo(
+    def test_el_derivado_ya_activo_compite_y_el_producto_nunca_queda_sin_modelo(
         self, tenant, store, warehouse, leche, latte,
     ):
-        """Fija el ORDEN, que es la causa raíz.
-
-        Sin filas pasadas que lo protejan, un derivado que ya era el activo
-        tiene que seguir existiendo después de la corrida — desactivado si
-        perdió, pero no borrado. Si desaparece es que `ya_activo` se evaluó
-        tarde y el producto volvió a la rama de candidato.
+        """Hasta el 05/09/26 este test exigia que el derivado activo
+        sobreviviera la corrida pasara lo que pasara: era el trinquete
+        (`make_active=ya_activo`) que impedia que el directo le ganara.
+        Desde entonces compiten (tests/test_competencia_directo_derivado.py)
+        y el contrato es otro: la corrida deja EXACTAMENTE un activo con
+        pronosticos futuros, y el derivado se reentrena siempre (como activo
+        si conservo el puesto, como candidato si lo perdio). Las filas de
+        fechas ya cumplidas las protege el test de arriba.
         """
         from django.core.management import call_command
 
         _historial(tenant, warehouse, leche)
         _historial(tenant, warehouse, latte, qty="20")
-        fm = _modelo_derivado_activo(tenant, warehouse, leche)
+        _modelo_derivado_activo(tenant, warehouse, leche)
 
         call_command("train_forecast_models", tenant=tenant.id, horizon=14, verbosity=0)
 
-        assert ForecastModel.objects.filter(id=fm.id).exists(), (
-            "el derivado que ya era el activo se borró a sí mismo: "
-            "`ya_activo` se evaluó después de que train_product_model lo desactivara"
-        )
+        activos = ForecastModel.objects.filter(product=leche, is_active=True)
+        assert activos.count() == 1, "tiene que quedar exactamente un modelo activo"
+        assert Forecast.objects.filter(
+            model=activos.first(), forecast_date__gt=datetime.date.today(),
+        ).exists(), "el activo no escribio pronosticos futuros"
+        assert ForecastModel.objects.filter(
+            product=leche, algorithm="ingredient_derived",
+        ).exists(), "el derivado tiene que reentrenarse cada noche, activo o candidato"

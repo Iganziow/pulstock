@@ -398,9 +398,11 @@ class TestIngredientDerivedParallelCandidate:
 @pytest.mark.django_db
 class TestIngredientDerivedBacktestAndSwap:
     """
-    Fase 2.2 + 2.3:
-    - El derived calcula WAPE genuino a partir de DailySales historicos
-      de los padres x recipe_multipliers vs DailySales reales del ingrediente.
+    Fase 2.2 + 2.3 (medicion honesta desde el 05/09/26):
+    - El derived calcula su WAPE con las predicciones que sus padres
+      PUBLICARON (ForecastAccuracy.qty_predicted x recipe_multipliers) vs
+      DailySales reales del ingrediente. Antes usaba las ventas reales de los
+      padres, que son la misma expansion de receta: WAPE 0 por construccion.
     - Si WAPE derived < WAPE organic * 0.85 Y WAPE derived < 80%, swap
       automatico: derived pasa a activo, organic queda inactivo.
     """
@@ -438,13 +440,22 @@ class TestIngredientDerivedBacktestAndSwap:
                 confidence=Decimal("65"),
             )
 
-        # DailySales historicos: 30 dias del padre y del ingrediente
+        # DailySales historicos: 30 dias del padre y del ingrediente, y la
+        # accuracy del padre: predijo exactamente lo que vendio (padre
+        # perfecto -> derivado perfecto).
+        from forecast.models import ForecastAccuracy
         for i in range(1, 31):
             d = today - timedelta(days=i)
             DailySales.objects.create(
                 tenant=tenant, product=parent_product, warehouse=warehouse_e2e,
                 date=d, qty_sold=Decimal(str(parent_qty_per_day)),
                 revenue=Decimal("0"),
+            )
+            ForecastAccuracy.objects.create(
+                tenant=tenant, product=parent_product, warehouse=warehouse_e2e,
+                date=d, qty_predicted=Decimal(str(parent_qty_per_day)),
+                qty_actual=Decimal(str(parent_qty_per_day)), error=Decimal("0"),
+                abs_pct_error=Decimal("0"), algorithm="moving_avg",
             )
             DailySales.objects.create(
                 tenant=tenant, product=ingredient_in_kg, warehouse=warehouse_e2e,
@@ -463,7 +474,8 @@ class TestIngredientDerivedBacktestAndSwap:
         self, tenant, warehouse_e2e, parent_product, ingredient_in_kg,
         recipe_with_unit_mismatch,
     ):
-        """El derived debe guardar WAPE genuino del backtest, no 0 hardcoded."""
+        """El derived guarda el WAPE de lo que sus padres publicaron, no 0 hardcoded
+        ni el 0 tautologico de comparar las ventas de los padres consigo mismas."""
         today, stock = self._setup_full_history(
             tenant, warehouse_e2e, parent_product, ingredient_in_kg,
             recipe_with_unit_mismatch,
@@ -487,8 +499,9 @@ class TestIngredientDerivedBacktestAndSwap:
         assert derived.metrics["wape"] <= 1.0, (
             f"WAPE backtest esperado ~0 (match perfecto), got {derived.metrics['wape']}"
         )
-        # backtest_days debe estar en model_params
+        # backtest_days debe estar en model_params, y decir de donde salio
         assert derived.model_params.get("backtest_days") == 30
+        assert derived.model_params.get("backtest_source") == "padres_publicados"
 
     def test_swap_when_derived_clearly_better(
         self, tenant, warehouse_e2e, parent_product, ingredient_in_kg,
