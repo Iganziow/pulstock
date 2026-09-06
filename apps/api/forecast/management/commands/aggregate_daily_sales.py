@@ -12,6 +12,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+import logging
+
 from core.heartbeat import with_heartbeat
 from core.multi_tenant import exigir_todos, por_tenant, tenants_a_procesar
 from django.db.models import Sum
@@ -21,6 +23,8 @@ from core.models import Tenant
 from inventory.models import StockMove, StockItem
 from sales.models import SaleLine, Sale
 from forecast.models import DailySales
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -62,6 +66,44 @@ class Command(BaseCommand):
             f"Done: {total_created} created, {total_updated} updated across {len(days_to_process)} day(s)"
         ))
         exigir_todos(ok, fallidos, command=self)
+
+    def _consumo_teorico(self, tenant, target_date):
+        """{(product_id, warehouse_id): qty} que las ventas COMPLETED/VENTA del
+        dia debieron descontar segun las recetas activas, con la misma
+        expansion que create_sale. Incluye los productos sin receta vendidos
+        directo (expand_recipes los deja pasar con su cantidad). Si la
+        configuracion de recetas esta rota (ciclo, receta activa sin lineas),
+        se avisa y se vuelve al comportamiento anterior para esa bodega."""
+        from collections import defaultdict
+        from sales.recipes import expand_recipes
+
+        por_bodega = defaultdict(lambda: defaultdict(lambda: Decimal("0.000")))
+        for pid, wh, qty in SaleLine.objects.filter(
+            tenant=tenant,
+            sale__created_at__date=target_date,
+            sale__sale_type="VENTA",
+            sale__status=Sale.STATUS_COMPLETED,
+        ).values_list("product_id", "sale__warehouse_id", "qty"):
+            por_bodega[wh][pid] += qty or Decimal("0.000")
+
+        teorico = {}
+        for wh, agg in por_bodega.items():
+            try:
+                expanded, _ = expand_recipes(
+                    {pid: {"qty": q, "unit_price": Decimal("0")} for pid, q in agg.items() if q > 0},
+                    tenant.id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "aggregate_daily_sales: no se pudo expandir las recetas de "
+                    "tenant %s bodega %s el %s (%s); qty_sold usa solo el kardex.",
+                    tenant.id, wh, target_date, exc,
+                )
+                continue
+            for pid, data in expanded.items():
+                if data["qty"] > 0:
+                    teorico[(pid, wh)] = data["qty"]
+        return teorico
 
     def _aggregate_day(self, tenant, target_date):
         """Aggregate all sales, losses, and receipts for one tenant on one day."""
@@ -149,6 +191,25 @@ class Command(BaseCommand):
             for row in stockmove_sale_agg
         }
 
+        # ── Consumo TEORICO por receta (05/09/26) ──────────────────────────
+        # El StockMove es el kardex, pero NO siempre es la demanda: un
+        # ingrediente con allow_negative_stock=True y stock en cero deja pasar
+        # la venta del padre con descuento CLAMPEADO a 0 y sin movimiento
+        # (create_sale, paso 8). La venta ocurrio, el jamon se uso (del stock
+        # que el sistema no conocia), y no quedo registro en ninguna parte.
+        # Medido en Marbrava, 30 dias: Jamon granel 274 g movidos contra
+        # 1.050 g por receta (24 de 32 Selladitas sin descuento), Helado
+        # vainilla 400 contra 1.400, Chantilly 310 contra 370. El modelo
+        # directo aprendia esa demanda censurada y la sugerencia pedia un
+        # tercio de lo que se usa.
+        #
+        # Aca se expanden las ventas del dia con la MISMA funcion que usa la
+        # venta (expand_recipes: recetas anidadas, conversion de unidades) y
+        # qty_sold toma el MAYOR entre lo movido y lo teorico. Si la receta se
+        # edito despues de la venta, una re-agregacion usa la receta de hoy:
+        # aceptable, la agregacion nocturna es de ayer.
+        teorico_map = self._consumo_teorico(tenant, target_date)
+
         # ── F28: consumo INTERNO (regalos/muestras/staff) ──────────────────
         # Descuenta stock igual que una venta, pero NO es demanda → se agrega
         # aparte (qty_sold_internal) y NO entra en qty_sold del forecast.
@@ -229,6 +290,7 @@ class Command(BaseCommand):
             | set(recv_map.keys())
             | set(consumed_map.keys())
             | set(internal_map.keys())
+            | set(teorico_map.keys())
         )
 
         for product_id, warehouse_id in all_keys:
@@ -241,7 +303,14 @@ class Command(BaseCommand):
             # no perder esa demanda en el forecast.
             consumed_qty = consumed_map.get((product_id, warehouse_id), Decimal("0.000"))
             direct_qty = sale_data.get("qty_sold_direct", Decimal("0.000"))
-            qty_sold = consumed_qty if consumed_qty > 0 else direct_qty
+            teorico_qty = teorico_map.get((product_id, warehouse_id), Decimal("0.000"))
+            # Demanda = lo que se descontó o lo que la receta dice que se usó,
+            # el mayor (ver "Consumo TEORICO" arriba). Un producto CON receta
+            # vendido directo no está en ninguno de los dos (es virtual):
+            # conserva la venta directa.
+            qty_sold = max(consumed_qty, teorico_qty)
+            if qty_sold <= 0:
+                qty_sold = direct_qty
             revenue = sale_data.get("revenue", Decimal("0.00"))
             total_cost = sale_data.get("total_cost", Decimal("0.00"))
             gross_profit = sale_data.get("gross_profit", Decimal("0.00"))
@@ -308,6 +377,11 @@ class Command(BaseCommand):
                 # → siempre 0, y la detección de stockout quedaba determinada
                 # solo por closing<=0 (sobre-marcaba). Usamos consumed_map con
                 # fallback a la venta directa, igual que qty_sold del registro.
+                # Aca se usa lo MOVIDO, no el consumo teorico: el stock de
+                # apertura se reconstruye desde el kardex. Con el teorico, un
+                # ingrediente clampeado en 0 "abriria" con stock y quedaria
+                # marcado como stockout (y clean_series le interpolaria
+                # encima de la demanda ya recuperada en qty_sold).
                 qty_sold = consumed_map.get((product_id, warehouse_id))
                 if not qty_sold:
                     qty_sold = sales_map.get((product_id, warehouse_id), {}).get(

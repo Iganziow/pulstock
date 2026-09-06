@@ -289,17 +289,32 @@ Interruptor `FORECAST_CALIBRACION_OFF=1`. La cobertura del 92% supera la
 meta del 80%: es el lado seguro para inventario; si con dos semanas de datos
 sigue sobre 90%, se puede estrechar a cuantiles 15/85.
 
-### 2.15 Dos de cada tres Selladitas no descuentan jamón [E] — abierto
+### 2.15 La demanda de un ingrediente se pierde cuando su stock está en cero [E] — corregido 05-09
 Apareció al medir el derivado: el consumo registrado de Jamón granel en 30
-días (364 g, `StockMove` SALE) es un tercio de lo que dice la receta sobre las
-ventas de sus padres (930 g). De 32 ventas de Selladita, 9 descontaron jamón y
-23 no; todas COMPLETED, VENTA, desde mesas, dos cajeros distintos; las que no
-descuentan se concentran entre el 6 y el 18 de agosto y las que sí, después
-del 25. Pan blanco y Queso, en la misma receta, sí se descuentan (48 y 43
-movimientos). Hipótesis: el ingrediente no tenía `StockItem` o estaba en cero
-y la expansión lo saltó en silencio. Afecta el stock, el consumo que aprende
-el modelo y la sugerencia de ese ingrediente. Pendiente: revisar
-`sales/recipes.py` y contar cuántos ingredientes más están en el caso.
+días (364 g, `StockMove` SALE) era un tercio de lo que dice la receta sobre las
+ventas de sus padres (930 g). Causa, verificada venta por venta: Jamón granel
+tiene `allow_negative_stock=True`; con el stock en cero (del 6 al 24 de
+agosto no hubo recepciones), la venta de la Selladita pasa, `create_sale`
+clampea el descuento a 0 y no crea movimiento (paso 8). `aggregate_daily_sales`
+tomaba `qty_sold` del movimiento, así que 24 de 32 Selladitas no dejaron
+rastro. No es solo jamón: en 30 días la misma regla dejó Helado vainilla en
+0 en vez de 1.000, Queso 0/270, Chantilly 20/80, Syrup caramelo 0/15.
+
+Consecuencias: el modelo directo del jamón aprendió una serie censurada (12
+g/día en vez de 35) y por eso "le ganaba" al derivado en 2.12; el consumo
+real de 30 días que muestra la sugerencia era un tercio del real; y el mínimo
+automático se calculaba con esa demanda. Leche y café tienen la misma bandera:
+el día que el sistema los tenga en cero, cada latte deja de contar. Es un
+argumento a favor del derivado en esos productos: no depende del kardex.
+
+Arreglo (`tests/test_consumo_teorico_por_receta.py`): el agregador expande
+las ventas del día con la misma función que la venta (`expand_recipes`) y
+`qty_sold` toma el mayor entre lo movido y lo teórico. El kardex
+(`StockMove`, `closing_stock`, `is_stockout`) no cambia. Si la configuración
+de recetas está rota, avisa y usa solo el kardex. Aplica hacia adelante; la
+historia se corrige re-agregando (`aggregate_daily_sales --days 30 --tenant
+1`), que es lo que conviene hacer tras el despliegue para que el modelo del
+jamón vea la demanda real.
 
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
