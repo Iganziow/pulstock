@@ -363,11 +363,29 @@ class Command(BaseCommand):
                         # antes de que llegaran las ventas para puntuarla.
                         # La ventana se corria un dia cada noche y el producto
                         # nunca alcanzaba a medirse.
+                        # 05/09/26: COMPETENCIA SIMETRICA. El kept-path de
+                        # train_product_model ya comparo el directo fresco
+                        # contra el derivado titular (con su error honesto,
+                        # ver Fase 2.2 en train_ingredient_product). Si gano
+                        # el directo, ahora ES el activo y el derivado se
+                        # entrena como CANDIDATO: vuelve solo si le gana por
+                        # 15% (SWAP_MARGIN). Antes `make_active=ya_activo`
+                        # pisaba ese resultado y reactivaba al derivado
+                        # siempre: un trinquete (una vez derivado, derivado
+                        # para siempre). Sin riesgo de "mudos": el candidato
+                        # no escribe filas, pero el directo activo ya
+                        # escribio las suyas en el fresh path.
+                        derivado_sigue_activo = FM.objects.filter(
+                            tenant=tenant, product=product, warehouse_id=wh_id,
+                            algorithm="ingredient_derived", is_active=True,
+                        ).exists()
+                        if ya_activo and not derivado_sigue_activo:
+                            stats["swapped_to_organic"] = stats.get("swapped_to_organic", 0) + 1
                         try:
                             train_ingredient_product(
                                 tenant, product, wh_id, today,
                                 horizon, stock_items, stats,
-                                make_active=ya_activo,
+                                make_active=derivado_sigue_activo,
                             )
                         except Exception as exc:
                             # Si el candidato falla, no rompemos el train.

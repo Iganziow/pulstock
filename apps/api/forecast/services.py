@@ -1410,6 +1410,30 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
     return best
 
 
+def _wape_vigente(metrics, min_muestras=7):
+    """El error con que se juzga a un modelo que YA esta en produccion.
+
+    Si `recalibrate_confidence` ya midio su desempeno real (wape_real, con al
+    menos `min_muestras` dias puntuados) esa es la vara: es lo que el modelo
+    hizo de verdad. Si no, el wape de su backtest. 999 si no hay nada.
+
+    Es la misma regla para el directo y para el derivado: la competencia
+    entre ambos (05/09/26) se juzga con esta funcion en los dos sentidos.
+    """
+    m = metrics or {}
+    wr = m.get("wape_real")
+    if wr is not None and (m.get("wape_real_samples") or 0) >= min_muestras:
+        return float(wr)
+    w = m.get("wape")
+    return float(w) if w is not None else 999.0
+
+
+# Margen anti-parpadeo de la competencia directo <-> derivado (05/09/26): el
+# candidato tiene que ganarle al titular por 15% para desplazarlo, en los dos
+# sentidos. Mismo valor que SWAP_MARGIN en train_ingredient_product.
+MARGEN_DESPLAZAR_DERIVADO = 0.85
+
+
 def _algo_eligible_for_pattern(algorithm, demand_pattern):
     """True si `algorithm` sigue siendo elegible para `demand_pattern`.
 
@@ -1692,8 +1716,13 @@ def train_product_model(tenant, product, warehouse_id, today,
     # venta) vs adaptive_ma (que predice promedio todos los dias) es injusto.
     # Cuando cambia el pattern, forzar el cambio — la reclasificacion ES la
     # mejora aunque el WAPE del backtest no lo refleje directamente.
+    # El derivado guarda demand_pattern="smooth" fijo: no es un patron medido
+    # sobre su serie, asi que "cambio de patron" no aplica (05/09/26). Sin
+    # esta excepcion, un ingrediente intermitente con derivado titular (Jamon,
+    # Chai) caia aqui todas las noches y el directo lo desplazaba sin competir.
+    existing_es_derivado = bool(existing and existing.algorithm == "ingredient_derived")
     pattern_changed = (
-        existing and existing.demand_pattern
+        existing and not existing_es_derivado and existing.demand_pattern
         and existing.demand_pattern != demand_pattern
     )
     # F (01/06/26): nunca conservar un modelo cuyo algoritmo ya NO es elegible
@@ -1719,7 +1748,7 @@ def train_product_model(tenant, product, warehouse_id, today,
     if (existing and existing.metrics and existing.metrics.get("wape") is not None
             and not pattern_changed and not existing_algo_ineligible
             and not breaker_forced):
-        old_err = existing.metrics.get("wape", 999)
+        old_err = _wape_vigente(existing.metrics)
         # Sprint A (jul 2026): el WAPE del incumbente es un backtest CONGELADO
         # de la noche en que se entrenó — medido sobre el régimen de entonces,
         # y nunca se refresca mientras el modelo se conserva. Un modelo pegado
@@ -1729,11 +1758,17 @@ def train_product_model(tenant, product, warehouse_id, today,
         # fósil imbatible). Si recalibrate_confidence ya midió wape_real (el
         # desempeño EN PRODUCCIÓN de los últimos 14 días) con muestras
         # suficientes, esa es la vara honesta del incumbente.
-        _wr = existing.metrics.get("wape_real")
-        if _wr is not None and (existing.metrics.get("wape_real_samples") or 0) >= 7:
-            old_err = _wr
+        # (La eleccion wape_real-si-hay-muestras vive en _wape_vigente.)
         new_err = best["metrics"].get("wape", best["metrics"].get("mape", 999))
-        if new_err > old_err * 1.1 and old_err < 900:
+        # Competencia simetrica (05/09/26): al titular organico lo desplaza un
+        # candidato hasta 10% peor (su wape es un fosil y el fresco es mas
+        # honesto). Al derivado titular NO: su error se mide de nuevo cada
+        # noche con las predicciones publicadas de sus padres, asi que el
+        # directo tiene que ganarle por el mismo 15% que se le exige al
+        # derivado para entrar (SWAP_MARGIN). Sin esto un directo apenas
+        # peor lo desplazaba y el derivado no podia volver.
+        tolerancia = MARGEN_DESPLAZAR_DERIVADO if existing_es_derivado else 1.1
+        if new_err > old_err * tolerancia and old_err < 900:
             stats["kept"] += 1
             _regen_from_existing(
                 tenant, product, warehouse_id, existing,
@@ -2827,13 +2862,22 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
-    # ── Fase 2.2: backtest historico para WAPE genuino ──────────────────
-    # Re-derivamos demanda esperada del ingrediente para los ultimos
-    # BACKTEST_DAYS dias usando ventas REALES de los padres x los mismos
-    # recipe_multipliers, y la comparamos con el consumo real del
-    # ingrediente (DailySales). Esto nos da WAPE honesto del derived
-    # (antes era hardcoded a 0) para que Fase 2.3 pueda decidir
-    # informadamente si activar el derived sobre el organic.
+    # ── Fase 2.2: backtest HONESTO del derivado ─────────────────────────
+    # Hasta el 05/09/26 se re-derivaba el consumo con las ventas REALES de
+    # los padres x receta y se comparaba con el consumo real del ingrediente.
+    # Pero ese consumo (DailySales, desde StockMove SALE) ES la expansion de
+    # receta de esas mismas ventas: la comparacion era tautologica. Medido en
+    # Marbrava: 12 de 14 derivados con WAPE guardado entre 0,0% y 13%, con lo
+    # que le "ganaban" a cualquier directo y se activaban siempre.
+    #
+    # Ahora se usa lo que el derivado HABRIA DICHO: las predicciones que sus
+    # padres publicaron (ForecastAccuracy.qty_predicted, una por dia y
+    # padre) x receta, contra el consumo real del ingrediente, dia a dia y
+    # con ceros. Es la misma vara que el backtest del directo. Cuentan los
+    # dias en que TODOS los padres medidos tienen prediccion; un padre sin
+    # ninguna medicion en la ventana (sin modelo, sin ventas) no aporta al
+    # derivado y se ignora. Medido en prod 05/09/26 sobre 30 dias: Cacao
+    # 50%, Leche entera 46%, Cafe tolva 42%, Chai 138%, Jamon 219%.
     BACKTEST_DAYS = 30
     bt_start = today - timedelta(days=BACKTEST_DAYS)
 
@@ -2845,33 +2889,35 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
         ).values_list("date", "qty_sold")
     )
 
-    # Pull historic daily_sales de cada padre
-    parent_daily = {}  # parent_id -> {date: qty}
-    if parent_ids and actual_by_date:
-        ds_qs = DailySales.objects.filter(
-            tenant=tenant, product_id__in=parent_ids, warehouse_id=warehouse_id,
-            date__gte=bt_start, date__lt=today,
-        ).values_list("product_id", "date", "qty_sold")
-        for pid, d, qty in ds_qs:
-            parent_daily.setdefault(pid, {})[d] = qty
+    # Predicciones publicadas de cada padre (lo que el derivado habria usado)
+    from forecast.models import ForecastAccuracy
+    pred_padres = {}  # parent_id -> {date: qty_predicted}
+    for pid, d, qp in ForecastAccuracy.objects.filter(
+        tenant=tenant, product_id__in=parent_ids, warehouse_id=warehouse_id,
+        date__gte=bt_start, date__lt=today,
+    ).values_list("product_id", "date", "qty_predicted"):
+        pred_padres.setdefault(pid, {})[d] = qp
+    padres_medidos = [
+        pid for pid in parent_ids
+        if recipe_multipliers.get(pid, Decimal("0")) > 0 and pred_padres.get(pid)
+    ]
 
-    # Computar derived prediction historico y acumular error vs real
     bt_metrics = None
-    if actual_by_date and parent_daily:
+    bt_dias = 0
+    if padres_medidos:
         predicted_list, actual_list = [], []
-        for d in sorted(actual_by_date.keys()):
-            pred = Decimal("0")
-            for pid in parent_ids:
-                mult = recipe_multipliers.get(pid, Decimal("0"))
-                if mult <= 0:
-                    continue
-                pday = parent_daily.get(pid, {}).get(d, Decimal("0"))
-                pred += pday * mult
-            actual = actual_by_date[d]
-            predicted_list.append(float(pred))
-            actual_list.append(float(actual))
-
-        if len(actual_list) >= 7:
+        d = bt_start
+        while d < today:
+            if all(d in pred_padres[pid] for pid in padres_medidos):
+                pred = sum(
+                    pred_padres[pid][d] * recipe_multipliers[pid]
+                    for pid in padres_medidos
+                )
+                predicted_list.append(float(pred))
+                actual_list.append(float(actual_by_date.get(d, Decimal("0"))))
+            d += timedelta(days=1)
+        bt_dias = len(actual_list)
+        if bt_dias >= 7:
             from forecast.engine.utils import _compute_metrics
             bt_metrics = _compute_metrics(actual_list, predicted_list)
 
@@ -2895,7 +2941,6 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
     # ingrediente acumuló error sistemático reciente (no por stockout), se
     # corrige con apply_bias_correction (damped al 50%, umbral 10%). Usa solo
     # accuracy desde trusted_from para no contaminar con el período viejo.
-    from forecast.models import ForecastAccuracy
     acc_cut = today - timedelta(days=14)
     trusted = getattr(tenant, "ingredient_forecast_trusted_from", None)
     if trusted and trusted > acc_cut:
@@ -2996,7 +3041,8 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
             "avg_daily": str(avg_daily.quantize(Decimal("0.001"))),
             "parent_products": list(parent_ids),
             "recipe_multipliers": {str(k): str(v) for k, v in recipe_multipliers.items()},
-            "backtest_days": len(actual_by_date) if actual_by_date else 0,
+            "backtest_days": bt_dias,
+            "backtest_source": "padres_publicados",
             **({"bias_correction": bias_corr} if bias_corr else {}),
             **({"circuit_breaker": circuit_breaker,
                 "circuit_breaker_streak": _prev_cb_streak + 1} if circuit_breaker else {}),
@@ -3034,8 +3080,9 @@ def train_ingredient_product(tenant, product, warehouse_id, today,
                 tenant=tenant, product=product, warehouse_id=warehouse_id,
                 is_active=True,
             ).exclude(algorithm="ingredient_derived").first()
-            o_wape = (organic_active.metrics.get("wape", 999)
-                      if organic_active and organic_active.metrics else 999)
+            # Misma vara que el kept-path (05/09/26): wape_real si el
+            # organico ya fue medido en produccion, si no su backtest.
+            o_wape = _wape_vigente(organic_active.metrics) if organic_active else 999
             if Decimal(str(d_wape)) < Decimal(str(o_wape)) * SWAP_MARGIN:
                 # SWAP — derived gana (Forecast ya está importado a nivel modulo).
                 # BUGFIX 01/06/26: desactivar TODOS los modelos activos previos
