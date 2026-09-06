@@ -289,6 +289,18 @@ Interruptor `FORECAST_CALIBRACION_OFF=1`. La cobertura del 92% supera la
 meta del 80%: es el lado seguro para inventario; si con dos semanas de datos
 sigue sobre 90%, se puede estrechar a cuantiles 15/85.
 
+### 2.15 Dos de cada tres Selladitas no descuentan jamón [E] — abierto
+Apareció al medir el derivado: el consumo registrado de Jamón granel en 30
+días (364 g, `StockMove` SALE) es un tercio de lo que dice la receta sobre las
+ventas de sus padres (930 g). De 32 ventas de Selladita, 9 descontaron jamón y
+23 no; todas COMPLETED, VENTA, desde mesas, dos cajeros distintos; las que no
+descuentan se concentran entre el 6 y el 18 de agosto y las que sí, después
+del 25. Pan blanco y Queso, en la misma receta, sí se descuentan (48 y 43
+movimientos). Hipótesis: el ingrediente no tenía `StockItem` o estaba en cero
+y la expansión lo saltó en silencio. Afecta el stock, el consumo que aprende
+el modelo y la sugerencia de ese ingrediente. Pendiente: revisar
+`sales/recipes.py` y contar cuántos ingredientes más están en el caso.
+
 ### 2.6 Servidor en UTC
 `timedatectl`: `Etc/UTC`. El cron de las 04:30 corre a las 00:30 de Santiago,
 así que `date.today()` y `timezone.localdate()` coinciden en la corrida
