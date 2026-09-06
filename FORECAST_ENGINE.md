@@ -513,3 +513,36 @@ Alta variabilidad (CV2 > 1.0) penaliza la confianza: el MAPE se infla en hasta 3
 - **Lead time y MOQ** integrados en sugerencias de compra
 - **Estacionalidad bimodal** para productos extremos (helados, calefactores)
 - **Monitoreo completo** con ForecastTrainingLog y panel superadmin
+
+## Backtest fiel: `backtest_forecast`
+
+El motor es una red de compensaciones (el cero de "hoy", el guard de colapso,
+la selección por patrón, la ventana del perfil). Un backtest que no replique
+ese preprocesamiento da veredictos equivocados. Por eso existe el comando:
+
+```bash
+python manage.py backtest_forecast --tenant 1 --semanas 4 --salida base.json
+# ...cambio en el motor...
+python manage.py backtest_forecast --tenant 1 --semanas 4 --comparar base.json
+```
+
+Simula la corrida nocturna de un día D por semana: arma la serie con
+`armar_serie_entrenamiento` (la misma función que `train_product_model`),
+elige con `select_best_model` + `_collapse_guard`, pronostica D+1..D+7 y
+compara con la venta real. Resume WAPE y sesgo por segmento (núcleo = 90% de
+la venta de 30 días, cola) y por patrón, y con `--comparar` cuenta cuántos
+productos mejoran o empeoran. No replica el kept-path ni la corrección de
+sesgo: mide el motor de selección.
+
+## Directo contra derivado (ingredientes con receta)
+
+Un ingrediente de receta tiene dos candidatos: el modelo directo sobre su
+consumo y el derivado (Σ pronóstico del padre × receta). Desde el 05-09-2026
+compiten con la misma vara: el derivado se mide con las predicciones que sus
+padres publicaron (`ForecastAccuracy`) contra el consumo real, 30 días con
+ceros; el titular se juzga por `_wape_vigente` (wape_real con ≥7 muestras, si
+no su backtest); el candidato necesita ganarle por 15% en cualquiera de los
+dos sentidos. Antes el backtest del derivado era tautológico (ventas reales de
+los padres × receta contra el consumo, que es esa misma expansión) y el
+comando lo reactivaba siempre.
+

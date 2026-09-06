@@ -204,6 +204,58 @@ Tres conclusiones:
    (evaluación semanal, y revisar por qué el derivado de Queso duplica el
    consumo real).
 
+**Corregido el 05-09 con una comparación de igual a igual.** La conclusión 2
+mezclaba dos varas: el error diario del derivado en producción contra el WAPE
+*de totales* del directo, que siempre es menor porque los errores se cancelan
+en la suma. Medido de nuevo sobre 30 días, con ceros, derivado "puro"
+(predicciones publicadas de sus padres × receta) contra el backtest diario del
+directo, con el margen anti-parpadeo del 15%:
+
+| producto | derivado | directo | veredicto |
+|---|---|---|---|
+| Leche entera | 46% (35% real) | 39% adaptive_ma | empate |
+| Café tolva caturra | 42% | 48% adaptive_ma | empate |
+| Leche deslactosada | 79% | 86% tsb | empate |
+| Cacao | 50% (48% real) | 65% adaptive_ma | derivado |
+| Queso | 76% | 112% tsb | derivado |
+| Pan blanco / Salsa chocolate / Soda espresso | 70 / 73 / 121% | 93 / 110 / 141% | derivado |
+| Carne Mechada / Chantilly / Syrup vainilla | 129 / 110 / 106% | 123 / 125 / 115% | empate |
+| Jamón granel | 219% | 123% tsb | **directo** |
+| Preparado chai | 138% | 96% seasonal_naive | **directo** |
+| Syrup menta | 304% | 148% tsb | **directo** |
+
+En los tres grandes es empate: el derivado no pierde. El directo gana en tres
+productos chicos cuyos padres se pronostican mal. Lo que sí era cierto es que
+no competían (2.14).
+
+### 2.14 El derivado no competía: backtest tautológico y un trinquete [E] — corregido 05-09
+Tres piezas, verificadas con datos de producción y con tests que recorren el
+comando real (`tests/test_competencia_directo_derivado.py`):
+
+1. **El backtest del derivado se comparaba consigo mismo.** Re-derivaba el
+   consumo con las ventas reales de los padres × receta y lo comparaba con el
+   consumo real del ingrediente, que es la expansión de receta de esas mismas
+   ventas (`StockMove` SALE). WAPE guardado 0,0-13% en 12 de 14 derivados. Con
+   eso le "ganaba" a cualquier directo (regla de swap: 15% mejor y < 80%).
+2. **Trinquete.** El kept-path de `train_product_model` sí comparaba, pero el
+   comando pasaba `make_active=ya_activo` al derivado y lo reactivaba siempre.
+3. **Patrón fijo.** El derivado guarda `demand_pattern="smooth"`; en un
+   ingrediente intermitente el kept-path veía "cambio de patrón" cada noche y
+   lo saltaba.
+
+Arreglo: el derivado se mide con las predicciones que sus padres publicaron
+(`ForecastAccuracy.qty_predicted` × receta) contra el consumo real, con ceros,
+30 días (`model_params.backtest_source = padres_publicados`); el titular se
+juzga con `_wape_vigente` (wape_real si hay ≥7 muestras, si no el backtest) en
+los dos sentidos; margen del 15% en ambos; sin trinquete. Simulado sobre la
+corrida del 05-09: cambian tres (Jamón → tsb, Chai → seasonal_naive, Syrup
+menta → tsb); los otros once siguen derivados. El error del titular tiene una
+noche de rezago: se re-mide al reentrenar.
+
+Aparte, el derivado que se publica no es el "puro": la corrección de sesgo y
+el guard lo mueven (Chai publicado 378% contra 138% puro por el desastre del
+11-19 de agosto; Syrup menta 124% publicado contra 304% puro, ahí ayudan).
+
 ### 2.13 Las bandas de confianza no están calibradas: cubren el 43% en vez del 80%
 Medido el 04-09 sobre 4.599 mediciones de 30 días, cruzando cada día real con
 la banda (piso, techo) publicada para ese día. Una banda "del 80%" debería
@@ -434,6 +486,16 @@ lo más cercano es 1 − WAPE, entre 37% y 57%.
 ---
 
 ## 6. Orden recomendado
+
+**Hecho el 05-09: el backtest fiel es un comando del sistema.**
+`python manage.py backtest_forecast --tenant 1 --semanas 4 --salida base.json`
+antes de tocar el motor, y `--comparar base.json` después. Arma cada serie con
+`armar_serie_entrenamiento`, la misma función que usa el entrenamiento (se
+extrajo de `train_product_model` para que no puedan divergir), elige modelo con
+`select_best_model` más el guard de colapso, y evalúa la semana siguiente. Es
+el que en 3.1 evitó desplegar un cambio que empeoraba la cola un 22%. No
+replica el kept-path ni la corrección de sesgo, a propósito; mide el motor de
+selección. En producción, con `SENTRY_DSN=` delante.
 
 Nada de esto corresponde hacerlo antes de la entrega salvo lo ya commiteado.
 Después:

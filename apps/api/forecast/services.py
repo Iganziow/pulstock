@@ -1451,16 +1451,25 @@ def _algo_eligible_for_pattern(algorithm, demand_pattern):
     return dp is None or demand_pattern in dp
 
 
-@transaction.atomic
-def train_product_model(tenant, product, warehouse_id, today,
-                        min_days, horizon, window, stock_items, stats):
-    """Train a forecast model for one product in one warehouse."""
-    from forecast.models import ForecastAccuracy
-    from catalog.models import RecipeLine
+def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
+    """El preprocesamiento EXACTO con que entrena train_product_model.
 
+    Extraido el 05/09/26 para que `backtest_forecast` (el backtest fiel)
+    simule una corrida nocturna de cualquier dia pasado con las mismas
+    reglas: demanda organica (ventas - promo [+ mermas en restaurante]),
+    dias de transicion de ingredientes, relleno de ceros hasta `today`
+    (incluido: el "cero de hoy" que ve el entrenamiento), stockouts y
+    promos para clean_series, dias cerrados, patron y factores de mes.
+
+    `today` es el dia de la corrida: solo se miran ventas anteriores (en
+    produccion las de hoy no existen aun al entrenar). Devuelve None si el
+    span es menor que `min_days`, si no un dict con todo lo que usa
+    train_product_model (incluido `ds_qs` para la serie de ingresos).
+    """
     # Load raw series + stockout dates
     ds_qs = DailySales.objects.filter(
         tenant=tenant, product=product, warehouse_id=warehouse_id,
+        date__lt=today,
     ).order_by("date")
 
     # ── Periodo de transicion para INGREDIENTES (22/05/26) ───────────────
@@ -1541,8 +1550,7 @@ def train_product_model(tenant, product, warehouse_id, today,
     # min_days=10 (porque span=30) y entra a select_best_model donde
     # Croston puede manejarlo mejor que category_prior.
     if len(raw_series) < min_days:
-        stats["skipped"] += 1
-        return
+        return None
 
     # Stockout dates for data cleaning (include promo-only days as pseudo-stockouts)
     stockout_dates = set(
@@ -1572,6 +1580,38 @@ def train_product_model(tenant, product, warehouse_id, today,
 
     # Month-position factors (payday effect)
     month_factors = compute_month_position_factors(cleaned)
+    return {
+        "ds_qs": ds_qs,
+        "raw_series": raw_series,
+        "cleaned": cleaned,
+        "stockout_dates": stockout_dates,
+        "promo_dates": promo_dates,
+        "closed_dows": closed_dows,
+        "demand_pattern": demand_pattern,
+        "adi": adi,
+        "cv2": cv2,
+        "month_factors": month_factors,
+    }
+
+
+@transaction.atomic
+def train_product_model(tenant, product, warehouse_id, today,
+                        min_days, horizon, window, stock_items, stats):
+    """Train a forecast model for one product in one warehouse."""
+    from forecast.models import ForecastAccuracy
+    from catalog.models import RecipeLine
+
+    serie = armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days)
+    if serie is None:
+        stats["skipped"] += 1
+        return
+    ds_qs = serie["ds_qs"]
+    raw_series = serie["raw_series"]
+    cleaned = serie["cleaned"]
+    stockout_dates = serie["stockout_dates"]
+    demand_pattern, cv2 = serie["demand_pattern"], serie["cv2"]
+    month_factors = serie["month_factors"]
+
 
     # Select best model with cleaned data
     best = select_best_model(
