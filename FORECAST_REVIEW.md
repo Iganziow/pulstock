@@ -423,12 +423,37 @@ ensemble no trae (`algorithms/ensemble.py:74-79`) → penalización 0 mientras
 sus miembros pagan hasta +15 pp. Gana justo cuando los miembros comparten el
 signo del sesgo, que es lo que un promedio no corrige.
 
-### 3.10 Bandas que no contienen la predicción [?] (no observado)
-`weighted_moving_average.py:167-176` (intervalo empírico de un solo holdout) y
-`croston_bootstrap.py:30-50` (bootstrap sin suavizado ni factor SBA) pueden
-dar `lower_bound > qty_predicted`. Afecta `days_to_stockout` conservador.
-Medido el 03-09: **0 de 5.689 filas futuras** tienen ese defecto. Posible en
-teoría, no ocurre con los datos actuales.
+### 3.10 Bandas que no contienen la predicción [E] — observado y corregido 07-09
+Estaba anotado como no observado. Lo introdujo la propia calibración del
+05-09: el techo es el cuantil 90 del cociente real/predicho, y en un modelo
+que sobre-predice todos los días ese cuantil queda bajo 1, así que el techo
+colapsaba al piso de 0,25x. Medido el 07-09 sobre producción: 953 de 2.659
+filas futuras, 40 productos. El peor, Helado vainilla, decía "70 g por día" y
+debajo "entre 0 y 18 g". La pantalla, el proyector de stock y la sugerencia
+leen ese techo.
+
+Arreglo: el intervalo calibrado siempre contiene al 1, o sea a la predicción.
+Ensancha, nunca angosta, así que la cobertura medida no puede empeorar.
+Validado fuera de muestra sobre producción, 115 productos y 1.830 mediciones:
+
+| | cobertura | ancho medio | filas con la predicción fuera |
+|---|---|---|---|
+| antes | 89,5% | 1,26x | 1.042 |
+| después | 89,6% | 1,67x | 0 |
+
+Ninguno de los 40 productos pasa a zona de urgencia por el techo más alto: 34
+tienen stock y su cobertura sigue por sobre los treinta días, y el resto tiene
+stock cero.
+
+Lo que el arreglo NO resuelve, a propósito: que el intervalo crudo no contenga
+al 1 significa que ese modelo predice sistemáticamente de más. Son 64 modelos
+activos. Eso se corrige en la predicción puntual, con backtest fiel, no
+ensanchando la banda; queda marcado en `model_params.calibracion.sesgo` con el
+cuantil crudo para poder medirlo. Parte de esos 64 arrastran además el
+historial de aciertos censurado de 2.15 (la calibración lee
+`ForecastAccuracy.qty_actual`, que la re-agregación no tocó): conviene volver
+a puntuar con `track_forecast_accuracy --days 30 --tenant 1` antes de sacar
+conclusiones sobre ellos.
 
 ### 3.11 Multiplicadores de feriado: cross-tenant y con contaminación de VOID
 `train_forecast_models.py:415` filtra `Holiday` solo por fecha; con dos

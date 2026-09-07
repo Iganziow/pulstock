@@ -42,10 +42,19 @@ Decisiones
 - Mínimo 10 mediciones; con menos, el producto conserva la banda propia del
   algoritmo. Los días de quiebre (was_stockout) no entran: la venta real
   estaba censurada.
-- Techo acotado a [0,25 ; 3,0] veces la predicción. El tope evita bandas que
-  no dicen nada; el piso evita que un modelo muy malo colapse su techo a
-  cero y esconda un quiebre real. El piso del intervalo nunca es negativo y
-  nunca supera al techo.
+- Techo acotado a 3,0 veces la predicción: una banda de 50x no dice nada.
+- La banda SIEMPRE contiene a su predicción (07/09/26). Medido en producción
+  el 07-09: 953 de 2.659 filas futuras (40 productos) tenían la predicción
+  POR ENCIMA de su propio techo, porque en un modelo que sobre-predice de
+  forma sistemática hasta el cuantil 90 del cociente queda bajo 1 y el techo
+  colapsaba a 0,25x. La pantalla decía "vas a vender 70 g" y debajo "entre 0
+  y 18 g"; el proyector de stock y la sugerencia leen ese techo. El intervalo
+  se ensancha hasta contener la predicción (nunca se angosta: la cobertura
+  medida sólo puede mejorar) y se deja la marca `sesgo` con el cuantil crudo,
+  porque un intervalo que no contiene al 1 no es un problema de la banda sino
+  del punto: ese modelo predice sistemáticamente de más o de menos, y eso se
+  corrige en la predicción, con backtest fiel, no ensanchando la banda.
+- El piso del intervalo nunca es negativo y nunca supera al techo.
 - Los días con predicción 0 (cerrados, demanda detenida) quedan en 0.
 - Apagado de emergencia: variable de entorno FORECAST_CALIBRACION_OFF=1.
 """
@@ -57,7 +66,6 @@ Q_LO = 0.10
 Q_HI = 0.90
 MIN_N = 10
 CAP_HI = 3.0
-FLOOR_HI = 0.25
 VENTANA_DIAS = 28
 
 
@@ -75,23 +83,43 @@ def cuantil(valores, q):
 
 
 def factores_de_calibracion(razones, q_lo=Q_LO, q_hi=Q_HI, min_n=MIN_N,
-                            cap_hi=CAP_HI, floor_hi=FLOOR_HI):
+                            cap_hi=CAP_HI):
     """Piso y techo como múltiplos de la predicción, o None si no hay datos.
 
     `razones` son cocientes real / predicho de días pasados (predicho > 0).
+
+    El intervalo devuelto siempre contiene al 1, o sea a la predicción (ver
+    el encabezado del módulo). Cuando el cuantil crudo dice otra cosa, el
+    intervalo se ensancha y queda la marca `sesgo`: "sobre" si el modelo
+    predice de más todos los días, "bajo" si predice de menos.
     """
     limpias = [float(r) for r in razones if r is not None and float(r) >= 0]
     if len(limpias) < min_n:
         return None
     lo = max(0.0, cuantil(limpias, q_lo))
-    hi = cuantil(limpias, q_hi)
-    hi = min(cap_hi, max(floor_hi, hi))
+    hi = min(cap_hi, cuantil(limpias, q_hi))
     lo = min(lo, hi)
-    return {"q_lo": round(lo, 3), "q_hi": round(hi, 3), "n": len(limpias)}
+
+    # La banda contiene a la predicción. Ensancha, nunca angosta.
+    f = {"q_lo": round(min(lo, 1.0), 3), "q_hi": round(max(hi, 1.0), 3),
+         "n": len(limpias)}
+    if hi < 1.0:
+        f["sesgo"] = "sobre"
+        f["q_crudo"] = round(hi, 3)
+    elif lo > 1.0:
+        f["sesgo"] = "bajo"
+        f["q_crudo"] = round(lo, 3)
+    return f
 
 
 def aplicar_calibracion(forecasts, factores):
-    """Reemplaza piso y techo de cada día por predicción x cuantil. In place."""
+    """Reemplaza piso y techo de cada día por predicción x cuantil. In place.
+
+    Aunque `factores_de_calibracion` ya garantiza que el intervalo contiene
+    al 1, el recorte se repite acá sobre los números finales: es la última
+    línea antes de la tabla, y unos factores viejos guardados en
+    `model_params` no pueden romper la invariante piso <= predicción <= techo.
+    """
     if not factores:
         return forecasts
     lo = Decimal(str(factores["q_lo"]))
@@ -100,6 +128,6 @@ def aplicar_calibracion(forecasts, factores):
         p = fc.get("qty_predicted")
         if p is None or p <= 0:
             continue  # cerrado o demanda detenida: la banda queda en 0
-        fc["lower_bound"] = _q3(p * lo)
-        fc["upper_bound"] = _q3(p * hi)
+        fc["lower_bound"] = min(_q3(p * lo), _q3(p))
+        fc["upper_bound"] = max(_q3(p * hi), _q3(p))
     return forecasts
