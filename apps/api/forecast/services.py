@@ -61,7 +61,8 @@ from forecast.models import (
 )
 from forecast.engine.calibracion import (
     factores_de_calibracion, aplicar_calibracion,
-    VENTANA_DIAS as VENTANA_CALIBRACION,
+    factor_de_sesgo, aplicar_factor_de_sesgo,
+    VENTANA_DIAS as VENTANA_CALIBRACION, SESGO_DIAS,
 )
 from forecast.engine import (
     select_best_model, calculate_days_to_stockout,
@@ -1225,6 +1226,17 @@ def _razones_recientes(tenant, product, warehouse_id, dias=VENTANA_CALIBRACION):
     return razones
 
 
+def _mediciones_recientes(tenant, product, warehouse_id, dias=SESGO_DIAS):
+    """(predicho, real) de los ultimos `dias`, sin dias de quiebre."""
+    from forecast.models import ForecastAccuracy
+    return list(
+        ForecastAccuracy.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            date__gte=date.today() - timedelta(days=dias), was_stockout=False,
+        ).values_list("qty_predicted", "qty_actual")
+    )
+
+
 def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                    confidence_base, stock_items):
     """Delete old forecasts, apply holiday adjustments, and bulk-insert."""
@@ -1245,6 +1257,38 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # proyección de stock tampoco descuente consumo en esos días.
     closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     _apply_closed_weekdays(daily_forecasts, closed_dows)
+
+    # Correccion de sesgo del punto (07/09/26). Va ANTES de la calibracion de
+    # bandas para que los cuantiles escalen la prediccion ya corregida, y
+    # DESPUES de feriados y dias cerrados, igual que aquella.
+    #
+    # Por que aca y no donde estaba: la correccion vieja se aplicaba en
+    # train_product_model y `_regen_from_existing` la borraba al reescribir
+    # las filas con el algoritmo crudo (verificado en produccion el 07/09/26:
+    # 107 de 188 modelos activos tenian una correccion guardada que no estaba
+    # en la tabla). `save_forecasts` es el unico punto por el que pasan todas
+    # las filas publicadas, asi que no hay regeneracion que la pise.
+    #
+    # Solo para modelos organicos: el derivado de receta aplica su propia
+    # correccion en train_ingredient_product y ESA si llega a la tabla (su
+    # camino no pasa por el regen). Corregir dos veces seria doble descuento,
+    # y el backtest que respalda esta regla midio el motor organico.
+    # Interruptor de emergencia: FORECAST_SESGO_OFF=1.
+    if (fm.algorithm != "ingredient_derived"
+            and not os.environ.get("FORECAST_SESGO_OFF")):
+        sesgo = factor_de_sesgo(
+            _mediciones_recientes(tenant, product, warehouse_id)
+        )
+        if sesgo:
+            aplicar_factor_de_sesgo(daily_forecasts, sesgo)
+        params = dict(fm.model_params or {})
+        if params.get("sesgo") != sesgo:
+            if sesgo:
+                params["sesgo"] = sesgo
+            else:
+                params.pop("sesgo", None)
+            fm.model_params = params
+            fm.save(update_fields=["model_params"])
 
     # Calibracion empirica de las bandas (04/09/26). Medido: las bandas
     # cubrian el 43% de los dias reales en vez del 80%, con el piso por

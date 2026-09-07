@@ -362,25 +362,43 @@ muestre que la cola no empeora. Lección: un backtest **no fiel** (serie
 cruda, `window=21`, sin domingos filtrados) había dado casi lo mismo con y
 sin el cero; solo la réplica exacta de producción mostró el daño.
 
-### 3.2 Los post-procesos no llegan a la tabla `Forecast` [E]
-`services.py:1742-1747`: el fresh path llama `_regen_from_existing` **después**
-de `save_forecasts`; el regen re-ejecuta el algoritmo crudo y vuelve a guardar,
-pisando lo anterior. Factores mensuales, tendencia, corrección de sesgo,
-estacionalidad anual, YoY y elasticidad quedan solo en `model_params`, que
-`explain.py:126` le muestra al usuario como aplicados. **Confirmado con datos el
-03-09** (Syrup avellana, Croston, `avg_daily` 0,264): las filas son planas en
-0,294 de lunes a sábado, iguales en septiembre y en octubre, aunque
-`model_params` guarda estacionalidad sep 0,53 / oct 1,44 y sesgo por día de
-la semana de ±0,13. Lo único que las mueve es `save_forecasts`: domingos en
-0, Fiestas Patrias en 0,029 y una rampa previa. Pasa en fresh y en kept: el
-regen corre después de `save_forecasts` en ambos. Consecuencia práctica
-descubierta de paso: el regen tampoco pasaba `best_beta`, así que `1be7dd9`
-no cambiaba ninguna fila; corregido en el commit siguiente.
+### 3.2 Los post-procesos no llegan a la tabla `Forecast` [E] — verificado y corregido 07-09
+Confirmado leyendo el orden de las llamadas y midiendo en producción.
+`train_product_model` aplica tendencia, corrección de sesgo, estacionalidad
+mensual y año-contra-año, guarda las filas, y en la línea siguiente
+`_regen_from_existing` vuelve a ejecutar el algoritmo crudo y las reescribe.
+Pasa en los dos caminos, el fresco y el conservado. Medido: 107 de 188
+modelos activos tienen una corrección de sesgo guardada en sus parámetros, y
+en los `adaptive_ma` la fila publicada es exactamente el algoritmo crudo. El
+derivado de receta es la excepción: su camino no pasa por el regenerado, así
+que ahí la corrección sí se aplica.
 
-Consecuencia de diseño: seis multiplicadores encadenados sin tope global
-(mes × tendencia ≤2 × mensual sin tope × YoY ≤1,5 × precio ≤1,5 × feriado ≤5)
-que hoy son letra muerta. Hay que decidir si se aplican de verdad (y entonces
-pasan por backtest) o se eliminan.
+Qué se hizo, y por qué no fue simplemente "restaurarlos". Con el backtest
+fiel sobre ocho semanas y 224 productos:
+
+| variante | WAPE cola | sesgo cola | mejoran / empeoran |
+|---|---|---|---|
+| sin corrección (hoy) | 158,9% | +38,5% | — |
+| la vieja, resta amortiguada | 157,8% | +36,9% | 58 / 23 |
+| sólo mediana del cociente | 144,7% | +14,4% | 97 / 16 |
+| **acuerdo de los dos (elegida)** | **152,7%** | **+29,2%** | **86 / 20** |
+
+La vieja casi no mueve la aguja: es una resta amortiguada al 50% con umbral
+del 10% y sólo aplica a los algoritmos que guardan `avg_daily`. La de mediana
+gana en el agregado y pierde donde importa: convierte productos sin sesgo en
+sub-predictores de entre 13% y 51% (Helado vainilla pasaba de +1% a −51%),
+porque en demanda a ráfagas el día típico queda bajo la predicción aunque el
+total calce. Sub-predecir es quiebre.
+
+La elegida corrige por razón y sólo cuando la mediana del cociente y la razón
+de totales apuntan al mismo lado; toma la más conservadora y la amortigua a
+la mitad, con topes en 0,5x y 2x. Vive en `save_forecasts`, que es el único
+punto por el que pasan todas las filas publicadas, así que ningún regenerado
+la puede pisar. Interruptor `FORECAST_SESGO_OFF=1`. No toca el derivado.
+
+Los otros tres post-procesos (tendencia, estacionalidad mensual,
+año-contra-año) siguen muertos y sin medir. O se validan con el mismo
+backtest o se eliminan junto con lo que `explain.py` muestra de ellos.
 
 ### 3.3 Rama sparse: filas de WMA bajo la etiqueta `category_prior`
 `services.py:1755-1758, 1860-1863, 1888-1912`. La serie va **sin relleno de

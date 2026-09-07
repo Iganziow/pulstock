@@ -37,23 +37,40 @@ Uso
   python manage.py backtest_forecast --tenant 1 --semanas 4 --comparar base.json
 
 Lo que NO replica, a proposito: el kept-path (en produccion un modelo viejo
-se conserva si el fresco no le gana), la correccion de sesgo y la
-calibracion de bandas (no mueven el punto medio que se evalua aqui) ni los
-modelos derivados de receta. Mide el motor de seleccion, que es lo que
-cambia cuando se toca un algoritmo. En produccion correrlo con
-`SENTRY_DSN=` delante para no ensuciar Sentry con diagnosticos.
+se conserva si el fresco no le gana), la calibracion de bandas (no mueve el
+punto medio que se evalua aqui) ni los modelos derivados de receta. Mide el
+motor de seleccion, que es lo que cambia cuando se toca un algoritmo. En
+produccion correrlo con `SENTRY_DSN=` delante para no ensuciar Sentry.
+
+--sesgo
+-------
+Verificado el 07/09/26: los cuatro post-procesos (tendencia, correccion de
+sesgo, estacionalidad mensual y ano-contra-ano) se calculan, se guardan en
+`model_params` y NO llegan a la tabla `Forecast`. `train_product_model` los
+aplica, guarda, y a continuacion `_regen_from_existing` vuelve a escribir las
+filas con el algoritmo crudo. Medido en produccion: 107 de 188 modelos
+activos tienen una correccion de sesgo guardada, y en los adaptive_ma la fila
+publicada es exactamente el algoritmo crudo.
+
+Con `--sesgo` el backtest aplica la correccion (la misma funcion de
+produccion, `apply_bias_correction`) usando las mediciones que el propio
+backtest fue acumulando en las semanas anteriores: es la evaluacion honesta
+de "que pasaria si la correccion llegara a la tabla". Correr las dos veces y
+comparar con `--comparar` antes de decidir.
 """
 import json
 import time
 import warnings
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+from decimal import Decimal
 
 from django.core.management.base import BaseCommand, CommandError
 
 from catalog.models import Product
 from core.models import Tenant
 from forecast.engine import select_best_model
+from forecast.engine.enhancements import apply_bias_correction
 from forecast.models import DailySales, ForecastModel
 from forecast.services import armar_serie_entrenamiento, _collapse_guard
 
@@ -117,10 +134,19 @@ def nucleo_de_ventas(tenant, hasta, dias=VENTANA_NUCLEO_DIAS, fraccion=NUCLEO_FR
 
 
 def backtest_producto(tenant, product, warehouse_id, hasta, horizonte, semanas,
-                      window, min_days, ventas, es_nucleo, avisar=None):
-    """Simula `semanas` corridas nocturnas de un producto y acumula su error."""
+                      window, min_days, ventas, es_nucleo, avisar=None,
+                      sesgo=False):
+    """Simula `semanas` corridas nocturnas de un producto y acumula su error.
+
+    Con `sesgo`, cada corrida aplica `apply_bias_correction` con las
+    mediciones que las corridas anteriores dejaron: la misma ventana de 14
+    dias que usa produccion, pero construida por el propio backtest (en la
+    simulacion no existen filas de ForecastAccuracy de esos dias).
+    """
     acum = {"abs": 0.0, "real": 0.0, "signed": 0.0}
     algoritmos, patrones, folds = [], [], 0
+    medido = []   # [{date, error, was_stockout}] de las corridas anteriores
+    correcciones = 0
     for f in range(semanas, 0, -1):
         dia_corrida = hasta - timedelta(days=horizonte * f)   # f=1 -> evalua hasta `hasta`
         serie = armar_serie_entrenamiento(tenant, product, warehouse_id, dia_corrida, min_days)
@@ -142,6 +168,14 @@ def backtest_producto(tenant, product, warehouse_id, hasta, horizonte, semanas,
         if best.get("algorithm") == "none" or not best.get("forecasts"):
             continue
         best = _collapse_guard(best, serie["raw_series"], dia_corrida, horizonte, product=product)
+        if sesgo:
+            # Misma ventana y mismo avg_daily que el sitio de produccion
+            # (train_product_model): si el algoritmo no guarda avg_daily, la
+            # correccion no aplica, igual que alla.
+            recientes = [h for h in medido if 0 < (dia_corrida - h["date"]).days <= 14]
+            avg_daily = Decimal(str((best.get("params") or {}).get("avg_daily", "0") or "0"))
+            if recientes and apply_bias_correction(best["forecasts"], recientes, avg_daily):
+                correcciones += 1
         pron = {x["date"]: float(x["qty_predicted"]) for x in best["forecasts"]}
         folds += 1
         algoritmos.append(best["algorithm"])
@@ -155,6 +189,7 @@ def backtest_producto(tenant, product, warehouse_id, hasta, horizonte, semanas,
             acum["abs"] += abs(pred - real)
             acum["real"] += real
             acum["signed"] += pred - real
+            medido.append({"date": d, "error": pred - real, "was_stockout": False})
     if not folds:
         return None
     return {
@@ -168,6 +203,7 @@ def backtest_producto(tenant, product, warehouse_id, hasta, horizonte, semanas,
         "signed": round(acum["signed"], 3),
         "alg": Counter(algoritmos).most_common(1)[0][0],
         "pat": Counter(patrones).most_common(1)[0][0],
+        "correcciones": correcciones,
     }
 
 
@@ -211,6 +247,8 @@ class Command(BaseCommand):
         parser.add_argument("--horizonte", type=int, default=7, help="Dias evaluados por corrida (default 7)")
         parser.add_argument("--hasta", help="Ultimo dia evaluado, YYYY-MM-DD (default: ayer)")
         parser.add_argument("--producto", type=int, help="Solo este product_id")
+        parser.add_argument("--sesgo", action="store_true",
+                            help="Aplicar la correccion de sesgo que hoy se calcula pero no llega a la tabla")
         parser.add_argument("--incluir-derivados", action="store_true",
                             help="Evaluar tambien los ingredientes con derivado de receta activo (mide el motor directo sobre ellos)")
         parser.add_argument("--salida", help="Guarda el detalle por producto en este JSON")
@@ -255,6 +293,7 @@ class Command(BaseCommand):
             r = backtest_producto(
                 tenant, product, wh, hasta, horizonte, semanas, window, min_days,
                 ventas, pid in nucleo, avisar=self.stderr.write,
+                sesgo=o.get("sesgo", False),
             )
             if r:
                 resultados.append(r)
@@ -267,6 +306,7 @@ class Command(BaseCommand):
                 "semanas": semanas, "horizonte": horizonte, "window": window,
                 "min_days": min_days, "productos": len(resultados),
                 "generado": date.today().isoformat(),
+                "sesgo": bool(o.get("sesgo")),
                 "derivados_no_evaluados": nota_derivados,
             },
             "productos": resultados,
@@ -322,6 +362,10 @@ class Command(BaseCommand):
             self.stdout.write("  productos que mejoran: %d | empeoran: %d | iguales: %d" % (mejoran, empeoran, iguales))
         ganadores = Counter(p["alg"] for p in salida["productos"]).most_common(8)
         self.stdout.write("  algoritmos elegidos: %s" % ", ".join("%s=%d" % kv for kv in ganadores))
+        if m.get("sesgo"):
+            tocados = sum(1 for p in salida["productos"] if p.get("correcciones"))
+            self.stdout.write(
+                "  correccion de sesgo APLICADA: %d productos corregidos en alguna semana" % tocados)
         nd = m.get("derivados_no_evaluados")
         if nd:
             self.stdout.write(

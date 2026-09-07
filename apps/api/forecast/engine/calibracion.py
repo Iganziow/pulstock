@@ -64,6 +64,13 @@ from .utils import _q3
 
 Q_LO = 0.10
 Q_HI = 0.90
+# Correccion de sesgo del punto (07/09/26): ver `factor_de_sesgo`.
+SESGO_DIAS = 28
+SESGO_MIN_N = 5
+SESGO_DAMP = 0.5
+SESGO_PISO = 0.5
+SESGO_TECHO = 2.0
+SESGO_UMBRAL = 0.05
 MIN_N = 10
 CAP_HI = 3.0
 VENTANA_DIAS = 28
@@ -110,6 +117,74 @@ def factores_de_calibracion(razones, q_lo=Q_LO, q_hi=Q_HI, min_n=MIN_N,
         f["sesgo"] = "bajo"
         f["q_crudo"] = round(lo, 3)
     return f
+
+
+def factor_de_sesgo(pares, damp=SESGO_DAMP, min_n=SESGO_MIN_N,
+                    piso=SESGO_PISO, techo=SESGO_TECHO, umbral=SESGO_UMBRAL):
+    """Cuanto hay que escalar la predicción para sacarle el sesgo, o None.
+
+    El problema (medido el 07/09/26 sobre 8 semanas de Marbrava, 224
+    productos): la cola sobre-predice un 38% y nada la corrige. La corrección
+    de sesgo que existía se calcula, se guarda en `model_params` y NUNCA llega
+    a la tabla, porque `_regen_from_existing` reescribe las filas con el
+    algoritmo crudo justo después. Restaurarla tal cual servía de poco: es una
+    RESTA amortiguada y sólo aplica a los algoritmos que guardan `avg_daily`
+    (backtest fiel: WAPE total -1,6 puntos, sesgo -2).
+
+    La regla de acá corrige por RAZÓN, y sólo cuando dos estadísticos
+    independientes de la misma ventana coinciden en la dirección:
+
+      - la mediana del cociente real/predicho — el día típico;
+      - la razón de totales Σreal/Σpredicho — la tasa del período.
+
+    Se toma el más conservador de los dos (el más cercano a 1) y se amortigua
+    a la mitad. Si discrepan, no se toca nada. Esa condición es la que protege
+    a los productos que venden a ráfagas: su día típico queda bajo la
+    predicción aunque el total calce, y corregirlos por la mediana sola los
+    hundía (Helado vainilla pasaba de 1% de sesgo a −51%).
+
+    Backtest fiel, 8 semanas, contra no corregir nada:
+
+        variante                       WAPE cola   sesgo cola   mejoran/empeoran
+        sin corrección                   158,9%       +38,5%          —
+        sólo mediana                     144,7%       +14,4%        97 / 16
+        acuerdo (esta)                   152,7%       +29,2%        86 / 20
+
+    La de mediana sola gana en el agregado y pierde donde importa: convierte
+    productos sin sesgo en sub-predictores del 13% al 51%, y sub-predecir es
+    quiebre. Esta corrige un cuarto del sesgo de la cola sin romper a nadie.
+
+    `pares` son (predicho, real) de los últimos días, sin días de quiebre.
+    """
+    utiles = [(float(p), float(y)) for p, y in pares if float(p or 0) > 0]
+    if len(utiles) < min_n:
+        return None
+    sp = sum(p for p, _ in utiles)
+    if sp <= 0:
+        return None
+    r_med = cuantil([y / p for p, y in utiles], 0.5)
+    r_tot = sum(y for _, y in utiles) / sp
+    if (r_med - 1.0) * (r_tot - 1.0) <= 0:
+        return None  # las dos evidencias no coinciden: no se toca
+    r = min(r_med, r_tot) if r_tot > 1 else max(r_med, r_tot)
+    f = max(piso, min(techo, 1.0 + damp * (r - 1.0)))
+    if abs(f - 1.0) < umbral:
+        return None
+    return {"factor": round(f, 3), "mediana": round(r_med, 3),
+            "totales": round(r_tot, 3), "n": len(utiles)}
+
+
+def aplicar_factor_de_sesgo(forecasts, sesgo):
+    """Escala la predicción (y su banda) por el factor. In place."""
+    if not sesgo:
+        return forecasts
+    f = Decimal(str(sesgo["factor"]))
+    for fc in forecasts:
+        for k in ("qty_predicted", "lower_bound", "upper_bound"):
+            v = fc.get(k)
+            if v is not None and v > 0:
+                fc[k] = _q3(v * f)
+    return forecasts
 
 
 def aplicar_calibracion(forecasts, factores):

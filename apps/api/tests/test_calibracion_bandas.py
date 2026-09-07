@@ -220,6 +220,10 @@ class TestEnElEmbudo:
 
     def test_interruptor_de_apagado(self, tenant, store, warehouse, product, monkeypatch):
         monkeypatch.setenv("FORECAST_CALIBRACION_OFF", "1")
+        # La correccion de sesgo del punto (07/09/26) tiene su propio
+        # interruptor y escala la banda junto con la prediccion. Se apaga
+        # tambien para que este test mida solo lo suyo.
+        monkeypatch.setenv("FORECAST_SESGO_OFF", "1")
         fm = self._modelo(tenant, product, warehouse)
         _mediciones(tenant, product, warehouse)
         services.save_forecasts(tenant, product, warehouse.id, fm, _pronosticos(), D("70"), {})
