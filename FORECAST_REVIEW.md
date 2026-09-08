@@ -640,6 +640,56 @@ promesas por calendario. Barrido de emojis.
 
 ---
 
+---
+
+## 8. Auditoría externa del 08-09-2026 — los 12 hallazgos
+
+Lista entregada por el auditor, con el estado que tiene cada uno después de
+verificarlo contra el código y, cuando se pudo, medirlo sobre producción.
+Los doce se confirmaron: ninguno era falso. Se trabajan de a uno.
+
+| # | prioridad | módulo | estado |
+|---|---|---|---|
+| 1 | alta | métricas: se descartan errores reales ≥ 900% | **corregido** `d742ad2`, sin desplegar |
+| 2 | alta | feriados: el aprendizaje de un cliente toca los feriados globales | confirmado, **abierto** |
+| 3 | alta | backtest interno: limpieza antes del corte | confirmado y medido, **abierto** |
+| 4 | alta | factores mensuales al backtest adaptativo | **corregido** `a6fe09b`, sin desplegar |
+| 5 | media-alta | el denominador del MASE usa las observaciones de prueba | confirmado por lectura, **abierto** |
+| 6 | media | ensemble: WAPE promediado, sin sesgo ni señal de seguimiento | confirmado, **abierto** |
+| 7 | media | se borra la media móvil simple aunque mida mejor | confirmado y medido, **abierto** |
+| 8 | media | `category_prior` sin WAPE; métricas en cero con menos de 6 datos | confirmado por lectura, **abierto** |
+| 9 | media | `simple_avg` devuelve error cero sin backtest | confirmado por lectura, **abierto** |
+| 10 | media | un multiplicador de feriado en cero se ignora (`if mult`) | confirmado por lectura, **abierto** |
+| 11 | media | se aceptan cantidades distintas de reales y predicciones | confirmado y reproducido, **abierto** |
+| 12 | media | superadmin sigue clasificando por MAPE | confirmado, **abierto** |
+
+Lo medido hasta ahora, para no repetir trabajo:
+
+- **#1.** Reproducido: dos períodos de 0% y 1.000% promediaban 0%. Exposición
+  real: 0 de 1.860 pliegues de todos los candidatos; los 872 descartes eran
+  centinelas legítimos. Detalle en 3.7.
+- **#3.** La limpieza modifica 350 de 41.803 días (0,84%) y sólo 3 caen dentro
+  de las ventanas de prueba. Corriendo la competencia de las dos formas sobre
+  60 productos, el ganador es el mismo en los 60. Detalle en 3.12.
+- **#4.** Los factores del entrenamiento difieren de los globales en 0,029 de
+  mediana; la nota del adaptativo empeora 1,7 puntos de media al quitar la
+  fuga, y ningún producto cambia de ganador. Detalle en 3.12.
+- **#6.** Cero modelos ensemble activos de 188. Al faltarle el error de
+  totales queda último en demanda intermitente, así que sólo puede ganar en
+  demanda regular, y ahí compite sin la penalización por sesgo que sí se
+  aplica a los demás. Propuesta: retirarlo en vez de arreglarlo.
+- **#7.** La simple mide mejor que la adaptativa en 59 de 171 productos (35%),
+  y el ganador cambiaría en 63 (37%). Backtest fiel de 8 semanas, dejando
+  competir a la mejor de las dos: error ponderado por volumen 155,7% → 147,7%
+  y sesgo +24,1% → +16,1%, pero 10 productos mejoran y 24 empeoran. La
+  ganancia está en los productos que mueven volumen.
+- **#9.** `simple_avg` es elegible con 7 a 13 observaciones y entrega error
+  cero, que es la mejor nota posible: en ese rango le gana a cualquiera sin
+  haberse evaluado. Un modelo activo hoy.
+- **#11.** Reproducido: dos ventas reales y una sola predicción devuelven WAPE
+  0%. Las listas se recorren en paralelo y la observación sobrante se pierde.
+
+
 ## 7. Qué NO salió mal
 
 **Fiestas Patrias 2026, verificado el 03-09.** El pronóstico del 18 y 19 de
