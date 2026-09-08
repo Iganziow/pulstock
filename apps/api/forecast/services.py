@@ -1200,13 +1200,39 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
         return []
     start = daily_forecasts[0]["date"]
     end = daily_forecasts[-1]["date"]
-    return list(
+    feriados = list(
         Holiday.objects.filter(
             Q(tenant=tenant) | Q(tenant__isnull=True),
             date__gte=start - timedelta(days=5),  # include pre-days
             date__lte=end,
         )
     )
+
+    # PRECEDENCIA (08/09/26): si el negocio tiene su propio feriado en la
+    # misma fecha que uno nacional, manda el suyo. `apply_holiday_adjustments`
+    # arma un diccionario por fecha donde el ultimo pisa al anterior, asi que
+    # sin esto ganaba el que devolviera la base, al azar.
+    por_fecha = {}
+    for h in feriados:
+        previo = por_fecha.get(h.date)
+        if previo is None or (previo.tenant_id is None and h.tenant_id is not None):
+            por_fecha[h.date] = h
+    elegidos = list(por_fecha.values())
+
+    # LO APRENDIDO ES DE CADA NEGOCIO (08/09/26). Antes se guardaba en
+    # `Holiday.learned_multiplier`, o sea sobre la fila compartida: las ventas
+    # de un cliente fijaban el multiplicador de todos, y con el 60% del peso
+    # al mezclarse con lo configurado. Ahora vive en HolidayLearning y se pega
+    # aca EN MEMORIA, sin guardar, para no cambiarle la firma a
+    # apply_holiday_adjustments.
+    from forecast.models import HolidayLearning
+    aprendido = dict(
+        HolidayLearning.objects.filter(tenant=tenant, holiday__in=elegidos)
+        .values_list("holiday_id", "learned_multiplier")
+    )
+    for h in elegidos:
+        h.learned_multiplier = aprendido.get(h.id)
+    return elegidos
 
 
 def _razones_recientes(tenant, product, warehouse_id, dias=VENTANA_CALIBRACION):

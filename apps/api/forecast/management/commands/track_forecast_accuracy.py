@@ -221,7 +221,14 @@ class Command(BaseCommand):
         # Clamp to reasonable range
         learned = max(0.5, min(3.0, learned))
 
+        # Lo medido con las ventas de ESTE negocio se guarda en su propia
+        # fila (08/09/26). Antes se escribia sobre `holidays`, que incluye los
+        # feriados nacionales compartidos: el multiplicador de un cliente
+        # terminaba aplicandose a todos los demas.
+        from forecast.models import HolidayLearning
         for h in holidays:
-            h.learned_multiplier = Decimal(str(learned))
-            h.last_actual_date = target_date
-            h.save(update_fields=["learned_multiplier", "last_actual_date"])
+            HolidayLearning.objects.update_or_create(
+                tenant=tenant, holiday=h,
+                defaults={"learned_multiplier": Decimal(str(learned)),
+                          "last_actual_date": target_date},
+            )

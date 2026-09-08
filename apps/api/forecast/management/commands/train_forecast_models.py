@@ -435,11 +435,18 @@ class Command(BaseCommand):
         Scans past holidays and computes actual demand vs baseline.
         Updates Holiday.learned_multiplier for future forecast cycles.
         """
-        from forecast.models import Holiday, DailySales
+        from forecast.models import Holiday, DailySales, HolidayLearning
         from forecast.engine import compute_holiday_learned_multiplier
+        from django.db.models import Q as _Q
 
-        # Only learn from holidays that already occurred (not future)
-        past_holidays = Holiday.objects.filter(date__lt=today, date__gte=today - timedelta(days=365))
+        # Only learn from holidays that already occurred (not future).
+        # 08/09/26: ademas, SOLO los que le corresponden a este negocio -- los
+        # nacionales y los suyos. Antes no filtraba por negocio en absoluto, o
+        # sea que tambien pisaba los feriados propios de otros clientes.
+        past_holidays = Holiday.objects.filter(
+            _Q(tenant=tenant) | _Q(tenant__isnull=True),
+            date__lt=today, date__gte=today - timedelta(days=365),
+        )
 
         # Get aggregate daily sales for this tenant
         daily_agg = list(
@@ -454,12 +461,24 @@ class Command(BaseCommand):
         series = [(row["date"], float(row["total_qty"])) for row in daily_agg]
         updated = 0
 
+        # Lo aprendido va a la fila del negocio, nunca al calendario
+        # compartido (08/09/26). Ver HolidayLearning.
+        previo = dict(
+            HolidayLearning.objects.filter(tenant=tenant, holiday__in=past_holidays)
+            .values_list("holiday_id", "learned_multiplier")
+        )
         for h in past_holidays:
             mult = compute_holiday_learned_multiplier(series, h.date, window=7)
-            if mult is not None and mult != h.learned_multiplier:
-                h.learned_multiplier = Decimal(str(mult))
-                h.save(update_fields=["learned_multiplier"])
-                updated += 1
+            if mult is None:
+                continue
+            nuevo = Decimal(str(mult))
+            if previo.get(h.id) == nuevo:
+                continue
+            HolidayLearning.objects.update_or_create(
+                tenant=tenant, holiday=h,
+                defaults={"learned_multiplier": nuevo, "last_actual_date": h.date},
+            )
+            updated += 1
 
         if updated:
             self.stdout.write(f"  Holiday learning: {updated} multipliers updated for {tenant.name}")

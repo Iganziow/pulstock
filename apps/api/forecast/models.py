@@ -363,13 +363,17 @@ class Holiday(models.Model):
     )
 
     is_recurring = models.BooleanField(default=True, help_text="Se repite cada año")
+    # OBSOLETO desde el 08/09/26 — lo aprendido vive en HolidayLearning, por
+    # negocio. Este campo queda para no romper migraciones viejas y ya nadie
+    # lo escribe ni lo lee (la lectura lo pisa en memoria con el valor del
+    # negocio). Ver el docstring de HolidayLearning.
     learned_multiplier = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text="Multiplicador aprendido de datos históricos"
+        help_text="OBSOLETO: usar HolidayLearning (por negocio)"
     )
     last_actual_date = models.DateField(
         null=True, blank=True,
-        help_text="Última fecha en que se midió el impacto real"
+        help_text="OBSOLETO: usar HolidayLearning (por negocio)"
     )
 
     class Meta:
@@ -380,6 +384,44 @@ class Holiday(models.Model):
 
     def __str__(self):
         return f"Holiday {self.name} ({self.date}) x{self.demand_multiplier}"
+
+
+class HolidayLearning(models.Model):
+    """Lo que UN negocio aprendió sobre UN feriado.
+
+    Por qué existe (auditoría del 08/09/26). El calendario de feriados es
+    compartido: 126 filas, todas globales (`tenant` nulo). El aprendizaje
+    escribía el multiplicador medido en `Holiday.learned_multiplier`, o sea
+    encima de esa fila compartida, y desde dos lugares distintos: el
+    seguimiento de aciertos filtraba "de este negocio o globales" y el
+    entrenamiento no filtraba por negocio en absoluto. Al leer, el ajuste
+    mezcla 60% de lo aprendido con 40% de lo configurado, así que el valor
+    aprendido MANDA. Resultado: las ventas de una cafetería en Valdivia
+    habrían fijado el multiplicador de Fiestas Patrias de cualquier otro
+    cliente, con más peso que su propia configuración. Al 08/09/26 había 20
+    feriados globales ya escritos con datos de Marbrava.
+
+    El calendario vuelve a ser una referencia que nadie escribe, y cada
+    negocio guarda acá lo suyo.
+    """
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="holiday_learnings")
+    holiday = models.ForeignKey(
+        Holiday, on_delete=models.CASCADE, related_name="learnings")
+    learned_multiplier = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        help_text="Multiplicador medido con las ventas de ESTE negocio")
+    last_actual_date = models.DateField(
+        null=True, blank=True,
+        help_text="Última fecha en que se midió el impacto real")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("tenant", "holiday")]
+        indexes = [models.Index(fields=["tenant", "holiday"])]
+
+    def __str__(self):
+        return f"HolidayLearning {self.tenant_id}/{self.holiday_id} x{self.learned_multiplier}"
 
 
 # ======================================================

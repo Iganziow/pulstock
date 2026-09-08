@@ -530,6 +530,29 @@ llamadores: se hace con backtest fiel de árbitro, no de apuro.
 El comando `backtest_forecast` no tiene ninguna de las dos: arma la serie sólo
 hasta el día simulado y evalúa los días siguientes.
 
+### 3.13 El aprendizaje de feriados de un cliente escribía el calendario de todos [E] — corregido 08-09
+Hallazgo 2 de la auditoría. El calendario es compartido: 126 filas, todas
+globales. El aprendizaje escribía el multiplicador medido en
+`Holiday.learned_multiplier`, encima de esa fila, y desde dos lugares. El
+seguimiento de aciertos filtraba "de este negocio o globales" y le escribía a
+todos. El entrenamiento no filtraba por negocio en absoluto, así que también
+habría pisado los feriados propios de otro cliente.
+
+Por qué pesa: al aplicar el ajuste, la mezcla es 60% de lo aprendido y 40% de
+lo configurado. El valor aprendido manda. Al 08-09 había 20 feriados globales
+ya escritos con datos de Marbrava, y son elocuentes: Glorias Navales aprendido
+0,25 contra 1,15 configurado, Asunción de la Virgen 0,20 contra 1,10. Una
+cafetería vende menos en feriado; un retail vende más. Ese 0,25 le habría
+llegado al siguiente cliente por encima de su propia configuración.
+
+Arreglo: lo aprendido vive en `HolidayLearning`, una fila por negocio y
+feriado. El calendario vuelve a ser una referencia que nadie escribe. La
+lectura carga lo del negocio y, de paso, resuelve una precedencia que estaba
+al azar: si un negocio tiene su propio feriado en la misma fecha que uno
+nacional, manda el suyo (antes ganaba el que devolviera la base). La migración
+mueve los 20 valores a Marbrava, que es de donde salieron; si hubiera más de
+un negocio con datos los descarta, porque no se puede saber de cuál vinieron.
+
 ## 4. Lo que ve el usuario [L]
 
 ### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
@@ -651,7 +674,7 @@ Los doce se confirmaron: ninguno era falso. Se trabajan de a uno.
 | # | prioridad | módulo | estado |
 |---|---|---|---|
 | 1 | alta | métricas: se descartan errores reales ≥ 900% | **corregido** `d742ad2`, sin desplegar |
-| 2 | alta | feriados: el aprendizaje de un cliente toca los feriados globales | confirmado, **abierto** |
+| 2 | alta | feriados: el aprendizaje de un cliente toca los feriados globales | **corregido** `pendiente`, con migración |
 | 3 | alta | backtest interno: limpieza antes del corte | confirmado y medido, **abierto** |
 | 4 | alta | factores mensuales al backtest adaptativo | **corregido** `a6fe09b`, sin desplegar |
 | 5 | media-alta | el denominador del MASE usa las observaciones de prueba | confirmado por lectura, **abierto** |
