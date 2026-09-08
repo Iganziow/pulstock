@@ -425,10 +425,28 @@ Solo `adaptive_ma`, `moving_avg`, `croston`, `tsb`, `simple_avg` y
 `category_prior` escriben `params["avg_daily"]`; `services.py:1528, 1540` lo
 leen con default "0" y los ajustes retornan sin hacer nada.
 
-### 3.7 El centinela 900 de `wape_total` excluye folds y premia al que sobre-predice
-`engine/utils.py:259, 283`. En un fold con reales `[0,0,1,0,0,0,0]` el modelo
-que predice 1,5/día da 950 → fold excluido de su promedio; el que predice 0,3
-da 110 → incluido. Se comparan sobre conjuntos de folds distintos.
+### 3.7 El centinela 900 tapaba errores reales de 900% o más [E] — corregido 08-09
+Levantado por auditoría externa y reproducido tal cual: dos períodos, uno
+perfecto y uno con 1.000% de error, y el promedio devolvía 0%.
+
+La causa. Los folds con ventana degenerada (sin ventas, o serie plana)
+devuelven 999 como centinela, que significa "acá no hay nada que medir". El
+promedio descartaba todo fold con la métrica por encima de 900, así que un
+error REAL del 900% o más caía en la misma bolsa y desaparecía. Un modelo que
+la mitad de las semanas se equivoca por diez veces se veía perfecto, y esa es
+la métrica con la que se elige el algoritmo cada noche.
+
+Qué tan expuestos estábamos. Medido sobre 1.860 folds de todos los candidatos
+de los 70 productos con más historia: ninguno caía en el caso. Los 872
+descartes eran centinelas legítimos, semanas sin una sola venta. En Marbrava
+el defecto no estaba distorsionando nada; se arregla porque es silencioso y
+porque otro negocio con demanda distinta sí lo puede pisar.
+
+El arreglo. Cada fold declara ahora, por nombre, qué métricas no son
+evaluables, y el promedio se decide por esa marca en vez de la magnitud. Los
+folds guardados antes del cambio, que no traen la marca, siguen con la regla
+vieja. El promedio se acota a 995 para que un error real gigante no termine
+dentro de la banda que el resto del motor lee como centinela.
 
 ### 3.8 Estacionalidad mensual sin tope
 `engine/enhancements.py:87-94`. Un mes de evento a 200/día contra 11 meses a

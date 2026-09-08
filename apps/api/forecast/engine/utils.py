@@ -181,10 +181,18 @@ def _compute_metrics(actuals, predictions):
     rmse = math.sqrt(sum(sq_errors) / n)
     bias = sum(errors) / n
 
+    # `no_evaluables` marca, por nombre, las metricas de ratio que en ESTE
+    # fold no significan nada (ver el comentario de _SENTINEL abajo). Antes la
+    # marca era el valor 999 y el promedio descartaba todo lo que superara 900:
+    # un error REAL de 1.000% se descartaba junto con los centinelas. Auditoria
+    # del 08/09/26, reproducido: folds de 0% y 1.000% promediaban 0%.
+    no_evaluables = []
+
     if pct_errors:
         mape = sum(pct_errors) / len(pct_errors)
     elif all(a == 0 for a in actuals):
         mape = 999
+        no_evaluables.append("mape")
     else:
         mape = 0
 
@@ -203,6 +211,7 @@ def _compute_metrics(actuals, predictions):
         wape = 0
     else:
         wape = 999
+        no_evaluables.append("wape")
 
     # ── F3.1 (Mario 29/05/26): métricas honestas para demanda intermitente ──
     # MASE — Mean Absolute Scaled Error: escala el MAE por el error de un
@@ -212,6 +221,8 @@ def _compute_metrics(actuals, predictions):
     naive_diffs = [abs(actuals[i] - actuals[i - 1]) for i in range(1, n)]
     naive_mae = sum(naive_diffs) / len(naive_diffs) if naive_diffs else 0.0
     mase = (mae / naive_mae) if naive_mae > 0 else (0.0 if mae == 0 else 999)
+    if naive_mae <= 0 and mae != 0:
+        no_evaluables.append("mase")
 
     # sMAPE simétrico, acotado [0, 200]. No queda indefinido cuando real=0.
     smape_terms = [
@@ -238,6 +249,7 @@ def _compute_metrics(actuals, predictions):
         wape_total = 0
     else:
         wape_total = 999
+        no_evaluables.append("wape_total")
 
     return {
         "mae": round(mae, 3),
@@ -249,14 +261,23 @@ def _compute_metrics(actuals, predictions):
         "smape": round(smape, 1),
         "tracking_signal": round(tracking_signal, 2),
         "wape_total": round(wape_total, 1),
+        "no_evaluables": no_evaluables,
     }
 
 
 # Valor centinela que _compute_metrics devuelve para las métricas de ratio
 # (mape/wape/mase/smape) cuando la ventana de test es degenerada: sin ventas o
 # plana (Σactual = 0 o naive_mae = 0). NO es un error de N% — significa "este
-# fold no es evaluable para esta métrica".
+# fold no es evaluable para esta métrica". Cuál es cuál lo dice la lista
+# `no_evaluables` del propio fold; el valor 999 quedó sólo por compatibilidad
+# con métricas guardadas antes del 08/09/26.
 _SENTINEL = 900
+
+# Tope de las métricas de ratio promediadas. Un error del 1.000% y uno del
+# 5.000% son igual de inservibles, y dejarlos pasar sin techo los mandaría a la
+# banda del centinela (>= 998), donde el resto del motor los volvería a
+# confundir con "no evaluable". 995 los deja abajo de todo pero comparables.
+_TOPE_RATIO = 995.0
 
 
 def _average_metrics(fold_metrics):
@@ -268,10 +289,23 @@ def _average_metrics(fold_metrics):
       1 de 3 folds centinela → (999+0.5+0.5)/3 = 333
       2 de 3 folds centinela → (999+999+0.5)/3 = 666
     — que inflaban la métrica y ARRUINABAN la selección de algoritmo (Croston
-    perdía por un centinela, no por su error real). Ahora cada métrica de ratio
-    promedia SOLO los folds informativos (< 900); si TODOS son centinela, queda
-    999. Las métricas absolutas (mae/rmse/bias) siguen promediando todos los
-    folds (no usan centinela: son números reales aun en ventanas planas).
+    perdía por un centinela, no por su error real). Cada métrica de ratio
+    promedia SÓLO los folds informativos; si TODOS son centinela, queda 999.
+    Las métricas absolutas (mae/rmse/bias) promedian todos los folds (no usan
+    centinela: son números reales aun en ventanas planas).
+
+    08/09/26 — cómo se decide "informativo". Antes era por magnitud: se
+    descartaba todo fold con la métrica >= 900. Eso confundía el centinela con
+    un error REAL catastrófico y lo tiraba a la basura. Reproducido: un fold
+    perfecto (0%) y uno de 1.000% promediaban 0%, o sea que un modelo que la
+    mitad del tiempo se equivoca por diez veces se veía perfecto y podía ganar
+    la selección. Ahora se decide por la marca `no_evaluables` que trae cada
+    fold, así que el 1.000% cuenta: esos dos folds promedian 500%.
+
+    (Medido el 08/09/26 en Marbrava sobre 1.860 folds de todos los candidatos:
+    ninguno caía en ese caso — todos los descartes eran centinelas legítimos.
+    El defecto no estaba distorsionando nada acá; se arregla porque es
+    silencioso y otro negocio con demanda distinta sí lo puede pisar.)
     """
     n = len(fold_metrics)
     if n == 0:
@@ -279,9 +313,28 @@ def _average_metrics(fold_metrics):
                 "mase": 999, "smape": 999, "tracking_signal": 0, "wape_total": 999}
 
     def _avg_ratio(key):
-        """Promedio de la métrica de ratio excluyendo folds centinela."""
-        vals = [f.get(key, 999) for f in fold_metrics if f.get(key, 999) < _SENTINEL]
-        return (sum(vals) / len(vals)) if vals else 999
+        """Promedio de la métrica de ratio excluyendo folds NO EVALUABLES.
+
+        Un fold cuenta salvo que traiga la métrica en su lista
+        `no_evaluables`. Para folds viejos o de terceros que no traen esa
+        lista se cae a la regla anterior (magnitud >= _SENTINEL), que es lo
+        único que se puede saber de ellos.
+        """
+        vals = []
+        for f in fold_metrics:
+            v = f.get(key)
+            if v is None:
+                continue
+            marcas = f.get("no_evaluables")
+            if marcas is None:
+                if v >= _SENTINEL:      # compatibilidad hacia atrás
+                    continue
+            elif key in marcas:
+                continue
+            vals.append(v)
+        if not vals:
+            return 999
+        return min(_TOPE_RATIO, sum(vals) / len(vals))
 
     return {
         "mae": round(sum(f["mae"] for f in fold_metrics) / n, 3),
