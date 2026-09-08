@@ -515,17 +515,39 @@ cambia de ganador. Cada pliegue los recalcula ahora con su propio
 entrenamiento; el pronóstico publicado los sigue usando enteros, que ahí es
 correcto.
 
-**Limpieza antes del corte — abierto.** `clean_series` corre sobre la serie
-completa y después se parte en pliegues. Tres estadísticos miran el futuro: el
-tope de atípicos (percentiles de toda la serie), el factor de crecimiento
-(nivel de los últimos 21 días contra el histórico) y la mediana por día de
-semana que rellena quiebres (los 8 valores más recientes). Medido: la limpieza
-modifica 350 de 41.803 días (0,84%), y sólo 3 de esos caen dentro de las
-ventanas de prueba. Corriendo la competencia de las dos formas sobre 60
-productos y todos los candidatos, el ganador es el mismo en los 60 y la
-diferencia de error tiene mediana cero. Real, sin impacto medible acá, y con
-un arreglo que obliga a cambiar la firma de la selección y sus tres
-llamadores: se hace con backtest fiel de árbitro, no de apuro.
+**Limpieza antes del corte — medido y descartado el 08-09.** `clean_series`
+corre sobre la serie completa y después se parte en pliegues. Tres
+estadísticos miran el futuro: el tope de atípicos (percentiles de toda la
+serie), el factor de crecimiento (nivel de los últimos 21 días contra el
+histórico) y la mediana por día de semana que rellena quiebres.
+
+La primera medición fue mala: usé una ventana de prueba de 21 días cuando la
+real son 56, porque el backtest interno corre con 8 pliegues de 7 días. Con la
+ventana correcta el defecto es bastante mayor de lo que reporté: 153 de los
+335 días que la limpieza modifica caen dentro de la zona evaluada, y el
+ganador de la competencia cambia en 12 de 60 productos al quitar la fuga.
+
+Con eso implementé el arreglo: puntuar a los candidatos con una serie cuyos
+estadísticos sólo miran hasta antes de la zona de prueba, y seguir
+pronosticando con la serie completa. El backtest fiel, ocho semanas, 213
+productos, fuera de muestra:
+
+| | WAPE total | sesgo total | WAPE cola | mejoran / empeoran |
+|---|---|---|---|---|
+| como está hoy | 166,1% | +24,9% | 208,7% | — |
+| sin la fuga | 172,1% | +31,9% | 220,5% | 14 / 18 |
+
+Seis puntos peor. Se revirtió. La explicación más plausible: el tope de
+atípicos calculado con 34 días de prefijo es mucho más ruidoso que el
+calculado con la serie entera, y ese ruido cuesta más que lo que ahorra la
+fuga. Y hay un argumento de fondo: lo que el backtest tiene que estimar es
+"qué tan bien le irá mañana a este algoritmo entrenado sobre la serie
+completamente limpia", que es lo que pasa de verdad cada noche. Limpiar con
+menos historia mide otra tarea, más difícil que la real.
+
+Queda documentado como defecto metodológico conocido, con la medición que
+justifica no tocarlo. Es el mismo caso que el cero falso de "hoy" (3.1): un
+cambio teóricamente correcto que el backtest fiel rechazó.
 
 El comando `backtest_forecast` no tiene ninguna de las dos: arma la serie sólo
 hasta el día simulado y evalúa los días siguientes.
@@ -675,7 +697,7 @@ Los doce se confirmaron: ninguno era falso. Se trabajan de a uno.
 |---|---|---|---|
 | 1 | alta | métricas: se descartan errores reales ≥ 900% | **corregido** `d742ad2`, sin desplegar |
 | 2 | alta | feriados: el aprendizaje de un cliente toca los feriados globales | **corregido** `pendiente`, con migración |
-| 3 | alta | backtest interno: limpieza antes del corte | confirmado y medido, **abierto** |
+| 3 | alta | backtest interno: limpieza antes del corte | confirmado; el arreglo EMPEORA, **no se aplica** |
 | 4 | alta | factores mensuales al backtest adaptativo | **corregido** `a6fe09b`, sin desplegar |
 | 5 | media-alta | el denominador del MASE usa las observaciones de prueba | confirmado por lectura, **abierto** |
 | 6 | media | ensemble: WAPE promediado, sin sesgo ni señal de seguimiento | confirmado, **abierto** |
@@ -691,9 +713,12 @@ Lo medido hasta ahora, para no repetir trabajo:
 - **#1.** Reproducido: dos períodos de 0% y 1.000% promediaban 0%. Exposición
   real: 0 de 1.860 pliegues de todos los candidatos; los 872 descartes eran
   centinelas legítimos. Detalle en 3.7.
-- **#3.** La limpieza modifica 350 de 41.803 días (0,84%) y sólo 3 caen dentro
-  de las ventanas de prueba. Corriendo la competencia de las dos formas sobre
-  60 productos, el ganador es el mismo en los 60. Detalle en 3.12.
+- **#3.** Medición CORREGIDA el 08-09: la primera usó una ventana de prueba de
+  21 días cuando la real es de 56 (`N_FOLDS` = 8 × 7 días). Con la ventana
+  correcta, 153 de los 335 días que la limpieza modifica caen dentro de la
+  zona evaluada, y el ganador de la competencia cambia en 12 de 60 productos.
+  El defecto es real y más grande de lo que dije. Pero el arreglo, medido con
+  el backtest fiel, EMPEORA el pronóstico: no se aplica. Detalle en 3.12.
 - **#4.** Los factores del entrenamiento difieren de los globales en 0,029 de
   mediana; la nota del adaptativo empeora 1,7 puntos de media al quitar la
   fuga, y ningún producto cambia de ganador. Detalle en 3.12.
