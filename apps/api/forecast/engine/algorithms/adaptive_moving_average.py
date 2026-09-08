@@ -139,7 +139,28 @@ def _adaptive_moving_average(daily_series, horizon_days=14, month_factors=None, 
 
 
 def _backtest_adaptive_ma(daily_series, test_days=7, n_folds=3, month_factors=None, use_additive=False):
-    """Walk-forward cross-validation for Adaptive MA."""
+    """Walk-forward cross-validation for Adaptive MA.
+
+    `month_factors` se IGNORA a proposito (08/09/26). Los factores de posicion
+    del mes que llegaban de afuera estaban calculados sobre la serie COMPLETA,
+    incluidos los dias que este backtest usa como prueba: informacion del
+    futuro entrando a la evaluacion. Cada pliegue los recalcula ahora con su
+    propio entrenamiento, y si el entrenamiento no alcanza los 45 dias que
+    pide `compute_month_position_factors`, el pliegue corre sin factores, que
+    es lo honesto.
+
+    Medido en Marbrava sobre los 99 productos con factores: la nota del
+    adaptativo empeora una mediana de 0,3 puntos y una media de 1,7 (o sea,
+    la fuga lo estaba favoreciendo, y es el algoritmo mas usado del catalogo:
+    68 de 188 modelos activos). Ningun producto cambia de ganador con el
+    arreglo, asi que corrige la vara sin mover ninguna decision de hoy.
+
+    El parametro se conserva en la firma porque `forecast` -- el pronostico
+    que se publica -- si los usa, y ahi no hay fuga posible: no existe un
+    "despues" del ultimo dia de la serie.
+    """
+    from ..enhancements import compute_month_position_factors
+
     min_train = 21
     if len(daily_series) < min_train + test_days:
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0}
@@ -153,8 +174,11 @@ def _backtest_adaptive_ma(daily_series, test_days=7, n_folds=3, month_factors=No
             break
         train = daily_series[:test_start]
         test = daily_series[test_start:test_end]
-        result = _adaptive_moving_average(train, horizon_days=test_days,
-                                          month_factors=month_factors, use_additive=use_additive)
+        result = _adaptive_moving_average(
+            train, horizon_days=test_days,
+            month_factors=compute_month_position_factors(train),
+            use_additive=use_additive,
+        )
         if result is None:
             continue
         actuals = [float(item[1]) for item in test]

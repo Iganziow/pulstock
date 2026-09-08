@@ -498,6 +498,38 @@ filtrar anuladas para el tope de seguridad y el gate de `category_prior`.
 
 ---
 
+### 3.12 Información del futuro entrando al backtest interno [E] — 08-09
+Levantadas por auditoría externa. Son dos entradas distintas al mismo problema:
+el backtest que decide qué algoritmo gana evalúa contra datos que ya fueron
+tocados con información del período evaluado.
+
+**Factores de posición del mes — corregido.** `armar_serie_entrenamiento` los
+calcula sobre la serie completa y `select_best_model` se los pasa a cada
+algoritmo; `_backtest_adaptive_ma` partía en pliegues pero usaba esos factores
+tal cual. Medido sobre los 99 productos que alcanzan a tener factores (los
+otros 74 no llegan a 45 días de serie): los del entrenamiento difieren de los
+globales en 0,029 de mediana, y la nota del adaptativo empeora 0,3 puntos de
+mediana y 1,7 de media al quitar la fuga. Se estaba puntuando mejor de lo que
+le corresponde, y es el algoritmo más usado del catálogo. Ningún producto
+cambia de ganador. Cada pliegue los recalcula ahora con su propio
+entrenamiento; el pronóstico publicado los sigue usando enteros, que ahí es
+correcto.
+
+**Limpieza antes del corte — abierto.** `clean_series` corre sobre la serie
+completa y después se parte en pliegues. Tres estadísticos miran el futuro: el
+tope de atípicos (percentiles de toda la serie), el factor de crecimiento
+(nivel de los últimos 21 días contra el histórico) y la mediana por día de
+semana que rellena quiebres (los 8 valores más recientes). Medido: la limpieza
+modifica 350 de 41.803 días (0,84%), y sólo 3 de esos caen dentro de las
+ventanas de prueba. Corriendo la competencia de las dos formas sobre 60
+productos y todos los candidatos, el ganador es el mismo en los 60 y la
+diferencia de error tiene mediana cero. Real, sin impacto medible acá, y con
+un arreglo que obliga a cambiar la firma de la selección y sus tres
+llamadores: se hace con backtest fiel de árbitro, no de apuro.
+
+El comando `backtest_forecast` no tiene ninguna de las dos: arma la serie sólo
+hasta el día simulado y evalúa los días siguientes.
+
 ## 4. Lo que ve el usuario [L]
 
 ### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
