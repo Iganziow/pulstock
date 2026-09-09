@@ -575,6 +575,46 @@ nacional, manda el suyo (antes ganaba el que devolviera la base). La migración
 mueve los 20 valores a Marbrava, que es de donde salieron; si hubiera más de
 un negocio con datos los descarta, porque no se puede saber de cuál vinieron.
 
+### 3.14 Un tercio del catálogo lleva tres meses sin reentrenarse [E] — 09-09
+57 de 190 modelos activos tienen más de 30 días; los más viejos son del 3 de
+junio. La hipótesis era que esa antigüedad explicaba el sesgo de la cola.
+**No la explica.** Error real de 30 días por antigüedad del modelo, ponderado
+por volumen:
+
+| antigüedad | modelos | venta 30d | WAPE | sesgo |
+|---|---|---|---|---|
+| entrenado anoche | 40 | 37.432 | 47% | +0% |
+| 2 a 7 días | 14 | 605 | 228% | +46% |
+| 8 a 30 días | 15 | 782 | 165% | −24% |
+| más de 30 días | 26 | 1.455 | 99% | −23% |
+
+Los congelados no son los peores. Y la prueba directa: simulando ocho semanas
+de reentrenamiento semanal sobre los 20 congelados con venta medible, el error
+queda en 97% contra el 96% que lograron congelados, y el sesgo en −23% contra
+−21%, con 10 productos que mejoran y 10 que empeoran. Reentrenarlos no aporta.
+
+Lo que sí apareció es que el mecanismo que decide conservarlos está ciego. El
+kept-path compara al candidato fresco contra `wape_real` si hay al menos 7
+mediciones, y si no contra el WAPE del backtest de la noche en que se entrenó.
+De los 26 congelados, 23 no tienen mediciones suficientes, así que se comparan
+contra un número fósil de hace meses. Y esos fósiles son optimistas de más:
+MACARONS guarda 25% y su error real es 78%; Doblón guarda 33% contra 97%.
+
+Peor: ese mismo número es el que la aplicación muestra como su precisión. De
+los 94 modelos activos con venta, 85 muestran el fósil porque
+`recalibrate_confidence` corre con ventana de 14 días y los productos de baja
+rotación no juntan 7 mediciones. 26 modelos muestran menos de 50% de error
+teniendo más de 100% real, y 9 de ellos están etiquetados como confianza alta.
+Agua Puyehue muestra 75% y su error real es 728%. Preparado chai, con 150
+unidades vendidas, muestra 85% contra 332%.
+
+Arreglo propuesto, sin medir todavía: que la ventana de `wape_real` se
+ensanche sola (14, 30, 60, 90 días) hasta juntar 7 mediciones. Con eso el
+kept-path compara contra la realidad en vez de un fósil, y la pantalla deja de
+prometer una precisión que no tiene. El riesgo sobre la exactitud es bajo
+—reemplazar esos modelos mide igual, ver arriba— y la ganancia es de
+credibilidad.
+
 ## 4. Lo que ve el usuario [L]
 
 ### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
