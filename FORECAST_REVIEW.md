@@ -608,12 +608,32 @@ teniendo más de 100% real, y 9 de ellos están etiquetados como confianza alta.
 Agua Puyehue muestra 75% y su error real es 728%. Preparado chai, con 150
 unidades vendidas, muestra 85% contra 332%.
 
-Arreglo propuesto, sin medir todavía: que la ventana de `wape_real` se
-ensanche sola (14, 30, 60, 90 días) hasta juntar 7 mediciones. Con eso el
-kept-path compara contra la realidad en vez de un fósil, y la pantalla deja de
-prometer una precisión que no tiene. El riesgo sobre la exactitud es bajo
-—reemplazar esos modelos mide igual, ver arriba— y la ganancia es de
-credibilidad.
+**Arreglo, medido el 09-09 sobre los datos reales.** La ventana de `wape_real`
+se ensancha sola (14, 30, 60, 90 días) hasta juntar 7 mediciones, y la API deja
+de publicar el backtest como si fuera precisión medida: sin evidencia,
+`display_wape` viene vacío y `precision_medida` en falso.
+
+No hubo que esperar a que se acumularan datos: ya hay 134 días de historial y
+16.918 mediciones guardadas. Se probó cargando esos datos en una base local y
+corriendo el comando real antes y después:
+
+| | antes | después |
+|---|---|---|
+| modelos con medición real | 15 de 190 | 76 de 190 |
+| muestran el backtest fósil | 175 | 114 |
+
+Los 61 que ganan medición la obtienen con 14 días (15), 30 (18), 60 (28) y 90
+(15). El número mostrado **mejora** en 39 de ellos y empeora en 15: el fósil
+era mayormente pesimista, o sea que la app se estaba subestimando. Vasos
+grandes mostraba 150% y su error real es 54%; Café Helado 163% contra 78%.
+
+31 modelos cambian de etiqueta de confianza, 25 hacia abajo y 6 hacia arriba.
+Entre los que bajan hay 6 que pasan de "alta" a "muy baja" y uno de "muy alta"
+a "muy baja": prometían confianza sin ninguna evidencia.
+
+Los 114 restantes venden tan poco que no juntan 7 días con venta ni en 90. Para
+ellos no se estira más la ventana —sería juzgar el modelo de hoy con la
+temporada pasada— y la pantalla dice que no hay datos suficientes.
 
 ## 4. Lo que ve el usuario [L]
 

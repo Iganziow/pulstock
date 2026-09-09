@@ -47,6 +47,25 @@ from django.utils import timezone
 from core.models import Tenant
 from forecast.models import ForecastAccuracy, ForecastModel
 
+# Mediciones minimas para que el WAPE real signifique algo. Es el mismo umbral
+# que usa el kept-path en services._wape_vigente: si no llega, ese camino se
+# compara contra el WAPE del backtest de la noche en que se entreno el modelo.
+MIN_MEDICIONES = 7
+
+# La ventana se ensancha hasta juntar `MIN_MEDICIONES` (09/09/26).
+#
+# Por que. La ventana era fija en 14 dias y solo cuenta dias CON venta, asi que
+# los productos de rotacion lenta nunca juntaban 7 mediciones: medido sobre los
+# datos reales de Marbrava, solo 15 de 190 modelos activos tenian un WAPE real
+# utilizable. Los otros 175 mostraban en pantalla -- y le daban al kept-path --
+# el WAPE del backtest congelado de la noche en que se entrenaron, que para
+# esos productos no describe nada. Con la escalera, 56 de 190 pasan a tener
+# medicion real usando historial que YA existe (hay 134 dias guardados).
+#
+# Mas alla de 90 dias no se sigue: seria juzgar el modelo de hoy con la
+# temporada pasada.
+VENTANAS = (14, 30, 60, 90)
+
 
 # Umbrales de WAPE → label. Si querés ajustarlos, hacelo acá.
 # Estos son conservadores — un MAPE/WAPE 30% es excelente para retail.
@@ -95,23 +114,34 @@ class Command(BaseCommand):
         for tenant in tenants:
             models = ForecastModel.objects.filter(tenant=tenant, is_active=True)
             for fm in models:
-                # WAPE real para este (producto, warehouse) en los últimos N días
-                wape_data = ForecastAccuracy.objects.filter(
-                    tenant=tenant,
-                    product_id=fm.product_id,
-                    warehouse_id=fm.warehouse_id,
-                    date__gte=cutoff,
-                    qty_actual__gt=0,
-                ).aggregate(
-                    sum_abs_error=Sum(Abs("error")),
-                    sum_actual=Sum("qty_actual"),
-                    n=Count("id"),
-                )
+                # WAPE real para este (producto, warehouse). La ventana parte
+                # en `days` y se ensancha hasta juntar MIN_MEDICIONES; ver
+                # VENTANAS arriba. Se queda con la PRIMERA que alcanza, para
+                # no diluir un producto de rotacion rapida en 90 dias.
+                ventanas = [days] + [v for v in VENTANAS if v > days]
+                wape_data, ventana_usada = None, days
+                for v in ventanas:
+                    datos = ForecastAccuracy.objects.filter(
+                        tenant=tenant,
+                        product_id=fm.product_id,
+                        warehouse_id=fm.warehouse_id,
+                        date__gte=timezone.now().date() - timedelta(days=v),
+                        qty_actual__gt=0,
+                    ).aggregate(
+                        sum_abs_error=Sum(Abs("error")),
+                        sum_actual=Sum("qty_actual"),
+                        n=Count("id"),
+                    )
+                    if wape_data is None or (datos["n"] or 0) > (wape_data["n"] or 0):
+                        wape_data, ventana_usada = datos, v
+                    if (datos["n"] or 0) >= MIN_MEDICIONES:
+                        wape_data, ventana_usada = datos, v
+                        break
 
                 if wape_data["sum_actual"] and wape_data["sum_actual"] > 0:
                     wape = float(wape_data["sum_abs_error"]) / float(wape_data["sum_actual"]) * 100
                     new_reason = (
-                        f"WAPE real {wape:.0f}% en últimos {days} días "
+                        f"WAPE real {wape:.0f}% en últimos {ventana_usada} días "
                         f"({wape_data['n']} comparaciones)"
                     )
                 else:
@@ -175,7 +205,7 @@ class Command(BaseCommand):
                 if wape is not None:
                     new_metrics = dict(fm.metrics or {})
                     new_metrics["wape_real"] = round(wape, 1)
-                    new_metrics["wape_real_days"] = days
+                    new_metrics["wape_real_days"] = ventana_usada
                     new_metrics["wape_real_samples"] = wape_data["n"]
                     if new_metrics != (fm.metrics or {}):
                         fm.metrics = new_metrics

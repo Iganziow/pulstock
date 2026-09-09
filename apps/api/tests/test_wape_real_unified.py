@@ -163,13 +163,18 @@ class TestWapeRealExposedInAPI:
         assert row["wape"] == 146.5, "wape del backtest preservado"
         assert row["wape_real"] == 29.0, "wape_real expuesto"
         assert row["wape_real_samples"] == 5
-        # display_wape prioriza wape_real
-        assert row["display_wape"] == 29.0
+        # 09/09/26: con 5 mediciones NO alcanza para llamarlo precision medida
+        # (el umbral son 7, el mismo que usa el kept-path). Se expone el dato
+        # crudo pero display_wape queda vacio.
+        assert row["display_wape"] is None
+        assert row["precision_medida"] is False
 
-    def test_get_product_forecasts_display_wape_falls_back_to_backtest(
+    def test_sin_medicion_no_se_muestra_el_backtest_como_si_fuera_precision(
         self, tenant, units_simple, warehouse_a, chocolate_premium_like,
     ):
-        """Si no hay wape_real, display_wape cae al wape del backtest."""
+        """09/09/26: antes caia al WAPE del backtest de entrenamiento y lo
+        mostraba como si fuera lo que el modelo hace en produccion. Medido en
+        Marbrava, 175 de 190 modelos activos mostraban ese fosil."""
         from forecast.services import get_product_forecasts
         p, fm = chocolate_premium_like
         # fm.metrics NO tiene wape_real
@@ -178,16 +183,19 @@ class TestWapeRealExposedInAPI:
         row = next(r for r in data["results"] if r["product_id"] == p.id)
 
         assert row["wape_real"] is None
-        assert row["display_wape"] == 146.5  # cae al wape del backtest
+        assert row["display_wape"] is None
+        assert row["precision_medida"] is False
+        assert row["wape"] == 146.5, "el backtest se sigue exponiendo aparte"
 
     def test_get_product_detail_includes_display_wape_and_confidence(
         self, tenant, units_simple, warehouse_a, chocolate_premium_like,
     ):
         from forecast.services import get_product_detail
         p, fm = chocolate_premium_like
-        fm.metrics = {**fm.metrics, "wape_real": 29.0}
+        # 09/09/26: se necesitan 7 mediciones para llamarlo precision medida.
+        fm.metrics = {**fm.metrics, "wape_real": 29.0, "wape_real_samples": 9}
         fm.confidence_label = "high"
-        fm.confidence_reason = "WAPE real 29% en últimos 14 días (5 comparaciones)"
+        fm.confidence_reason = "WAPE real 29% en últimos 14 días (9 comparaciones)"
         fm.save()
 
         data = get_product_detail(tenant.id, p.id, [warehouse_a.id])
@@ -195,3 +203,4 @@ class TestWapeRealExposedInAPI:
         assert data["model"]["confidence_label"] == "high"
         assert "29%" in data["model"]["confidence_reason"]
         assert data["model"]["display_wape"] == 29.0
+        assert data["model"]["precision_medida"] is True

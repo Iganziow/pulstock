@@ -587,10 +587,14 @@ def get_product_forecasts(
             "wape_real": metrics.get("wape_real"),
             "wape_real_days": metrics.get("wape_real_days"),
             "wape_real_samples": metrics.get("wape_real_samples"),
-            # display_wape: helper para el frontend — prefiere wape_real
-            # si existe, sino cae al wape del backtest. Resuelve la
-            # contradiccion visual "confianza high con WAPE 147%".
-            "display_wape": metrics.get("wape_real", metrics.get("wape")),
+            # display_wape: la precision MEDIDA, o None si no hay evidencia
+            # suficiente (09/09/26). Antes caia al WAPE del backtest de
+            # entrenamiento y lo mostraba como si fuera lo que el modelo hace
+            # en produccion: medido en Marbrava, 175 de 190 modelos activos
+            # mostraban ese fosil. Ahora, sin mediciones, la pantalla dice que
+            # no hay datos suficientes en vez de inventar un numero.
+            "display_wape": _precision_medida(metrics),
+            "precision_medida": _precision_medida(metrics) is not None,
             "data_points": fm.data_points,
             "trained_at": fm.trained_at.isoformat(),
             "demand_pattern": fm.demand_pattern,
@@ -774,12 +778,13 @@ def get_product_detail(tenant_id, product_id, warehouse_ids, history_days=30):
             "version": fm.version if fm else None,
             "metrics": fm.metrics if fm else None,
             # Fase 5: exponer confidence_label/reason y display_wape para
-            # que el frontend muestre la metrica honesta. display_wape
-            # prefiere wape_real (post-hoc) sobre wape del backtest.
+            # que el frontend muestre la metrica honesta. Desde el 09/09/26
+            # display_wape es None cuando no hay evidencia medida, en vez de
+            # caer al backtest del entrenamiento (ver _precision_medida).
             "confidence_label": fm.confidence_label if fm else None,
             "confidence_reason": fm.confidence_reason if fm else None,
-            "display_wape": (fm.metrics.get("wape_real", fm.metrics.get("wape"))
-                             if fm and fm.metrics else None),
+            "display_wape": _precision_medida(fm.metrics) if fm else None,
+            "precision_medida": bool(fm and _precision_medida(fm.metrics) is not None),
             "data_points": fm.data_points if fm else 0,
             "trained_at": fm.trained_at.isoformat() if fm else None,
             "params": fm.model_params if fm else None,
@@ -1233,6 +1238,21 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
     for h in elegidos:
         h.learned_multiplier = aprendido.get(h.id)
     return elegidos
+
+
+def _precision_medida(metrics):
+    """El WAPE real del modelo en produccion, o None si no hay evidencia.
+
+    "Evidencia" es al menos 7 dias con venta comparados contra lo que el
+    modelo predijo (MIN_MEDICIONES en recalibrate_confidence). Sin eso, lo
+    unico que hay es el backtest de la noche del entrenamiento, que no
+    describe como le va al modelo hoy: no se muestra.
+    """
+    m = metrics or {}
+    real = m.get("wape_real")
+    if real is None or (m.get("wape_real_samples") or 0) < 7:
+        return None
+    return real
 
 
 def _razones_recientes(tenant, product, warehouse_id, dias=VENTANA_CALIBRACION):
