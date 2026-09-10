@@ -635,6 +635,46 @@ Los 114 restantes venden tan poco que no juntan 7 días con venta ni en 90. Para
 ellos no se estira más la ventana —sería juzgar el modelo de hoy con la
 temporada pasada— y la pantalla dice que no hay datos suficientes.
 
+### 3.15 Los productos que se preparan al momento tienen sus días de venta marcados como quiebre [E] — 10-09
+El defecto más grande encontrado hasta ahora, y contamina casi toda métrica
+que hemos reportado.
+
+Un latte no tiene stock propio: se arma al momento y lo que se descuenta son
+sus ingredientes. Su `StockItem` existe con `on_hand` en cero. La detección de
+quiebre hace `is_stockout = cierre <= 0 y (apertura > 0 o recibió)`, y para
+estos productos la apertura se reconstruye como `cierre + vendido`, o sea que
+CUALQUIER día que vendan da apertura positiva y cierre cero. Se marcan como
+quiebre por construcción.
+
+Medido sobre 30 días:
+
+| | días con venta | marcados como quiebre |
+|---|---|---|
+| productos con receta activa | 276 | 171 (62%) |
+| el resto del catálogo | 545 | 40 (7%) |
+
+Y todas las métricas del sistema excluyen los días de quiebre, con razón: en un
+quiebre real la venta está censurada. Pero acá no hay quiebre, así que se
+descartan justamente los días en que el producto vendió. Para "latte SL": 26
+mediciones, 13 marcadas, y la venta real cae de 27 unidades a **cero** al
+aplicar el filtro. Para "Latte", de 24 a cero.
+
+Qué queda contaminado: el WAPE real y por lo tanto las etiquetas de confianza;
+la calibración de bandas; la corrección de sesgo del 07-09; el backtest honesto
+del derivado; y todos los números de sesgo por segmento que se reportaron estos
+días. El caso que lo destapó: midiendo a los padres de la leche deslactosada,
+"latte SL" figuraba como "vendió 0, predijo 9" y el conjunto de padres daba
++365% de sesgo, que es un artefacto puro.
+
+El entrenamiento NO está contaminado: `clean_series` sólo imputa los días de
+quiebre cuya cantidad es cero, y estos tienen venta.
+
+Arreglo: un producto que se prepara al momento no puede estar en quiebre de sí
+mismo. La marca debe evaluarse sobre sus ingredientes, o simplemente no
+aplicarse cuando el producto tiene receta activa. Antes de tocar nada hay que
+tener presente que esto mueve TODA la medición, así que las cifras de referencia
+de estos días dejan de ser comparables.
+
 ## 4. Lo que ve el usuario [L]
 
 ### 4.1 El KPI "Necesitan reposición" cuenta dos veces los críticos [E]
