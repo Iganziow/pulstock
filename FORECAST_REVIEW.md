@@ -659,12 +659,20 @@ descartan justamente los días en que el producto vendió. Para "latte SL": 26
 mediciones, 13 marcadas, y la venta real cae de 27 unidades a **cero** al
 aplicar el filtro. Para "Latte", de 24 a cero.
 
-Qué queda contaminado: el WAPE real y por lo tanto las etiquetas de confianza;
-la calibración de bandas; la corrección de sesgo del 07-09; el backtest honesto
-del derivado; y todos los números de sesgo por segmento que se reportaron estos
-días. El caso que lo destapó: midiendo a los padres de la leche deslactosada,
-"latte SL" figuraba como "vendió 0, predijo 9" y el conjunto de padres daba
-+365% de sesgo, que es un artefacto puro.
+Qué queda contaminado, medido el 11-09 y más acotado de lo que se dijo al
+encontrarlo. **Por producto es total** para los que se preparan al momento: el
+WAPE real, su etiqueta de confianza, la calibración de su banda y su corrección
+de sesgo se calculan sobre un conjunto de días al que le falta la mayoría de
+sus ventas. El caso que lo destapó: "latte SL" figuraba como "vendió 0, predijo
+9", y el conjunto de padres de la leche deslactosada daba +365% de sesgo, que
+es un artefacto puro.
+
+**En el agregado es chico:** los días mal marcados suman 250 unidades de
+44.942 en 30 días, un 1%, porque los productos preparados son pocas unidades
+frente a los mililitros de sus ingredientes. Rehaciendo las cifras por segmento
+con esos días incluidos, el núcleo no se mueve y la cola pasa de 138,9% a
+133,4% de error. O sea que las cifras agregadas que se reportaron estos días
+siguen siendo válidas; las de producto individual de un preparado, no.
 
 El entrenamiento NO está contaminado: `clean_series` sólo imputa los días de
 quiebre cuya cantidad es cero, y estos tienen venta.
