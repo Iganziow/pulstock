@@ -1703,11 +1703,82 @@ def train_product_model(tenant, product, warehouse_id, today,
     month_factors = serie["month_factors"]
 
 
+    # Modelo activo de anoche y salidas forzadas, ANTES de elegir (12/09/26):
+    # el selector necesita saber que algoritmo defiende el puesto. Nada entre
+    # este punto y el kept-path escribe ForecastModel (el fallback a
+    # category_prior retorna antes).
+    existing = ForecastModel.objects.filter(
+        tenant=tenant, product=product, warehouse_id=warehouse_id,
+        is_active=True,
+    ).first()
+
+    # Breaker-streak: contador de noches consecutivas con circuit breaker,
+    # leído del modelo de ANOCHE. La contabilización (increment/reset) vive
+    # en _regen_from_existing — el último paso de ambos paths (kept y fresh),
+    # que es donde se decide el forecast definitivo de la noche.
+    prev_breaker_streak = 0
+    if existing:
+        prev_breaker_streak = int((existing.model_params or {}).get("circuit_breaker_streak", 0) or 0)
+
+    # Bug 1 (22/05/26): comparar por WAPE, no por MAPE. El MAPE de los
+    # modelos category_prior/simple_avg es 0 (no hacen backtest); con la
+    # logica vieja `new_mape > old_mape*1.1` cualquier modelo nuevo (WAPE
+    # real 30%) "perdia" contra el viejo (MAPE falso 0%) y nunca se
+    # aceptaba la mejora. Si el modelo viejo no tiene WAPE (pre-fix), se
+    # entrena fresco (no se aplica el "kept").
+    #
+    # BUGFIX FASE 5b (25/05/26): si el demand_pattern cambia entre old y new
+    # (ej. Latte: intermittent -> smooth despues de Fase 4 que filtra dias
+    # cerrados), NO aplicar "kept" — los WAPEs NO son comparables porque el
+    # algoritmo eligible se determina por pattern. Latte con pattern
+    # intermittent siempre va a Croston; con smooth puede ir a adaptive_ma.
+    # Comparar WAPE de Croston (que "acierta" prediciendo 0 los dias sin
+    # venta) vs adaptive_ma (que predice promedio todos los dias) es injusto.
+    # Cuando cambia el pattern, forzar el cambio — la reclasificacion ES la
+    # mejora aunque el WAPE del backtest no lo refleje directamente.
+    # El derivado guarda demand_pattern="smooth" fijo: no es un patron medido
+    # sobre su serie, asi que "cambio de patron" no aplica (05/09/26). Sin
+    # esta excepcion, un ingrediente intermitente con derivado titular (Jamon,
+    # Chai) caia aqui todas las noches y el directo lo desplazaba sin competir.
+    existing_es_derivado = bool(existing and existing.algorithm == "ingredient_derived")
+    pattern_changed = (
+        existing and not existing_es_derivado and existing.demand_pattern
+        and existing.demand_pattern != demand_pattern
+    )
+    # F (01/06/26): nunca conservar un modelo cuyo algoritmo ya NO es elegible
+    # para el patrón actual. Sin esto, un theta-en-0 sobre demanda intermitente
+    # se conservaba porque por WAPE "Croston no le ganaba" → el modelo
+    # inadecuado nunca se reemplazaba (caso tapas/vasos).
+    existing_algo_ineligible = (
+        existing is not None
+        and not _algo_eligible_for_pattern(existing.algorithm, demand_pattern)
+    )
+    # Breaker-streak (jul 2026): si el breaker rescató a este producto N
+    # noches seguidas, el WAPE histórico del modelo viejo ya no describe la
+    # realidad (fue medido en otro régimen) → NO conservarlo por kept aunque
+    # "gane" la comparación. Forzar la selección fresca de esta noche.
+    breaker_forced = prev_breaker_streak >= BREAKER_STREAK_FORCE_RETRAIN
+    if breaker_forced:
+        logger.warning(
+            "Breaker-streak product %s (%s): breaker activo %d noches seguidas "
+            "→ se fuerza reentrenamiento (kept-path bypassed).",
+            getattr(product, "id", "?"), getattr(product, "name", "?"),
+            prev_breaker_streak,
+        )
+    # Estabilizacion (12/09/26): el algoritmo de anoche compite esta noche con
+    # ventaja de margen (MARGEN_CAMBIO_ALGORITMO en engine/selection.py). Las
+    # mismas salidas forzadas que saltan el kept-path lo liberan: cambio de
+    # patron, algoritmo ya no elegible y racha de cortacircuitos. El derivado no
+    # esta entre los candidatos del motor directo: tiene su propio margen abajo.
+    algoritmo_titular = None
+    if existing and not (pattern_changed or existing_algo_ineligible or breaker_forced):
+        algoritmo_titular = existing.algorithm
+
     # Select best model with cleaned data
     best = select_best_model(
         cleaned, window=window, horizon=horizon, test_days=7,
         month_factors=month_factors, demand_pattern=demand_pattern,
-        stockout_dates=stockout_dates,
+        stockout_dates=stockout_dates, prev_algorithm=algoritmo_titular,
     )
 
     if best["algorithm"] == "none" or not best["forecasts"]:
@@ -1816,65 +1887,6 @@ def train_product_model(tenant, product, warehouse_id, today,
     # colapsó a ~0 teniendo demanda real reciente alta (ver _collapse_guard).
     best = _collapse_guard(best, raw_series, today, horizon, product=product)
 
-    # Compare with existing
-    existing = ForecastModel.objects.filter(
-        tenant=tenant, product=product, warehouse_id=warehouse_id,
-        is_active=True,
-    ).first()
-
-    # Breaker-streak: contador de noches consecutivas con circuit breaker,
-    # leído del modelo de ANOCHE. La contabilización (increment/reset) vive
-    # en _regen_from_existing — el último paso de ambos paths (kept y fresh),
-    # que es donde se decide el forecast definitivo de la noche.
-    prev_breaker_streak = 0
-    if existing:
-        prev_breaker_streak = int((existing.model_params or {}).get("circuit_breaker_streak", 0) or 0)
-
-    # Bug 1 (22/05/26): comparar por WAPE, no por MAPE. El MAPE de los
-    # modelos category_prior/simple_avg es 0 (no hacen backtest); con la
-    # logica vieja `new_mape > old_mape*1.1` cualquier modelo nuevo (WAPE
-    # real 30%) "perdia" contra el viejo (MAPE falso 0%) y nunca se
-    # aceptaba la mejora. Si el modelo viejo no tiene WAPE (pre-fix), se
-    # entrena fresco (no se aplica el "kept").
-    #
-    # BUGFIX FASE 5b (25/05/26): si el demand_pattern cambia entre old y new
-    # (ej. Latte: intermittent -> smooth despues de Fase 4 que filtra dias
-    # cerrados), NO aplicar "kept" — los WAPEs NO son comparables porque el
-    # algoritmo eligible se determina por pattern. Latte con pattern
-    # intermittent siempre va a Croston; con smooth puede ir a adaptive_ma.
-    # Comparar WAPE de Croston (que "acierta" prediciendo 0 los dias sin
-    # venta) vs adaptive_ma (que predice promedio todos los dias) es injusto.
-    # Cuando cambia el pattern, forzar el cambio — la reclasificacion ES la
-    # mejora aunque el WAPE del backtest no lo refleje directamente.
-    # El derivado guarda demand_pattern="smooth" fijo: no es un patron medido
-    # sobre su serie, asi que "cambio de patron" no aplica (05/09/26). Sin
-    # esta excepcion, un ingrediente intermitente con derivado titular (Jamon,
-    # Chai) caia aqui todas las noches y el directo lo desplazaba sin competir.
-    existing_es_derivado = bool(existing and existing.algorithm == "ingredient_derived")
-    pattern_changed = (
-        existing and not existing_es_derivado and existing.demand_pattern
-        and existing.demand_pattern != demand_pattern
-    )
-    # F (01/06/26): nunca conservar un modelo cuyo algoritmo ya NO es elegible
-    # para el patrón actual. Sin esto, un theta-en-0 sobre demanda intermitente
-    # se conservaba porque por WAPE "Croston no le ganaba" → el modelo
-    # inadecuado nunca se reemplazaba (caso tapas/vasos).
-    existing_algo_ineligible = (
-        existing is not None
-        and not _algo_eligible_for_pattern(existing.algorithm, demand_pattern)
-    )
-    # Breaker-streak (jul 2026): si el breaker rescató a este producto N
-    # noches seguidas, el WAPE histórico del modelo viejo ya no describe la
-    # realidad (fue medido en otro régimen) → NO conservarlo por kept aunque
-    # "gane" la comparación. Forzar la selección fresca de esta noche.
-    breaker_forced = prev_breaker_streak >= BREAKER_STREAK_FORCE_RETRAIN
-    if breaker_forced:
-        logger.warning(
-            "Breaker-streak product %s (%s): breaker activo %d noches seguidas "
-            "→ se fuerza reentrenamiento (kept-path bypassed).",
-            getattr(product, "id", "?"), getattr(product, "name", "?"),
-            prev_breaker_streak,
-        )
     if (existing and existing.metrics and existing.metrics.get("wape") is not None
             and not pattern_changed and not existing_algo_ineligible
             and not breaker_forced):

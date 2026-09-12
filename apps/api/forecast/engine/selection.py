@@ -24,6 +24,16 @@ MASE_OVERRIDE_MARGIN = 0.85
 MASE_OVERRIDE_MARGIN_SPARSE = 0.65
 MASE_CROSTON_SPARSE_THRESHOLD = 1.2
 
+# Estabilizacion (12/09/26): margen anti-parpadeo contra el algoritmo de ANOCHE,
+# en todos los patrones. Medido en produccion (15 noches, cola): la noche que
+# cambia el algoritmo el nivel publicado salta 89% ponderado, contra 12% cuando
+# no cambia nada; y la regla del kept-path dejaba entrar a un candidato hasta 10%
+# PEOR que el titular. Ahora el algoritmo de anoche compite esta misma noche como
+# un candidato mas (backtest fresco, la misma vara que los demas) y solo se lo
+# reemplaza si el ganador le saca este margen: 15%, el mismo de
+# MASE_OVERRIDE_MARGIN y de la competencia con el derivado.
+MARGEN_CAMBIO_ALGORITMO = 0.85
+
 # F21.2 (18/06/26): cantidad de folds del walk-forward backtest. Antes 3 (solo
 # ~21 días testeados → el estimado oscilaba noche a noche por una sola semana
 # rara). Subido a 8 (~56 días) para un estimado más estable. El loop de cada
@@ -34,9 +44,12 @@ N_FOLDS = 8
 
 
 def select_best_model(daily_series, window=21, horizon=14, test_days=7,
-                      month_factors=None, demand_pattern=None, stockout_dates=None):
+                      month_factors=None, demand_pattern=None, stockout_dates=None,
+                      prev_algorithm=None):
     """
     Train all eligible models, backtest each, return the best one.
+    `prev_algorithm` es el algoritmo del modelo activo de anoche: ver
+    MARGEN_CAMBIO_ALGORITMO.
 
     Returns dict:
         algorithm, forecasts, params, metrics, data_points, confidence_base,
@@ -131,7 +144,7 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
         if ens:
             candidates.append(ens)
 
-    best = choose_best(candidates, demand_pattern)
+    best = choose_best(candidates, demand_pattern, prev_algorithm=prev_algorithm)
     best["demand_pattern"] = demand_pattern
 
     logger.info(
@@ -182,7 +195,7 @@ def _fc_total(c):
 COLLAPSE_FC_TOTAL = 0.5
 
 
-def choose_best(candidates, demand_pattern):
+def _elegir_sin_titular(candidates, demand_pattern):
     """Elige el mejor candidato según el patrón de demanda.
 
     Intermitente/lumpy → por MASE (métrica honesta: <1 vence al naive), con
@@ -251,3 +264,33 @@ def choose_best(candidates, demand_pattern):
             return best_croston
         return best_overall
     return min(candidates, key=lambda c: (_err(c), c["metrics"]["mae"]))
+
+
+def choose_best(candidates, demand_pattern, prev_algorithm=None):
+    """Elige el mejor candidato y, si el algoritmo de anoche sigue compitiendo,
+    solo lo reemplaza cuando el ganador le saca MARGEN_CAMBIO_ALGORITMO.
+
+    La vara es la misma con que se eligio (wape_total en intermitente/lumpy,
+    WAPE + sesgo en smooth) y esta medida esta noche para los dos: el error del
+    titular no es el fosil de la noche en que se entreno. En intermitente se
+    aplica despues del guard de la familia Croston, asi que entre el titular y
+    el preferido por ese guard gana el titular salvo margen. Un titular
+    colapsado no se protege si hay un ganador vivo (manda el filtro
+    anti-colapso), y un titular sin metrica evaluable tampoco."""
+    elegido = _elegir_sin_titular(candidates, demand_pattern)
+    if not prev_algorithm or elegido["algorithm"] == prev_algorithm:
+        return elegido
+    titular = next((c for c in candidates if c["algorithm"] == prev_algorithm), None)
+    if titular is None:
+        return elegido
+    if demand_pattern in ("intermittent", "lumpy"):
+        if _fc_total(titular) <= COLLAPSE_FC_TOTAL < _fc_total(elegido):
+            return elegido
+        err_elegido, err_titular = _wape_total(elegido), _wape_total(titular)
+        if err_elegido >= 998 and err_titular >= 998:
+            err_elegido, err_titular = _mase(elegido), _mase(titular)
+    else:
+        err_elegido, err_titular = _err(elegido), _err(titular)
+    if err_titular >= 998 or err_elegido < err_titular * MARGEN_CAMBIO_ALGORITMO:
+        return elegido
+    return titular
