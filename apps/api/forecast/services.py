@@ -1419,6 +1419,54 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
 # real y el breaker lo parchaba cada noche sin que nadie reentrenara.
 BREAKER_STREAK_FORCE_RETRAIN = 3
 
+# Cortacircuitos (Sprint A, jul 2026): banda en la que el pronostico acompana a
+# la demanda reciente (cociente de totales) y peso maximo del promedio movil
+# reciente cuando se lo rescata.
+BREAKER_BANDA = (0.5, 2.5)
+BREAKER_PESO_WMA = 0.7
+
+# Paso 4 de estabilizacion (13/09/26): el peso del rescate crece con la
+# distancia a la banda en vez de saltar de 0 a BREAKER_PESO_WMA en el borde.
+#
+# Medido en produccion la primera noche con histeresis de algoritmo: Chocolate
+# Premium, el producto de mas venta, subio 47% en la semana con los parametros
+# identicos a los de la noche anterior. Su pronostico regenerado quedo en 49%
+# de la demanda reciente contra un umbral de 50%, y cruzar ese 1% cambio el
+# numero publicado de 100% modelo a 70% promedio reciente. Esa noche habia
+# cuatro productos mas a menos de 10 puntos del piso.
+#
+# Las rampas son el factor de distancia a la banda donde el peso llega al
+# maximo, en escala logaritmica, una por lado. Con 2 en el piso, el peso es
+# maximo cuando el pronostico cae a la mitad del piso (25% de la demanda); justo
+# afuera del borde es casi cero, asi que cruzarlo ya no mueve el pronostico.
+# Con 1, ese lado vuelve al borde de antes.
+#
+# El techo queda en borde a proposito. Simulado en 28 noches sobre la copia de
+# produccion, la rampa en los dos lados empeoraba el WAPE total entre 7 y 10
+# puntos, y todo ese deterioro eran cuatro helados de temporada con el
+# pronostico en 300% de la demanda reciente: el rescate fuerte por arriba es lo
+# que los mantiene razonables al entrar la primavera.
+#
+# La racha de cortacircuitos cuenta igual que siempre: se dispara cuando el
+# cociente sale de la banda, pese lo que pese el rescate.
+BREAKER_RAMPA_PISO = 2.0
+BREAKER_RAMPA_TECHO = 1.0
+
+
+def _peso_rescate(ratio):
+    """Peso del promedio movil reciente en el blend del cortacircuitos, segun
+    cuanto se sale el cociente pronostico/demanda de BREAKER_BANDA. 0 dentro
+    de la banda; BREAKER_PESO_WMA en un colapso total o a la rampa de su lado
+    de distancia (escala logaritmica), y lineal en el logaritmo entre medio."""
+    lo, hi = BREAKER_BANDA
+    if lo <= ratio <= hi:
+        return 0.0
+    rampa = BREAKER_RAMPA_PISO if ratio < lo else BREAKER_RAMPA_TECHO
+    if ratio <= 0 or rampa <= 1:
+        return BREAKER_PESO_WMA
+    exceso = math.log(lo / ratio) if ratio < lo else math.log(ratio / hi)
+    return BREAKER_PESO_WMA * min(1.0, exceso / math.log(rampa))
+
 
 def _collapse_guard(best, raw_series, today, horizon, product=None):
     """CIRCUIT BREAKER anti-colapso (Mario 31/05/26).
@@ -1454,7 +1502,10 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
     # 0.7×WMA_reciente + 0.3×modelo — gradual, no switch binario: si solo fue
     # una semana rara, el 30% del modelo amortigua la sobre-reacción.
     ratio = fc_total / recent_total
-    if 0.5 <= ratio <= 2.5:
+    # Paso 4 (13/09/26): el peso del rescate crece con la distancia a la
+    # banda (ver BREAKER_RAMPA). Dentro de la banda es 0 y no se toca nada.
+    peso = _peso_rescate(ratio)
+    if peso <= 0:
         return best  # el forecast acompaña a la demanda reciente
 
     recent_series = [(d, q) for d, q in raw_series if d > today - timedelta(days=35)]
@@ -1474,7 +1525,7 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
 
         def _mix(key):
             mv = float(mf.get(key, 0) or 0) if mf else 0.0
-            return _q3(Decimal(str(0.7 * float(wf[key]) + 0.3 * mv)))
+            return _q3(Decimal(str(peso * float(wf[key]) + (1 - peso) * mv)))
 
         blended.append({
             "date": wf["date"],
@@ -1489,13 +1540,14 @@ def _collapse_guard(best, raw_series, today, horizon, product=None):
         "recent_total": round(recent_total, 1),
         "fc_total_before": round(fc_total, 1),
         "ratio": round(ratio, 2),
-        "fallback": "wma_blend_70_30",
+        "fallback": "wma_blend",
+        "peso_wma": round(peso, 2),
     }
     logger.warning(
         "Circuit breaker product %s (%s): forecast desalineado (fc_total=%.1f, "
-        "%.0f%% de la demanda reciente %.1f) → blend 70%% WMA reciente.",
+        "%.0f%% de la demanda reciente %.1f) → blend %.0f%% WMA reciente.",
         getattr(product, "id", "?"), getattr(product, "name", "?"),
-        fc_total, ratio * 100, recent_total,
+        fc_total, ratio * 100, recent_total, peso * 100,
     )
     return best
 
@@ -1522,6 +1574,25 @@ def _wape_vigente(metrics, min_muestras=7):
 # candidato tiene que ganarle al titular por 15% para desplazarlo, en los dos
 # sentidos. Mismo valor que SWAP_MARGIN en train_ingredient_product.
 MARGEN_DESPLAZAR_DERIVADO = 0.85
+
+
+def _parametros_tuneados(fm):
+    """{best_alpha, best_beta} del modelo activo: lo que su grilla eligio la
+    noche en que se entreno (metrics) o, en modelos anteriores a Sprint A, lo
+    que guardo el algoritmo (model_params). None donde no hay dato. Son los
+    mismos valores que reutiliza _regen_from_existing."""
+    m, p = (fm.metrics or {}), (fm.model_params or {})
+
+    def _num(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "best_alpha": _num(m.get("best_alpha", p.get("alpha"))),
+        "best_beta": _num(m.get("best_beta", p.get("beta"))),
+    }
 
 
 def _algo_eligible_for_pattern(algorithm, demand_pattern):
@@ -1771,14 +1842,19 @@ def train_product_model(tenant, product, warehouse_id, today,
     # patron, algoritmo ya no elegible y racha de cortacircuitos. El derivado no
     # esta entre los candidatos del motor directo: tiene su propio margen abajo.
     algoritmo_titular = None
+    parametros_titular = None
     if existing and not (pattern_changed or existing_algo_ineligible or breaker_forced):
         algoritmo_titular = existing.algorithm
+        # Paso 3 (12/09/26): el titular tambien defiende sus alpha/beta (ver
+        # utils.elegir_parametros): los mismos que reutiliza el regen.
+        parametros_titular = _parametros_tuneados(existing)
 
     # Select best model with cleaned data
     best = select_best_model(
         cleaned, window=window, horizon=horizon, test_days=7,
         month_factors=month_factors, demand_pattern=demand_pattern,
         stockout_dates=stockout_dates, prev_algorithm=algoritmo_titular,
+        prev_params=parametros_titular,
     )
 
     if best["algorithm"] == "none" or not best["forecasts"]:

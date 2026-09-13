@@ -59,7 +59,7 @@ from decimal import Decimal
 
 from ..base import ForecastAlgorithm
 from ..registry import register
-from ..utils import _q3, D0, _compute_metrics, _average_metrics
+from ..utils import _q3, D0, _compute_metrics, _average_metrics, elegir_parametros
 
 
 def _tsb_forecast(daily_series, alpha=0.15, beta=0.10, horizon_days=14):
@@ -132,7 +132,7 @@ def _tsb_forecast(daily_series, alpha=0.15, beta=0.10, horizon_days=14):
     }
 
 
-def _backtest_tsb(daily_series, test_days=7, n_folds=3):
+def _backtest_tsb(daily_series, test_days=7, n_folds=3, prev_alpha=None, prev_beta=None):
     """Walk-forward con grid sobre alpha y beta.
 
     Mismo criterio de selección que Croston (Sprint A): se elige por WAPE de
@@ -145,8 +145,7 @@ def _backtest_tsb(daily_series, test_days=7, n_folds=3):
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0,
                 "best_alpha": 0.15, "best_beta": 0.10}
 
-    mejor = None
-    mejor_alpha, mejor_beta = 0.15, 0.10
+    resultados = {}
     total = len(daily_series)
 
     for alpha in (0.05, 0.10, 0.20, 0.30):
@@ -167,18 +166,20 @@ def _backtest_tsb(daily_series, test_days=7, n_folds=3):
 
             if not folds:
                 continue
-            avg = _average_metrics(folds)
-            clave = (avg.get("wape_total", 999), avg["mae"])
-            clave_mejor = ((mejor.get("wape_total", 999), mejor["mae"])
-                           if mejor is not None else None)
-            if clave_mejor is None or clave < clave_mejor:
-                mejor, mejor_alpha, mejor_beta = avg, alpha, beta
+            resultados[(alpha, beta)] = _average_metrics(folds)
 
+    # Paso 3 (12/09/26): alpha y beta de anoche se conservan salvo que otro
+    # punto de la grilla les gane por MARGEN_CAMBIO_PARAMETROS. Medido en
+    # produccion: TSB es el que mas cambiaba de parametros noche a noche (31
+    # de 59 casos), con beta saltando 0.20 <-> 0.02 por un dia mas de historia.
+    previos = None
+    if prev_alpha is not None and prev_beta is not None:
+        previos = (prev_alpha, prev_beta)
+    params, mejor = elegir_parametros(resultados, previos)
     if mejor is None:
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0,
                 "best_alpha": 0.15, "best_beta": 0.10}
-    mejor["best_alpha"] = mejor_alpha
-    mejor["best_beta"] = mejor_beta
+    mejor["best_alpha"], mejor["best_beta"] = params
     return mejor
 
 
@@ -198,4 +199,5 @@ class TSBForecast(ForecastAlgorithm):
         )
 
     def backtest(self, daily_series, test_days=7, n_folds=3, **kwargs):
-        return _backtest_tsb(daily_series, test_days=test_days, n_folds=n_folds)
+        return _backtest_tsb(daily_series, test_days=test_days, n_folds=n_folds,
+                             prev_alpha=kwargs.get("prev_alpha"), prev_beta=kwargs.get("prev_beta"))
