@@ -13,7 +13,8 @@ from catalog.models import Product
 def _limpiar_caches_de_forecast():
     """Vacía los cachés por-proceso del motor entre tests.
 
-    `get_business_closed_weekdays` y `demand_stopped` cachean el historial del
+    `get_business_closed_weekdays`, `demand_stopped` y `dias_sin_operacion`
+    cachean el historial del
     negocio para no repetir la misma consulta por cada uno de los cientos de
     productos que recorre el entrenamiento nocturno. Ese caché vive en el
     módulo, así que SOBREVIVE al rollback de la base entre tests: el historial
@@ -27,9 +28,11 @@ def _limpiar_caches_de_forecast():
     from forecast import services as _svc
     _svc._CLOSED_DOW_CACHE.clear()
     _svc._STOPPED_CACHE.clear()
+    _svc._FECHAS_OPERADAS_CACHE.clear()
     yield
     _svc._CLOSED_DOW_CACHE.clear()
     _svc._STOPPED_CACHE.clear()
+    _svc._FECHAS_OPERADAS_CACHE.clear()
 
 
 @pytest.fixture
