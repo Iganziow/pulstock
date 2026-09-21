@@ -174,3 +174,76 @@ def test_sin_el_recorte_el_viernes_queda_en_cero(local, tenant, warehouse, produ
         if f["date"].weekday() == 4 and f["date"] > hoy
     ]
     assert viernes and all(float(f["qty_predicted"]) == 0 for f in viernes)
+
+
+# ── un solo criterio para los dos lados (21/09/26) ───────────────────────────
+#
+# `business_operated_on` (el medidor, desde el 04/08/26) y `dias_sin_operacion`
+# (el entrenamiento, desde el 20/09/26) respondían la misma pregunta con reglas
+# distintas. El 28-jul-2026 se cayó el servidor y quedaron 176 filas en cero,
+# todas marcadas como quiebre: el medidor salteaba el día y el entrenamiento se
+# lo comía como un cero real. Es el único día de los 435 con filas en que las
+# dos reglas daban respuestas distintas.
+
+def _dia_de_servidor_caido(tenant, warehouse, product, product_b, dia):
+    """Filas en cero para todo el catálogo, todas marcadas como quiebre."""
+    DailySales.objects.filter(date=dia).delete()
+    for p in (product, product_b):
+        DailySales.objects.create(
+            tenant=tenant, product=p, warehouse=warehouse, date=dia,
+            qty_sold=D("0"), is_stockout=True,
+        )
+
+
+def test_el_dia_del_servidor_caido_no_conto_como_operado(
+    local, tenant, warehouse, product, product_b,
+):
+    from forecast.services import business_operated_on
+
+    caido = _dia(40)
+    _dia_de_servidor_caido(tenant, warehouse, product, product_b, caido)
+    assert not business_operated_on(tenant.id, caido)
+    assert caido in dias_sin_operacion(tenant.id, warehouse.id, _dia(0), _dia(83))
+
+
+def test_el_dia_del_servidor_caido_sale_de_la_serie(
+    local, tenant, warehouse, product, product_b,
+):
+    """Lo que estaba mal: ese día entrenaba a todos los modelos con un cero."""
+    caido = _dia(40)
+    _dia_de_servidor_caido(tenant, warehouse, product, product_b, caido)
+    serie = armar_serie_entrenamiento(tenant, product, warehouse.id, _dia(83), 10)
+    assert caido not in {d for d, _ in serie["raw_series"]}
+
+
+def test_abrio_y_no_vendio_este_producto_si_cuenta(
+    local, tenant, warehouse, product, product_b,
+):
+    """La distinción que importa: filas en cero pero SIN marcar quiebre es un
+    día abierto en que no se vendió, y eso sí es demanda cero de verdad."""
+    from forecast.services import business_operated_on
+
+    abierto = _dia(41)
+    DailySales.objects.filter(date=abierto).delete()
+    DailySales.objects.create(
+        tenant=tenant, product=product_b, warehouse=warehouse, date=abierto,
+        qty_sold=D("0"), is_stockout=False,
+    )
+    assert business_operated_on(tenant.id, abierto)
+    assert abierto not in dias_sin_operacion(tenant.id, warehouse.id, _dia(0), _dia(83))
+
+
+def test_los_dos_lados_responden_siempre_lo_mismo(
+    local, tenant, warehouse, product, product_b,
+):
+    """La garantía de que no se vuelvan a desalinear."""
+    from forecast.services import business_operated_on
+
+    _dia_de_servidor_caido(tenant, warehouse, product, product_b, _dia(40))
+    DailySales.objects.filter(date=_dia(50)).delete()          # sin una sola fila
+    sin_operar = dias_sin_operacion(tenant.id, warehouse.id, _dia(0), _dia(83))
+    for i in range(84):
+        d = _dia(i)
+        if d.weekday() == 6:
+            continue  # los domingos los maneja `_apply_closed_weekdays`
+        assert business_operated_on(tenant.id, d) == (d not in sin_operar), d

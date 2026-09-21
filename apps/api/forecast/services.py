@@ -1049,25 +1049,65 @@ _FECHAS_OPERADAS_CACHE: dict = {}
 MAX_FRACCION_SIN_OPERACION = 0.35
 
 
-def _fechas_operadas(tenant_id, warehouse_id, hasta):
-    """Fechas con al menos una venta registrada en el local, hasta `hasta`."""
-    key = (tenant_id, warehouse_id, hasta)
+def fechas_operadas(tenant_id, warehouse_id=None, hoy=None):
+    """Las fechas en que el negocio OPERO. Una sola definicion, tres señales.
+
+    Es el criterio que `business_operated_on` venia aplicando de a una fecha por
+    vez desde el 04/08/26, ahora expresado como conjunto para que tambien sirva
+    al entrenamiento, que pregunta por cientos de productos sobre cientos de
+    dias y no puede hacer una consulta por cada par.
+
+      1. Alguna fila con `qty_sold > 0`  -> opero, seguro.
+      2. Ninguna fila para esa fecha     -> no opero. `aggregate_daily_sales`
+         solo escribe filas de dias con actividad.
+      3. Hay filas pero todas en 0       -> ambiguo. Si TODAS estan marcadas
+         como quiebre, no opero; si alguna no lo esta, fue un dia abierto en que
+         no se vendio, y eso si cuenta.
+
+    Las tres juntas son `qty_sold > 0 OR is_stockout = False`.
+
+    La rama 3 no es teorica: el 28-jul-2026 se cayo el servidor y quedaron 176
+    filas en cero, todas marcadas como quiebre. Es el unico dia de los 435 con
+    filas en que la rama 3 cambia la respuesta, y hasta el 21/09/26 el medidor
+    lo salteaba (bien) mientras el entrenamiento se lo comia como un cero real
+    (mal).
+
+    `warehouse_id=None` mira el local entero.
+    """
+    key = (tenant_id, warehouse_id, hoy or date.today())
     if key not in _FECHAS_OPERADAS_CACHE:
+        qs = DailySales.objects.filter(tenant_id=tenant_id)
+        if warehouse_id is not None:
+            qs = qs.filter(warehouse_id=warehouse_id)
         _FECHAS_OPERADAS_CACHE[key] = set(
-            DailySales.objects.filter(
-                tenant_id=tenant_id, warehouse_id=warehouse_id, date__lte=hasta,
-            ).values_list("date", flat=True).distinct()
+            qs.filter(Q(qty_sold__gt=0) | Q(is_stockout=False))
+            .values_list("date", flat=True).distinct()
         )
     return _FECHAS_OPERADAS_CACHE[key]
 
 
+def business_operated_on(tenant_id, target_date, warehouse_id=None):
+    """¿El negocio opero ese dia? Ver `fechas_operadas` para el criterio.
+
+    Distinguir "no abrio" de "abrio y no vendio nada de este producto" importa:
+    lo primero NO es un fallo del modelo (no se puede acertar demanda de un dia
+    que no existio), lo segundo SI lo es (predijo 50, se vendieron 0).
+    """
+    return target_date in fechas_operadas(tenant_id, warehouse_id)
+
+
 def dias_sin_operacion(tenant_id, warehouse_id, desde, hasta, closed_dows=None):
-    """Días del período en que el local no registró NINGUNA venta.
+    """Días del período en que el local NO operó (ver `fechas_operadas`).
 
     Se mide sobre TODOS los productos juntos: que un producto no se venda un
-    martes no dice nada, que no se venda NADA en todo el local sí. Un día así
-    no es demanda cero, es un día que no pasó — feriado, cierre por vacaciones,
+    martes no dice nada, que no opere NADA en todo el local sí. Un día así no
+    es demanda cero, es un día que no pasó — feriado, cierre por vacaciones,
     corte de luz, o el POS que no sincronizó.
+
+    Usa el MISMO criterio que el medidor (`business_operated_on`), y a propósito:
+    tenerlos separados ya se desalineó una vez. El 28-jul-2026, con el servidor
+    caído, el medidor salteaba el día (bien) mientras el entrenamiento se lo
+    comía como un cero real (mal).
 
     Los días de la semana sistemáticamente cerrados (el domingo de Marbrava) se
     excluyen con `closed_dows`: para esos ya existe `_apply_closed_weekdays`,
@@ -1077,7 +1117,7 @@ def dias_sin_operacion(tenant_id, warehouse_id, desde, hasta, closed_dows=None):
     total = (hasta - desde).days + 1
     if total <= 0:
         return set()
-    operadas = _fechas_operadas(tenant_id, warehouse_id, hasta)
+    operadas = fechas_operadas(tenant_id, warehouse_id)
     closed_dows = closed_dows or set()
     sin_operar = {
         d for d in (desde + timedelta(days=i) for i in range(total))
@@ -1199,34 +1239,6 @@ def demand_stopped(tenant_id, product_id, warehouse_id, today=None, on_hand=None
 
     adi = (posiciones[-1] - posiciones[0]) / (len(posiciones) - 1)
     return racha >= STOPPED_ADI_MULTIPLIER * adi
-
-
-def business_operated_on(tenant_id, target_date, warehouse_id=None):
-    """¿El negocio operó ese día?
-
-    Distinguir "no abrió" de "abrió y no vendió nada de este producto" importa:
-    lo primero NO es un fallo del modelo (no se puede acertar demanda de un día
-    que no existió), lo segundo SÍ lo es (predijo 50, se vendieron 0).
-
-    Tres señales, en orden:
-      1. Alguna fila con qty_sold > 0  → operó, seguro.
-      2. Ninguna fila para esa fecha   → no operó. `aggregate_daily_sales` sólo
-         escribe filas de días con actividad; los domingos de Marbrava no
-         tienen ni una.
-      3. Hay filas pero todas en 0     → ambiguo. Si TODAS están marcadas como
-         no operativas (lo que deja `mark_closed_day` para un cierre puntual,
-         como el bloqueo del servidor del 28-jul), no operó. Si no, fue un día
-         abierto en que no se vendió, y eso sí se puntúa.
-    """
-    qs = DailySales.objects.filter(tenant_id=tenant_id, date=target_date)
-    if warehouse_id is not None:
-        qs = qs.filter(warehouse_id=warehouse_id)
-
-    if qs.filter(qty_sold__gt=0).exists():
-        return True
-    if not qs.exists():
-        return False
-    return qs.filter(is_stockout=False).exists()
 
 
 def _apply_closed_weekdays(daily_forecasts, closed_dows):
