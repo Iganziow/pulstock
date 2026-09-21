@@ -122,19 +122,31 @@ class Command(BaseCommand):
         #
         # OJO: "abrió y no vendió nada de este producto" SÍ se puntúa — eso es
         # un error real del modelo. La distinción la hace business_operated_on.
-        from forecast.services import business_operated_on
+        from forecast.services import (
+            business_operated_on, cuenta_mermas_como_demanda, demanda_efectiva,
+        )
         if not business_operated_on(tenant.id, target_date):
             self.stdout.write(
                 f"  {target_date}: el negocio no operó — no se puntúa"
             )
             return 0
 
+        # Se califica contra la MISMA demanda con la que se entrena (ver
+        # `demanda_efectiva`). Antes del 20/09/26 esto leia `ds.qty_sold` pelado
+        # mientras el entrenamiento sumaba la merma: el modelo aprendia un numero
+        # y se le cobraba otro. Medido en produccion el 17-sep: el cafe tolva
+        # caturra entreno con 628 g y se califico contra 128.
+        cuenta_mermas = cuenta_mermas_como_demanda(tenant)
+
         created = 0
         for fc in forecasts:
             key = (fc.product_id, fc.warehouse_id)
             ds = actuals.get(key)
 
-            qty_actual = ds.qty_sold if ds else Decimal("0.000")
+            qty_actual = demanda_efectiva(
+                cuenta_mermas, ds.qty_sold, ds.promo_qty, ds.qty_lost,
+                contexto="on %s for product %s" % (target_date, fc.product_id),
+            ) if ds else Decimal("0.000")
             qty_predicted = fc.qty_predicted
             error = qty_predicted - qty_actual
             was_stockout = ds.is_stockout if ds else False
