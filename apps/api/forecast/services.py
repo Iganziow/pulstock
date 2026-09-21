@@ -1011,6 +1011,55 @@ def get_business_closed_weekdays(tenant_id, warehouse_id, today=None,
     return closed
 
 
+# Mismo cache por proceso que el de días cerrados: el calendario de días sin
+# operación es idéntico para todos los productos del local.
+_FECHAS_OPERADAS_CACHE: dict = {}
+
+# Si el local aparece sin operar en más que esta fracción del período, no es un
+# calendario de cierres sino un problema de datos (bodega sin movimientos, carga
+# histórica a medias). Ahí preferimos no tocar nada.
+MAX_FRACCION_SIN_OPERACION = 0.35
+
+
+def _fechas_operadas(tenant_id, warehouse_id, hasta):
+    """Fechas con al menos una venta registrada en el local, hasta `hasta`."""
+    key = (tenant_id, warehouse_id, hasta)
+    if key not in _FECHAS_OPERADAS_CACHE:
+        _FECHAS_OPERADAS_CACHE[key] = set(
+            DailySales.objects.filter(
+                tenant_id=tenant_id, warehouse_id=warehouse_id, date__lte=hasta,
+            ).values_list("date", flat=True).distinct()
+        )
+    return _FECHAS_OPERADAS_CACHE[key]
+
+
+def dias_sin_operacion(tenant_id, warehouse_id, desde, hasta, closed_dows=None):
+    """Días del período en que el local no registró NINGUNA venta.
+
+    Se mide sobre TODOS los productos juntos: que un producto no se venda un
+    martes no dice nada, que no se venda NADA en todo el local sí. Un día así
+    no es demanda cero, es un día que no pasó — feriado, cierre por vacaciones,
+    corte de luz, o el POS que no sincronizó.
+
+    Los días de la semana sistemáticamente cerrados (el domingo de Marbrava) se
+    excluyen con `closed_dows`: para esos ya existe `_apply_closed_weekdays`,
+    que pone el pronóstico en 0 y reparte esa demanda entre los días abiertos.
+    Sacarlos también de la serie rompería ese reparto.
+    """
+    total = (hasta - desde).days + 1
+    if total <= 0:
+        return set()
+    operadas = _fechas_operadas(tenant_id, warehouse_id, hasta)
+    closed_dows = closed_dows or set()
+    sin_operar = {
+        d for d in (desde + timedelta(days=i) for i in range(total))
+        if d not in operadas and d.weekday() not in closed_dows
+    }
+    if len(sin_operar) > MAX_FRACCION_SIN_OPERACION * total:
+        return set()
+    return sin_operar
+
+
 # ── Demanda detenida ─────────────────────────────────────────────────────────
 #
 # Medido en Marbrava el 11/08/26: de 4.931 unidades de sobre-predicción en 7
@@ -1618,9 +1667,10 @@ def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
     Extraido el 05/09/26 para que `backtest_forecast` (el backtest fiel)
     simule una corrida nocturna de cualquier dia pasado con las mismas
     reglas: demanda organica (ventas - promo [+ mermas en restaurante]),
-    dias de transicion de ingredientes, relleno de ceros hasta `today`
-    (incluido: el "cero de hoy" que ve el entrenamiento), stockouts y
-    promos para clean_series, dias cerrados, patron y factores de mes.
+    dias de transicion de ingredientes, relleno de ceros hasta `today`,
+    recorte de los dias en que el local no opero (feriados, y el propio
+    `today`, que todavia no ocurrio), stockouts y promos para clean_series,
+    dias cerrados, patron y factores de mes.
 
     `today` es el dia de la corrida: solo se miran ventas anteriores (en
     produccion las de hoy no existen aun al entrenar). Devuelve None si el
@@ -1713,6 +1763,34 @@ def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
     if len(raw_series) < min_days:
         return None
 
+    # ── Dias en que el local NO opero (20/09/26) ─────────────────────────
+    # El relleno de ceros de arriba no distingue "no vendi" de "no abri". El
+    # 18 y el 19 de septiembre (Fiestas Patrias) Marbrava cerro: entraron como
+    # dos ceros y seasonal_naive, que copia el mismo dia de la semana anterior,
+    # publico CERO leche entera y CERO cafe para el viernes y el sabado
+    # siguientes — los dos productos mas grandes del local, y el fin de semana.
+    #
+    # Un dia sin una sola venta en TODO el local no es evidencia de demanda
+    # cero: es un dia que no paso. Se saca de la serie. Dos excepciones:
+    #
+    #   - Los dias de la semana sistematicamente cerrados (el domingo) NO se
+    #     sacan: para esos ya existe `_apply_closed_weekdays`, que pone el
+    #     pronostico en 0 y reparte esa demanda entre los dias abiertos.
+    #     Sacarlos de la serie romperia ese reparto.
+    #   - `today` tampoco se saca, aunque su cero es igual de falso (el dia
+    #     todavia no ocurre). TODOS los algoritmos anclan el horizonte en
+    #     `daily_series[-1][0]`: si la serie no termina en `today`, el
+    #     pronostico sale corrido hacia atras. El cero de hoy es un problema
+    #     aparte y se arregla aparte.
+    sin_operacion = dias_sin_operacion(
+        tenant.id, warehouse_id, raw_series[0][0], today - timedelta(days=1),
+        closed_dows=get_business_closed_weekdays(tenant.id, warehouse_id, today=today),
+    )
+    if sin_operacion:
+        raw_series = [(d, q) for d, q in raw_series if d not in sin_operacion]
+        if len(raw_series) < min_days:
+            return None
+
     # Stockout dates for data cleaning (include promo-only days as pseudo-stockouts)
     stockout_dates = set(
         ds_qs.filter(is_stockout=True).values_list("date", flat=True)
@@ -1748,6 +1826,7 @@ def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
         "stockout_dates": stockout_dates,
         "promo_dates": promo_dates,
         "closed_dows": closed_dows,
+        "sin_operacion": sin_operacion,
         "demand_pattern": demand_pattern,
         "adi": adi,
         "cv2": cv2,
