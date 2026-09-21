@@ -128,7 +128,11 @@ def test_un_modelo_vencido_se_reentrena_aunque_su_wape_sea_imbatible(
     batir. Sin techo, ese modelo vivia para siempre."""
     viejo = _modelo(tenant, ruidoso, warehouse_a, MAX_EDAD_MODELO_DIAS + 20)
 
-    call_command("train_forecast_models", tenant=tenant.id, verbosity=0)
+    # Acotado a ESTE producto a proposito: sin `product`, el comando entrena
+    # el catalogo entero del tenant y su rastro se filtraba a
+    # `test_two_shifts_e2e`, que corre justo despues por orden alfabetico.
+    call_command("train_forecast_models", tenant=tenant.id,
+                 product=ruidoso.id, verbosity=0)
 
     activo = ForecastModel.objects.filter(
         tenant=tenant, product=ruidoso, is_active=True,
@@ -144,7 +148,11 @@ def test_un_modelo_reciente_se_sigue_conservando(tenant, warehouse_a, ruidoso):
     """Control: no rompimos el kept-path, que existe para dar estabilidad."""
     viejo = _modelo(tenant, ruidoso, warehouse_a, 2)
 
-    call_command("train_forecast_models", tenant=tenant.id, verbosity=0)
+    # Acotado a ESTE producto a proposito: sin `product`, el comando entrena
+    # el catalogo entero del tenant y su rastro se filtraba a
+    # `test_two_shifts_e2e`, que corre justo despues por orden alfabetico.
+    call_command("train_forecast_models", tenant=tenant.id,
+                 product=ruidoso.id, verbosity=0)
 
     activo = ForecastModel.objects.filter(
         tenant=tenant, product=ruidoso, is_active=True,
