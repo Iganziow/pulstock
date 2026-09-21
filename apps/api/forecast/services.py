@@ -30,6 +30,34 @@ def cuenta_mermas_como_demanda(tenant) -> bool:
     return btype in ("restaurant",)
 
 
+def demanda_efectiva(cuenta_mermas, qty_sold, promo_qty=None, qty_lost=None,
+                     contexto=""):
+    """La demanda de un dia: venta organica, mas la merma cuando corresponde.
+
+    UNA sola definicion, porque tenerla en dos lados ya costo caro. Hasta el
+    20/09/26 `armar_serie_entrenamiento` entrenaba con esto y
+    `track_forecast_accuracy` calificaba contra `qty_sold` pelado. El resultado,
+    medido en produccion: el 17-sep el cafe tolva caturra entreno con 628 g (128
+    vendidos + 500 de una merma) y se califico contra 128. El modelo predijo 485
+    para el dia siguiente y la medicion le cobro 279% de error por acertarle
+    razonablemente a la demanda con la que se le habia enseñado.
+
+    `cuenta_mermas` es el booleano de `cuenta_mermas_como_demanda(tenant)`, que
+    quien llama resuelve UNA vez: el entrenamiento recorre cientos de productos y
+    no corresponde preguntarselo por fila.
+    """
+    qty_sold = Decimal(qty_sold or 0)
+    promo_qty = Decimal(promo_qty or 0)
+    qty_lost = Decimal(qty_lost or 0) if cuenta_mermas else Decimal("0")
+    if promo_qty > qty_sold:
+        logger.warning(
+            "promo_qty (%s) > qty_sold (%s) %s — clamping",
+            promo_qty, qty_sold, contexto,
+        )
+        promo_qty = qty_sold
+    return max(qty_sold - promo_qty + qty_lost, Decimal("0"))
+
+
 logger = logging.getLogger(__name__)
 
 # Nivel de servicio objetivo para el safety stock probabilístico.
@@ -1650,21 +1678,17 @@ def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
         dt, qty_sold, promo_qty = row[0], row[1], row[2]
         qty_lost = row[3] if include_waste and len(row) > 3 else Decimal("0")
         promo_qty = promo_qty or Decimal("0")
-        qty_lost = qty_lost or Decimal("0")
-        if promo_qty > qty_sold:
-            logger.warning(
-                "promo_qty (%s) > qty_sold (%s) on %s for product %s — clamping",
-                promo_qty, qty_sold, dt, product.id,
-            )
-            promo_qty = qty_sold
-        organic = qty_sold - promo_qty + qty_lost  # waste counts as effective demand
+        organic = demanda_efectiva(
+            include_waste, qty_sold, promo_qty, qty_lost,
+            contexto="on %s for product %s" % (dt, product.id),
+        )
         if promo_qty > 0:
             promo_dates.add(dt)
         # Dia de transicion de ingrediente (ver arriba): forzamos qty 0 para
         # que, sumado a stockout_dates, clean_series lo interpole.
         if dt in transition_dates:
             organic = Decimal("0")
-        raw_series.append((dt, max(organic, Decimal("0"))))
+        raw_series.append((dt, organic))
 
     # ── FILL ZEROS para detectar intermitencia (13/05/26) ────────────
     # aggregate_daily_sales solo crea DailySales para días con venta.
