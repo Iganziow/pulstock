@@ -1468,6 +1468,52 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
 # real y el breaker lo parchaba cada noche sin que nadie reentrenara.
 BREAKER_STREAK_FORCE_RETRAIN = 3
 
+# ── Techo de antiguedad del modelo (21/09/26) ────────────────────────────────
+# Medido en produccion sobre la ventana 30-jun a 13-sep: el nivel que publica el
+# modelo NO se parece al real dia contra dia (correlacion +0,07 en Leche entera,
+# +0,05 en Cafe tolva caturra) pero se parece muchisimo corrido 6 a 11 dias
+# (+0,83 y +0,81). La señal esta; llega tarde. Un promedio movil de 28 dias,
+# que atrasa 6, le gana justamente por eso.
+#
+# De donde sale el atraso: el kept-path conserva el modelo de anoche si el
+# fresco no le gana, y en los productos erraticos el fresco casi nunca gana --el
+# WAPE del incumbente es un backtest congelado, ver el comentario del kept-path
+# mas abajo--. Resultado medido: 70 de 197 modelos activos con mas de 30 dias
+# (promedio 62,7) y 38 entre 8 y 14.
+#
+# El caso que mas duele es el derivado de receta. La Leche entera se reentrena
+# todas las noches, pero se arma sumando 27 modelos padre cuya antiguedad
+# MEDIANA es de 30 dias: una suma fresca de partes rancias. Por eso los padres
+# tienen su propio techo, mas corto: el pipeline ya los entrena ANTES que a los
+# ingredientes (train_forecast_models particiona no-ingredientes primero), asi
+# que refrescarlos arregla al derivado en la misma corrida.
+#
+# El kept-path se invento para dar ESTABILIDAD. Estabilidad comprada con
+# ranciedad se paga en punteria: esto le pone el precio maximo.
+MAX_EDAD_MODELO_DIAS = 14
+MAX_EDAD_MODELO_PADRE_DIAS = 7
+
+
+def _edad_maxima(tenant_id, product):
+    """Dias que puede vivir un modelo sin reentrenarse.
+
+    Mas corto para los productos con receta activa: de sus pronosticos cuelgan
+    los ingredientes derivados, que son el nucleo de la venta.
+    """
+    from catalog.models import Recipe
+    es_padre = Recipe.objects.filter(
+        tenant_id=tenant_id, product=product, is_active=True,
+    ).exists()
+    return MAX_EDAD_MODELO_PADRE_DIAS if es_padre else MAX_EDAD_MODELO_DIAS
+
+
+def modelo_vencido(tenant_id, product, existing, today):
+    """¿El modelo vigente ya paso su techo de antiguedad?"""
+    if existing is None or not getattr(existing, "trained_at", None):
+        return False
+    edad = (today - existing.trained_at.date()).days
+    return edad >= _edad_maxima(tenant_id, product)
+
 
 def _collapse_guard(best, raw_series, today, horizon, product=None):
     """CIRCUIT BREAKER anti-colapso (Mario 31/05/26).
@@ -1836,6 +1882,16 @@ def train_product_model(tenant, product, warehouse_id, today,
     # noches seguidas, el WAPE histórico del modelo viejo ya no describe la
     # realidad (fue medido en otro régimen) → NO conservarlo por kept aunque
     # "gane" la comparación. Forzar la selección fresca de esta noche.
+    # Techo de antiguedad (ver MAX_EDAD_MODELO_DIAS): un modelo que lleva
+    # semanas sin reentrenarse publica el nivel de cuando se entreno.
+    edad_vencida = modelo_vencido(tenant.id, product, existing, today)
+    if edad_vencida:
+        logger.info(
+            "Techo de antiguedad product %s (%s): el modelo vigente tiene %d dias "
+            "-> se fuerza reentrenamiento (kept-path bypassed).",
+            getattr(product, "id", "?"), getattr(product, "name", "?"),
+            (today - existing.trained_at.date()).days,
+        )
     breaker_forced = prev_breaker_streak >= BREAKER_STREAK_FORCE_RETRAIN
     if breaker_forced:
         logger.warning(
@@ -1850,7 +1906,8 @@ def train_product_model(tenant, product, warehouse_id, today,
     # patron, algoritmo ya no elegible y racha de cortacircuitos. El derivado no
     # esta entre los candidatos del motor directo: tiene su propio margen abajo.
     algoritmo_titular = None
-    if existing and not (pattern_changed or existing_algo_ineligible or breaker_forced):
+    if existing and not (pattern_changed or existing_algo_ineligible
+                         or breaker_forced or edad_vencida):
         algoritmo_titular = existing.algorithm
 
     # Select best model with cleaned data
@@ -1968,7 +2025,7 @@ def train_product_model(tenant, product, warehouse_id, today,
 
     if (existing and existing.metrics and existing.metrics.get("wape") is not None
             and not pattern_changed and not existing_algo_ineligible
-            and not breaker_forced):
+            and not breaker_forced and not edad_vencida):
         old_err = _wape_vigente(existing.metrics)
         # Sprint A (jul 2026): el WAPE del incumbente es un backtest CONGELADO
         # de la noche en que se entrenó — medido sobre el régimen de entonces,
