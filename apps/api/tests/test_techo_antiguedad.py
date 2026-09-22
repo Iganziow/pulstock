@@ -23,11 +23,24 @@ from django.core.management import call_command
 
 from catalog.models import Product, Recipe, RecipeLine, Unit
 from forecast.models import DailySales, ForecastModel
+from django.utils import timezone
+
 from forecast.services import (
     MAX_EDAD_MODELO_DIAS, MAX_EDAD_MODELO_PADRE_DIAS, modelo_vencido,
 )
 
-HOY = date.today()
+
+def hoy():
+    """La fecha AHORA, no la del import.
+
+    Capturarla al importar el modulo costo un falso rojo el 21-sep: la suite
+    arranco 22:00 y termino pasada la medianoche, asi que `HOY` era el 21 y el
+    modelo se creaba el 22. La edad salia un dia corta. Es el mismo error de
+    zona/fecha que el techo tenia en el codigo, ahora en el test.
+
+    `timezone.localdate()` y no `date.today()`: es la que usa el codigo.
+    """
+    return timezone.localdate()
 
 
 @pytest.fixture
@@ -40,7 +53,7 @@ def ruidoso(db, tenant, warehouse_a):
     p = Product.objects.create(tenant=tenant, name="Ruidoso", unit_obj=u, is_active=True)
     noise = [1, 5, 2, 6, 3]
     for i in range(70, 0, -1):
-        d = HOY - timedelta(days=i)
+        d = hoy() - timedelta(days=i)
         if d.weekday() == 6:
             continue
         DailySales.objects.create(
@@ -60,9 +73,11 @@ def _modelo(tenant, product, warehouse, dias_de_antiguedad):
         data_points=60, demand_pattern="smooth",
         confidence_label="high", confidence_reason="(legacy)",
     )
-    # trained_at es auto_now_add: hay que pisarlo despues de crear.
+    # trained_at es auto_now_add: hay que pisarlo despues de crear. Se ancla en
+    # `timezone.now()` y no en lo que quedo guardado, para que la edad no dependa
+    # de cuanto tardo el test en llegar hasta aca.
     ForecastModel.objects.filter(id=fm.id).update(
-        trained_at=fm.trained_at - timedelta(days=dias_de_antiguedad),
+        trained_at=timezone.now() - timedelta(days=dias_de_antiguedad),
     )
     fm.refresh_from_db()
     return fm
@@ -78,17 +93,17 @@ def _hacer_padre(tenant, padre, ingrediente):
 
 def test_un_modelo_nuevo_no_esta_vencido(db, tenant, warehouse_a, ruidoso):
     fm = _modelo(tenant, ruidoso, warehouse_a, 1)
-    assert not modelo_vencido(tenant.id, ruidoso, fm, HOY)
+    assert not modelo_vencido(tenant.id, ruidoso, fm, hoy())
 
 
 def test_al_llegar_al_techo_esta_vencido(db, tenant, warehouse_a, ruidoso):
     fm = _modelo(tenant, ruidoso, warehouse_a, MAX_EDAD_MODELO_DIAS)
-    assert modelo_vencido(tenant.id, ruidoso, fm, HOY)
+    assert modelo_vencido(tenant.id, ruidoso, fm, hoy())
 
 
 def test_un_dia_antes_del_techo_todavia_no(db, tenant, warehouse_a, ruidoso):
     fm = _modelo(tenant, ruidoso, warehouse_a, MAX_EDAD_MODELO_DIAS - 1)
-    assert not modelo_vencido(tenant.id, ruidoso, fm, HOY)
+    assert not modelo_vencido(tenant.id, ruidoso, fm, hoy())
 
 
 def test_el_padre_de_una_receta_tiene_techo_mas_corto(
@@ -99,7 +114,7 @@ def test_el_padre_de_una_receta_tiene_techo_mas_corto(
     edad = MAX_EDAD_MODELO_PADRE_DIAS
     assert edad < MAX_EDAD_MODELO_DIAS
     fm = _modelo(tenant, ruidoso, warehouse_a, edad)
-    assert modelo_vencido(tenant.id, ruidoso, fm, HOY), (
+    assert modelo_vencido(tenant.id, ruidoso, fm, hoy()), (
         "Un padre con %d dias ya tiene que estar vencido" % edad
     )
 
@@ -111,11 +126,11 @@ def test_una_receta_inactiva_no_acorta_el_techo(
     RecipeLine.objects.create(tenant=tenant, recipe=r, ingredient=product,
                               qty=Decimal("1.0"))
     fm = _modelo(tenant, ruidoso, warehouse_a, MAX_EDAD_MODELO_PADRE_DIAS)
-    assert not modelo_vencido(tenant.id, ruidoso, fm, HOY)
+    assert not modelo_vencido(tenant.id, ruidoso, fm, hoy())
 
 
 def test_sin_modelo_previo_no_explota(db, tenant, ruidoso):
-    assert not modelo_vencido(tenant.id, ruidoso, None, HOY)
+    assert not modelo_vencido(tenant.id, ruidoso, None, hoy())
 
 
 # ── el efecto en la noche ────────────────────────────────────────────────────

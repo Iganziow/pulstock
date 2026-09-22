@@ -1508,10 +1508,17 @@ def _edad_maxima(tenant_id, product):
 
 
 def modelo_vencido(tenant_id, product, existing, today):
-    """¿El modelo vigente ya paso su techo de antiguedad?"""
+    """¿El modelo vigente ya paso su techo de antiguedad?
+
+    `trained_at` es un datetime con zona, y su `.date()` devuelve la fecha en
+    UTC. `today` viene en hora local del negocio. Mezclarlos le restaba un dia a
+    la edad de todo modelo entrenado despues de las 21:00 de Santiago --que es
+    justo cuando se corre el pipeline a mano--. Se convierte con
+    `timezone.localdate`, que es la misma zona en que se decide `today`.
+    """
     if existing is None or not getattr(existing, "trained_at", None):
         return False
-    edad = (today - existing.trained_at.date()).days
+    edad = (today - timezone.localdate(existing.trained_at)).days
     return edad >= _edad_maxima(tenant_id, product)
 
 
@@ -1890,7 +1897,7 @@ def train_product_model(tenant, product, warehouse_id, today,
             "Techo de antiguedad product %s (%s): el modelo vigente tiene %d dias "
             "-> se fuerza reentrenamiento (kept-path bypassed).",
             getattr(product, "id", "?"), getattr(product, "name", "?"),
-            (today - existing.trained_at.date()).days,
+            (today - timezone.localdate(existing.trained_at)).days,
         )
     breaker_forced = prev_breaker_streak >= BREAKER_STREAK_FORCE_RETRAIN
     if breaker_forced:
