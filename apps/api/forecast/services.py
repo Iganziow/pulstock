@@ -2836,6 +2836,33 @@ def generate_suggestions(tenant, today, threshold, target_days):
         if consumed_21d == 0 and consumed_90d > 0 and avg_daily_raw > 0.2:
             continue
 
+        # ── SKIP SIN CONSUMO RECIENTE (21/09/26) ──────────────────────────
+        # El skip de arriba pide `avg_daily_raw > 0.2` para actuar, asi que un
+        # producto chico que dejo de moverse se le escapa: el pronostico dice
+        # 0,05/dia, la guarda no aplica, y la linea entra igual.
+        #
+        # Medido sobre las 972 lineas sugeridas desde el 1-ago en produccion:
+        # el 35% son de productos que no consumieron NADA en los 30 dias
+        # siguientes. Es lo que hace que la lista no se pueda mirar.
+        #
+        # La regla: si no consumio nada en los ultimos 30 dias, no se sugiere.
+        # Calla 103 de esas 972 lineas (11%) y de esas solo 4 (4%) resultaron
+        # usarse despues. Se eligio 30 dias sobre 21 (calla 12% pero se
+        # equivoca en 11%) y sobre 45 o 60 (callan menos por lo mismo).
+        #
+        # NO aplica a productos sin historia: `consumed_90d == 0` es un
+        # ingrediente nuevo o derivado, no uno que se murio.
+        #
+        # Se mira el MAXIMO entre venta directa y consumo via receta, la misma
+        # base que usa el cap de seguridad de abajo. Tener dos definiciones de
+        # "se movio" conviviendo es exactamente el error que costo caro en
+        # `demanda_efectiva`.
+        # A 90 dias alcanza `consumed_90d`: DailySales ya trae la venta directa
+        # Y el consumo via receta, que es justo lo que no veia SaleLine sola.
+        movimiento_30d = max(float(real_sold_30d), float(consumed_30d))
+        if movimiento_30d == 0 and consumed_90d > 0:
+            continue
+
         # ── CAP DE SEGURIDAD: nunca sugerir más de 4× el consumo real de los
         # últimos 30 días. Red contra modelos jóvenes / inflados por promedio
         # de categoría. Usa el MÁXIMO entre ventas directas (SaleLine) y
