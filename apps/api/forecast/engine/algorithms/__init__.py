@@ -3,4 +3,5 @@ from . import (
     adaptive_moving_average, croston, holt_winters,
     holt_winters_damped, ets, ensemble, category_prior,
     croston_bootstrap, seasonal_naive, tsb,
+    nivel_dia_semana,
 )
