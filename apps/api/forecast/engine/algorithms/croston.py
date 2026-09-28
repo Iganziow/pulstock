@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from ..base import ForecastAlgorithm
 from ..registry import register
-from ..utils import _q3, _compute_metrics, _average_metrics, D0
+from ..utils import _q3, _compute_metrics, _average_metrics, D0, elegir_parametros
 
 
 def _croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
@@ -106,7 +106,8 @@ def _croston_forecast(daily_series, alpha=0.15, horizon_days=14, use_sba=False):
     }
 
 
-def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
+def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3,
+                      prev_alpha=None):
     """Walk-forward cross-validation for Croston with alpha grid search.
 
     (13/05/26) min_train bajado de 14 a 7 días: con 14 días totales y el
@@ -119,8 +120,7 @@ def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
     if len(daily_series) < min_train + test_days:
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0, "best_alpha": 0.15}
 
-    best_metrics = None
-    best_alpha = 0.15
+    resultados = {}
 
     for alpha in [0.05, 0.10, 0.15, 0.20, 0.30]:
         fold_metrics = []
@@ -141,20 +141,15 @@ def _backtest_croston(daily_series, test_days=7, use_sba=False, n_folds=3):
 
         if not fold_metrics:
             continue
-        avg = _average_metrics(fold_metrics)
-        # Sprint A (jul 2026): elegir alpha por WAPE de TOTALES (la tasa del
-        # período, que es lo que le importa a compras), no por MAE diario —
-        # en intermitente el MAE diario premia sistemáticamente sub-predecir
-        # (predecir ~0 "acierta" los días sin venta). MAE queda de desempate.
-        key = (avg.get("wape_total", 999), avg["mae"])
-        best_key = (
-            (best_metrics.get("wape_total", 999), best_metrics["mae"])
-            if best_metrics is not None else None
-        )
-        if best_key is None or key < best_key:
-            best_metrics = avg
-            best_alpha = alpha
+        resultados[alpha] = _average_metrics(fold_metrics)
 
+    # Sprint A (jul 2026): elegir alpha por WAPE de TOTALES (la tasa del
+    # periodo, que es lo que le importa a compras), no por MAE diario: en
+    # intermitente el MAE diario premia sistematicamente sub-predecir
+    # (predecir ~0 "acierta" los dias sin venta). MAE queda de desempate.
+    # Paso 3 (12/09/26): el alpha de anoche (`prev_alpha`) se conserva salvo
+    # que otro le gane por MARGEN_CAMBIO_PARAMETROS (ver elegir_parametros).
+    best_alpha, best_metrics = elegir_parametros(resultados, prev_alpha)
     if best_metrics is None:
         return {"mae": 999, "mape": 999, "rmse": 999, "bias": 0, "best_alpha": 0.15}
     best_metrics["best_alpha"] = best_alpha
@@ -179,7 +174,7 @@ class CrostonForecast(ForecastAlgorithm):
 
     def backtest(self, daily_series, test_days=7, n_folds=3, **kwargs):
         return _backtest_croston(daily_series, test_days=test_days, use_sba=False,
-                                 n_folds=n_folds)
+                                 n_folds=n_folds, prev_alpha=kwargs.get("prev_alpha"))
 
 
 @register
@@ -196,4 +191,4 @@ class CrostonSBA(ForecastAlgorithm):
 
     def backtest(self, daily_series, test_days=7, n_folds=3, **kwargs):
         return _backtest_croston(daily_series, test_days=test_days, use_sba=True,
-                                 n_folds=n_folds)
+                                 n_folds=n_folds, prev_alpha=kwargs.get("prev_alpha"))

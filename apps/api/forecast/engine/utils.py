@@ -462,3 +462,53 @@ def calculate_days_to_stockout(current_stock, daily_forecasts, conservative=Fals
         if cursor <= 0:
             return i + 1
     return None
+
+
+# Estabilizacion, paso 3 (12/09/26): histeresis en la grilla de parametros.
+#
+# Medido en produccion (15 noches): cuando el algoritmo se conserva pero la
+# grilla elige otro alpha/beta, el nivel publicado salta 22% de mediana. El
+# Capuccino caramelo alternaba alpha 0.20 <-> 0.05 noche por medio, y su nivel
+# 0.14 <-> 0.22 con el: con un dia mas de historia la grilla cambia de ganador
+# por centesimas. Ahora los parametros de anoche defienden el puesto: otro punto
+# de la grilla los reemplaza solo si mejora el criterio de la grilla (wape_total,
+# MAE de desempate) en este margen. Medido en 28 noches simuladas sobre la copia
+# de produccion (219 productos): con 0.90 los cambios de parametros bajan de 635
+# a 289 y con 0.80 a 139, con el mismo WAPE (164,2% -> 164,1%) y sin mover los
+# cambios de algoritmo; los saltos noche a noche mayores a 25% pasan de 13,9% a
+# 11,6%. Se elige 0.80. La racha de cortacircuitos sigue liberando al titular,
+# asi que un cambio real de regimen no queda atrapado en los parametros viejos.
+MARGEN_CAMBIO_PARAMETROS = 0.80
+
+
+def elegir_parametros(resultados, previos, margen=None):
+    """(parametros, metricas) de la grilla, con histeresis hacia `previos`.
+
+    `resultados`: {parametros: metricas promedio del backtest}, en el orden
+    de la grilla. `previos`: los parametros de anoche, o None. El mejor
+    absoluto gana salvo que los previos esten en la grilla, tengan wape_total
+    evaluable y el mejor no les gane por `margen`. Si ninguno de los dos tiene
+    wape_total evaluable se compara el MAE con el mismo margen. Sin previos, en
+    empate exacto gana el primero de la grilla (como siempre); con previos, los
+    previos.
+    """
+    if not resultados:
+        return None, None
+    if margen is None:
+        margen = MARGEN_CAMBIO_PARAMETROS
+
+    def clave(m):
+        return (m.get("wape_total", 999), m["mae"])
+
+    mejor = min(resultados, key=lambda p: clave(resultados[p]))
+    if previos is None or previos not in resultados or previos == mejor:
+        return mejor, resultados[mejor]
+    m_prev, m_mejor = resultados[previos], resultados[mejor]
+    w_prev, w_mejor = m_prev.get("wape_total", 999), m_mejor.get("wape_total", 999)
+    if w_prev >= 998 and w_mejor >= 998:
+        w_prev, w_mejor = m_prev["mae"], m_mejor["mae"]
+    elif w_prev >= 998:
+        return mejor, m_mejor
+    if w_mejor < w_prev * margen:
+        return mejor, m_mejor
+    return previos, m_prev

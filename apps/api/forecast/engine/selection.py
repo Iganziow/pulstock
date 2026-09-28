@@ -45,11 +45,13 @@ N_FOLDS = 8
 
 def select_best_model(daily_series, window=21, horizon=14, test_days=7,
                       month_factors=None, demand_pattern=None, stockout_dates=None,
-                      prev_algorithm=None):
+                      prev_algorithm=None, prev_params=None):
     """
     Train all eligible models, backtest each, return the best one.
     `prev_algorithm` es el algoritmo del modelo activo de anoche: ver
-    MARGEN_CAMBIO_ALGORITMO.
+    MARGEN_CAMBIO_ALGORITMO. `prev_params` son sus {best_alpha, best_beta}:
+    si el titular gana, sus parametros de anoche se conservan salvo mejora
+    clara (paso 3, ver _conservar_parametros).
 
     Returns dict:
         algorithm, forecasts, params, metrics, data_points, confidence_base,
@@ -145,6 +147,8 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
             candidates.append(ens)
 
     best = choose_best(candidates, demand_pattern, prev_algorithm=prev_algorithm)
+    if prev_params and best["algorithm"] == prev_algorithm:
+        best = _conservar_parametros(best, daily_series, horizon, test_days, prev_params, extra_kwargs)
     best["demand_pattern"] = demand_pattern
 
     logger.info(
@@ -154,6 +158,48 @@ def select_best_model(daily_series, window=21, horizon=14, test_days=7,
     )
 
     return best
+
+
+def _conservar_parametros(best, daily_series, horizon, test_days, prev_params, extra_kwargs):
+    """Paso 3 (12/09/26): el titular ya gano su puesto; ahora sus alpha/beta de
+    anoche defienden el suyo. Se re-corre SU grilla con los previos y, si otro
+    punto no les gana por MARGEN_CAMBIO_PARAMETROS (utils.elegir_parametros),
+    se pronostica con los de anoche y se publican las metricas de ESOS
+    parametros, que es lo honesto para lo que sale a la tabla.
+
+    Va despues de la competencia y no dentro, a proposito: medido en la copia
+    de produccion (28 noches), retener los parametros DENTRO del backtest del
+    titular le empeora la nota y lo hace perder la competencia de algoritmo
+    mas seguido (532 -> 573 cambios), que es el salto mas caro. Aca la
+    competencia se juzga con el titular tuneado libre, como siempre, y el
+    freno de parametros solo actua cuando el algoritmo ya se queda.
+    """
+    algo_cls = ALGORITHM_REGISTRY.get(best["algorithm"])
+    if algo_cls is None:
+        return best
+    prev_alpha, prev_beta = prev_params.get("best_alpha"), prev_params.get("best_beta")
+    if prev_alpha is None and prev_beta is None:
+        return best
+    algo = algo_cls()
+    metrics = algo.backtest(
+        daily_series, test_days=test_days, n_folds=N_FOLDS,
+        prev_alpha=prev_alpha, prev_beta=prev_beta, **extra_kwargs,
+    )
+    libres = (best["metrics"].get("best_alpha"), best["metrics"].get("best_beta"))
+    retenidos = (metrics.get("best_alpha"), metrics.get("best_beta"))
+    if metrics["mae"] >= 998 or retenidos == libres:
+        return best
+    result = algo.forecast(
+        daily_series, horizon_days=horizon,
+        best_alpha=retenidos[0], best_beta=retenidos[1], **extra_kwargs,
+    )
+    if result is None:
+        return best
+    result["metrics"] = metrics
+    result.setdefault("data_points", best.get("data_points"))
+    if algo.name in ("croston", "croston_sba"):
+        result = croston_bootstrap_intervals(daily_series, result)
+    return result
 
 
 def _err(c):
