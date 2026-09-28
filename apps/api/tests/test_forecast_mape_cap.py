@@ -128,6 +128,16 @@ class TestTrackForecastAccuracyCap:
                        target_date, qty="50")
         _make_daily_sales(tenant, product, warehouse_for_forecast,
                           target_date, qty="0")
+        # Otro producto SI vendio ese dia (26/09/26). El test mide "el local
+        # abrio y de ESTE producto no salio ninguno", que es un error real del
+        # modelo y se puntua. Sin esta venta el dia no tiene ninguna, y desde el
+        # arreglo de la merma eso es un dia que no opero: no se puntua nada.
+        otro = Product.objects.create(
+            tenant=tenant, name="Otro que si vendio", price=Decimal("1000.00"),
+            is_active=True,
+        )
+        _make_daily_sales(tenant, otro, warehouse_for_forecast,
+                          target_date, qty="7")
 
         call_command(
             "track_forecast_accuracy",

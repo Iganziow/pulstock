@@ -1022,12 +1022,26 @@ MAX_FRACCION_SIN_OPERACION = 0.35
 
 
 def _fechas_operadas(tenant_id, warehouse_id, hasta):
-    """Fechas con al menos una venta registrada en el local, hasta `hasta`."""
+    """Fechas en que el local VENDIO algo, hasta `hasta`.
+
+    Vendio, no "tiene una fila". El 26-sep-2026 Marbrava no opero y quedaron dos
+    filas con `qty_sold = 0` y `qty_lost = 1`: alguien boto un cafe y una galleta.
+    Con el criterio de "existe fila", ese sabado contaba como dia operado, el dia
+    entraba a la serie como demanda cero legitima, y el medidor le cobraba al
+    modelo 874 unidades de error sin ninguna demanda real contra la que dividir
+    (error del nucleo a 30 dias: 71,8% sin ese sabado, 74,1% con el).
+
+    Una merma es una salida de stock, no una prueba de que el local abrio.
+
+    Con este criterio se dan vuelta 2 fechas de 441 en toda la historia (19-may y
+    26-sep), y las dos son dias que efectivamente no operaron.
+    """
     key = (tenant_id, warehouse_id, hasta)
     if key not in _FECHAS_OPERADAS_CACHE:
         _FECHAS_OPERADAS_CACHE[key] = set(
             DailySales.objects.filter(
                 tenant_id=tenant_id, warehouse_id=warehouse_id, date__lte=hasta,
+                qty_sold__gt=0,
             ).values_list("date", flat=True).distinct()
         )
     return _FECHAS_OPERADAS_CACHE[key]
@@ -1194,11 +1208,14 @@ def business_operated_on(tenant_id, target_date, warehouse_id=None):
     if warehouse_id is not None:
         qs = qs.filter(warehouse_id=warehouse_id)
 
-    if qs.filter(qty_sold__gt=0).exists():
-        return True
-    if not qs.exists():
-        return False
-    return qs.filter(is_stockout=False).exists()
+    # Mismo criterio que `_fechas_operadas` (26/09/26): vendio algo, o no opero.
+    #
+    # Antes habia una tercera rama --"hay filas todas en 0, pero si alguna no esta
+    # marcada como quiebre fue un dia abierto sin venta"-- y el sabado 26-sep la
+    # desarmo: el local no opero y quedaron dos filas en cero con una merma cada
+    # una, sin marca de quiebre. Eso alcanzaba para puntuar el dia entero contra
+    # cero. Una merma no prueba que el local abrio.
+    return qs.filter(qty_sold__gt=0).exists()
 
 
 def _apply_closed_weekdays(daily_forecasts, closed_dows):

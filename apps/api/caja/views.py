@@ -169,12 +169,29 @@ def _sales_in_session_range(session):
     # Daniel sigue funcionando para absorber huérfanas).
     from django.db.models import OuterRef, Subquery
 
+    # FIX 25/09/26 — la deteccion fallaba ABIERTA.
+    #
+    # Si `concurrent_other_reg` no encuentra nada, esta funcion devuelve TODAS
+    # las ventas del local en el rango. O sea que un fallo de deteccion no deja
+    # a una caja sin ventas: le da las de las dos. El mismo dinero termina
+    # contado en los dos arqueos, sin ningun aviso. En plata, la falla tiene
+    # que ser cerrada.
+    #
+    # Y fallaba por el reloj. Dos cajas que se abren en el mismo tick quedan con
+    # `opened_at` identico: con `__lt` estricto, una sesion que abrio EXACTAMENTE
+    # en `end_dt` no se detectaba. En Windows con Python 3.10 `datetime.now()`
+    # tiene granularidad de 15,6 ms (en Linux y desde 3.13 es microsegundo), asi
+    # que dos aperturas seguidas caen en el mismo tick con facilidad.
+    #
+    # Dos cambios: el limite pasa a `__lte`, y se agrega una SEGUNDA señal que no
+    # depende del reloj -- si en el rango hay ventas etiquetadas a otra caja, hay
+    # concurrencia, y punto.
     concurrent_other_reg = (
         CashSession.objects
         .filter(
             tenant_id=session.tenant_id,
             store_id=session.store_id,
-            opened_at__lt=end_dt,
+            opened_at__lte=end_dt,
         )
         .filter(
             Q(closed_at__isnull=True) | Q(closed_at__gt=start_dt),
@@ -182,7 +199,14 @@ def _sales_in_session_range(session):
         .exclude(id=session.id)
         .exclude(register_id=session.register_id)
     )
-    if concurrent_other_reg.exists():
+    # Señal independiente del reloj: ventas del rango ya asignadas a OTRA caja.
+    otras_cajas_con_ventas = (
+        qs.exclude(cash_session_id=session.id)
+        .exclude(cash_session_id__isnull=True)
+        .exclude(cash_session__register_id=session.register_id)
+        .exists()
+    )
+    if concurrent_other_reg.exists() or otras_cajas_con_ventas:
         earliest_open_at_sale = (
             CashSession.objects
             .filter(

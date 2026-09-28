@@ -298,3 +298,72 @@ def test_purga_borra_el_dia_fantasma_y_respeta_el_real(tenant, warehouse, produc
 
     assert not ForecastAccuracy.objects.filter(tenant=tenant, date=fantasma).exists()
     assert ForecastAccuracy.objects.filter(tenant=tenant, date=real).exists()
+
+
+# ── Una merma no prueba que el local abrio (26/09/26) ───────────────────────
+#
+# El sabado 26-sep-2026 Marbrava no opero. Quedaron DOS filas en toda la base,
+# las dos con `qty_sold = 0`, `qty_lost = 1` y `is_stockout = false`: alguien boto
+# un cafe y una galleta. La rama vieja de `business_operated_on` --"filas en cero
+# pero no todas marcadas como quiebre = dia abierto sin venta"-- daba ese dia por
+# operativo, y el medidor le cobro al modelo 874 unidades de error sin ninguna
+# demanda real contra la que dividir. El error del nucleo a 30 dias: 71,8% sin ese
+# sabado, 74,1% con el.
+
+@pytest.mark.django_db
+def test_un_dia_con_solo_mermas_no_conto_como_operado(tenant, warehouse, product, product_b):
+    """El sabado 26: cero vendido, una merma por producto, sin marca de quiebre."""
+    from forecast.services import business_operated_on
+    hoy = datetime.date.today()
+    for p in (product, product_b):
+        DailySales.objects.create(
+            tenant=tenant, product=p, warehouse=warehouse, date=hoy,
+            qty_sold=D("0"), qty_lost=D("1"), is_stockout=False,
+        )
+    assert not business_operated_on(tenant.id, hoy), (
+        "una merma es una salida de stock, no prueba de que el local abrio"
+    )
+
+
+@pytest.mark.django_db
+def test_un_dia_con_una_sola_venta_si_conto_como_operado(tenant, warehouse, product, product_b):
+    """Control: basta con que UN producto haya vendido algo."""
+    from forecast.services import business_operated_on
+    hoy = datetime.date.today()
+    DailySales.objects.create(
+        tenant=tenant, product=product, warehouse=warehouse, date=hoy,
+        qty_sold=D("0"), qty_lost=D("1"), is_stockout=False,
+    )
+    DailySales.objects.create(
+        tenant=tenant, product=product_b, warehouse=warehouse, date=hoy,
+        qty_sold=D("3"), qty_lost=D("0"), is_stockout=False,
+    )
+    assert business_operated_on(tenant.id, hoy)
+
+
+@pytest.mark.django_db
+def test_el_dia_con_solo_mermas_sale_de_la_serie_de_entrenamiento(
+    tenant, warehouse, product, product_b,
+):
+    """No solo no se puntua: tampoco tiene que entrenar como demanda cero."""
+    from forecast.services import dias_sin_operacion
+    hoy = datetime.date.today()
+    for i in range(1, 40):                      # historia normal
+        d = hoy - datetime.timedelta(days=i)
+        if d.weekday() == 6:
+            continue
+        DailySales.objects.create(
+            tenant=tenant, product=product, warehouse=warehouse,
+            date=d, qty_sold=D("10"),
+        )
+    solo_mermas = hoy - datetime.timedelta(days=5)
+    DailySales.objects.filter(date=solo_mermas).delete()
+    DailySales.objects.create(
+        tenant=tenant, product=product_b, warehouse=warehouse, date=solo_mermas,
+        qty_sold=D("0"), qty_lost=D("1"), is_stockout=False,
+    )
+    sin_operar = dias_sin_operacion(
+        tenant.id, warehouse.id, hoy - datetime.timedelta(days=39), hoy,
+        closed_dows={6},
+    )
+    assert solo_mermas in sin_operar
