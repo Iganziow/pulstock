@@ -39,18 +39,31 @@ def espia_pasos(monkeypatch):
 
 @pytest.mark.django_db
 class TestElOrdenSeRespeta:
-    def test_corre_los_cinco_pasos_en_orden(self, espia_pasos):
+    def test_corre_los_pasos_en_orden(self, espia_pasos):
         """El orden no es arbitrario: sin demanda agregada no hay nada que
-        entrenar, y sin modelos no hay sugerencia que generar."""
+        entrenar, y sin modelos no hay sugerencia que generar.
+
+        La purga va DESPUES de medir y ANTES de entrenar (01/10/26): borra las
+        mediciones de dias en que el local no opero, y tanto el kept-path como
+        la recalibracion de confianza las leen al entrenar. Si corriera despues,
+        los dos ya habrian decidido con ficcion."""
         call_command("run_nightly_pipeline", verbosity=0)
         assert espia_pasos == [
             "aggregate_daily_sales",
             "recalcular_minimos",
             "track_forecast_accuracy",
+            "purge_nonoperative_accuracy",
             "compute_category_profiles",
             "train_forecast_models",
             "generate_purchase_suggestions",
         ]
+
+    def test_la_purga_corre_entre_medir_y_entrenar(self, espia_pasos):
+        """Lo que importa del paso nuevo no es que este, es DONDE esta."""
+        call_command("run_nightly_pipeline", verbosity=0)
+        assert (espia_pasos.index("track_forecast_accuracy")
+                < espia_pasos.index("purge_nonoperative_accuracy")
+                < espia_pasos.index("train_forecast_models"))
 
     def test_dry_run_no_ejecuta_nada(self, espia_pasos):
         call_command("run_nightly_pipeline", "--dry-run", verbosity=0)
@@ -90,13 +103,13 @@ class TestCuandoUnPasoFallaDelTodo:
         """Si solo dijera 'falló', habría que leer el log entero para saber
         cuánto del pipeline alcanzó a correr."""
         self._falla_en(monkeypatch, "train_forecast_models", CommandError("x"))
-        with pytest.raises(CommandError, match="paso 5/6"):
+        with pytest.raises(CommandError, match="paso 6/7"):
             call_command("run_nightly_pipeline", verbosity=0)
 
     def test_tambien_corta_ante_un_error_inesperado(self, monkeypatch):
         """No solo CommandError: cualquier excepción del paso detiene todo."""
         self._falla_en(monkeypatch, "aggregate_daily_sales", ValueError("boom"))
-        with pytest.raises(CommandError, match="paso 1/6"):
+        with pytest.raises(CommandError, match="paso 1/7"):
             call_command("run_nightly_pipeline", verbosity=0)
 
 
@@ -175,4 +188,7 @@ class TestDejaRastro:
 
         monkeypatch.setattr(mod, "call_command", falso)
         call_command("run_nightly_pipeline", tenant=7, verbosity=0)
-        assert recibidos == [7] * 6
+        # Contra la cantidad real de pasos, no contra un numero escrito a mano:
+        # agregar un paso no deberia romper un test que habla del flag --tenant.
+        from forecast.management.commands.run_nightly_pipeline import PASOS
+        assert recibidos == [7] * len(PASOS)
