@@ -67,6 +67,17 @@ PASOS = [
     ("aggregate_daily_sales", {}),
     ("recalcular_minimos", {}),
     ("track_forecast_accuracy", {"days": 1}),
+    # Va DESPUES de medir y ANTES de entrenar (01/10/26). `track_forecast_accuracy`
+    # ya no escribe mediciones de dias en que el local no opero, pero las que
+    # quedaron escritas antes no se borran solas: el 26-sep-2026 metia 197
+    # registros de ficcion --prediccion contra cero, sin ninguna demanda real
+    # contra la que dividir-- e inflaba el WAPE del nucleo 2,3 puntos durante los
+    # 30 dias de la ventana. Eso lo lee el kept-path para decidir si conserva un
+    # modelo, y `recalibrate_confidence` para la etiqueta que se muestra.
+    #
+    # El comando existia desde el 04/08/26 y nunca se habia cableado: habia que
+    # acordarse de correrlo a mano, y nadie se acordo en dos meses.
+    ("purge_nonoperative_accuracy", {"apply": True}),
     ("compute_category_profiles", {}),
     ("train_forecast_models", {"horizon": 30}),
     ("generate_purchase_suggestions", {}),
