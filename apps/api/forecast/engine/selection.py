@@ -34,6 +34,29 @@ MASE_CROSTON_SPARSE_THRESHOLD = 1.2
 # MASE_OVERRIDE_MARGIN y de la competencia con el derivado.
 MARGEN_CAMBIO_ALGORITMO = 0.85
 
+# Periodo de gracia para un algoritmo RECIEN registrado (01/10/26).
+#
+# El margen de arriba existe para que dos opciones CONOCIDAS no se turnen noche a
+# noche. Un algoritmo que recien entra no tiene con que turnarse: no fue titular
+# de nada. Exigirle 15% sobre el titular para que se lo vea siquiera una vez lo
+# deja afuera aunque sea mejor, y entonces nunca junta evidencia para que lo
+# dejemos entrar. Es un circulo cerrado.
+#
+# Medido: `nivel_dia_semana` le gana el backtest a seasonal_naive en 4 de los 5
+# productos grandes (leche 48,0 -> 43,2, queso 78,5 -> 76,3, Chocolate Premium
+# 123,8 -> 102,3, jamon 80,1 -> 76,6) y aun asi, en 3 noches de sombra, solo
+# publica distinto en 3 a 6 productos: a la leche le gana por 10% y el margen
+# pide 15%.
+#
+# Esto NO afloja el margen en general: el titular sigue protegido contra todos
+# los demas. Y en cuanto el entrante gana y pasa a ser titular, el margen lo
+# protege a el, asi que el turnarse solo puede ocurrir en una direccion por noche.
+#
+# ES TEMPORAL. Se saca de esta lista en cuanto el algoritmo tenga noches medidas
+# en la sombra; si no, deja de ser un periodo de gracia y pasa a ser una
+# excepcion permanente escondida en una constante.
+ALGORITMOS_EN_GRACIA = frozenset({"nivel_dia_semana"})
+
 # F21.2 (18/06/26): cantidad de folds del walk-forward backtest. Antes 3 (solo
 # ~21 días testeados → el estimado oscilaba noche a noche por una sola semana
 # rara). Subido a 8 (~56 días) para un estimado más estable. El loop de cada
@@ -328,6 +351,11 @@ def choose_best(candidates, demand_pattern, prev_algorithm=None):
         return elegido
     titular = next((c for c in candidates if c["algorithm"] == prev_algorithm), None)
     if titular is None:
+        return elegido
+    # Un algoritmo recien registrado entra sin margen (ver ALGORITMOS_EN_GRACIA):
+    # ya gano la seleccion por la vara de todos, y el margen anti-parpadeo no
+    # tiene nada que estabilizar contra alguien que nunca fue titular.
+    if elegido["algorithm"] in ALGORITMOS_EN_GRACIA:
         return elegido
     if demand_pattern in ("intermittent", "lumpy"):
         if _fc_total(titular) <= COLLAPSE_FC_TOTAL < _fc_total(elegido):
