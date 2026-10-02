@@ -356,7 +356,12 @@ def test_el_dia_con_solo_mermas_sale_de_la_serie_de_entrenamiento(
             tenant=tenant, product=product, warehouse=warehouse,
             date=d, qty_sold=D("10"),
         )
+    # Un dia cualquiera de la historia que NO sea domingo: el domingo ya sale de
+    # la serie por `closed_dows`, asi que no probaria nada. Sin esto el test
+    # fallaba una vez por semana, el dia que el desfase caia en domingo.
     solo_mermas = hoy - datetime.timedelta(days=5)
+    while solo_mermas.weekday() == 6:
+        solo_mermas -= datetime.timedelta(days=1)
     DailySales.objects.filter(date=solo_mermas).delete()
     DailySales.objects.create(
         tenant=tenant, product=product_b, warehouse=warehouse, date=solo_mermas,
