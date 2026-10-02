@@ -69,10 +69,22 @@ class Command(BaseCommand):
                     self.stdout.write("    %-34s %10.1f unidades" % (
                         f["nombre"][:34], f["unidades"]))
 
+            # Productos que recien recibieron su primer pronostico y todavia no
+            # vendieron en un dia pronosticado: no hay nada que medir. Se
+            # informa, pero no es la alarma de los mudos (13/09/26).
+            nuevos = r.get("recien_pronosticados", [])
+            if nuevos:
+                self.stdout.write(
+                    "  recien pronosticados, todavia sin venta que medir: %d" % len(nuevos))
+                for f in nuevos[:5]:
+                    self.stdout.write("    %-34s %10.1f unidades" % (
+                        f["nombre"][:34], f["unidades"]))
+
             # Un producto puede tener pronostico desde hoy y aun asi no haber
             # sido puntuado en la ventana corta: es el que recien empieza.
             # Vale la pena verlo, pero no es la misma alarma.
-            ya_reportados = {c["product_id"] for c in ciegos} | {m["product_id"] for m in mudos}
+            ya_reportados = ({c["product_id"] for c in ciegos} | {m["product_id"] for m in mudos}
+                             | {n["product_id"] for n in nuevos})
             solo_sin_puntaje = [f for f in r["sin_puntaje"]
                                 if f["product_id"] not in ya_reportados]
             if solo_sin_puntaje:

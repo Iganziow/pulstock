@@ -35,11 +35,13 @@ def _vender(tenant, warehouse, product, dias, qty="100"):
         )
 
 
-def _modelo(tenant, warehouse, product):
+def _modelo(tenant, warehouse, product, hace_dias=60):
+    """Modelo activo entrenado hace `hace_dias`. Por defecto viejo: un producto
+    solo puede ser mudo si vendio despues de su primer pronostico."""
     return ForecastModel.objects.create(
         tenant=tenant, product=product, warehouse=warehouse,
         algorithm="simple_avg", version=1, is_active=True,
-        trained_at=datetime.datetime.now(datetime.timezone.utc),
+        trained_at=datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=hace_dias),
     )
 
 
@@ -203,6 +205,50 @@ class TestProductosMudos:
 
         with pytest.raises(RuntimeError, match="sin pronostico o sin medirse"):
             call_command("check_forecast_coverage", verbosity=0)
+
+    def test_el_producto_nuevo_que_vendio_antes_de_su_primer_pronostico_no_es_mudo(
+        self, tenant, warehouse, otro_producto,
+    ):
+        """El caso del 13/09/26: una venta, y recien despues el primer modelo.
+        No hay ningun dia puntuable; es 'recien pronosticado', no mudo."""
+        fm = _modelo(tenant, warehouse, otro_producto, hace_dias=0)
+        DailySales.objects.create(
+            tenant=tenant, product=otro_producto, warehouse=warehouse,
+            date=HOY - datetime.timedelta(days=3), qty_sold=D("3"),
+        )
+        _pronosticar(tenant, warehouse, otro_producto, fm)
+
+        r = find_coverage_gaps(tenant.id, today=HOY)
+        assert r["mudos"] == []
+        assert otro_producto.id in {n["product_id"] for n in r["recien_pronosticados"]}
+
+    def test_si_vendio_despues_de_su_primer_pronostico_si_es_mudo(
+        self, tenant, warehouse, otro_producto,
+    ):
+        """Tuvo un dia pronosticado con venta y nadie lo midio: esa es la falla."""
+        fm = _modelo(tenant, warehouse, otro_producto, hace_dias=5)
+        DailySales.objects.create(
+            tenant=tenant, product=otro_producto, warehouse=warehouse,
+            date=HOY - datetime.timedelta(days=2), qty_sold=D("3"),
+        )
+        _pronosticar(tenant, warehouse, otro_producto, fm)
+
+        r = find_coverage_gaps(tenant.id, today=HOY)
+        assert otro_producto.id in {m["product_id"] for m in r["mudos"]}
+        assert r["recien_pronosticados"] == []
+
+    def test_el_comando_no_falla_por_productos_recien_pronosticados(
+        self, tenant, warehouse, otro_producto,
+    ):
+        from django.core.management import call_command
+        fm = _modelo(tenant, warehouse, otro_producto, hace_dias=0)
+        DailySales.objects.create(
+            tenant=tenant, product=otro_producto, warehouse=warehouse,
+            date=HOY - datetime.timedelta(days=3), qty_sold=D("3"),
+        )
+        _pronosticar(tenant, warehouse, otro_producto, fm)
+
+        call_command("check_forecast_coverage", verbosity=0)
 
 
 @pytest.mark.django_db

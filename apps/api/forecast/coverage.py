@@ -68,9 +68,10 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
     ordenados por volumen vendido: el primero de la lista es el que más caro
     sale ignorar.
     """
-    from django.db.models import Sum
+    from django.db.models import Min, Sum
+    from django.utils import timezone
     from catalog.models import Product
-    from forecast.models import DailySales, Forecast, ForecastAccuracy
+    from forecast.models import DailySales, Forecast, ForecastAccuracy, ForecastModel
 
     hoy = today or date.today()
     desde = hoy - timedelta(days=days)
@@ -83,6 +84,7 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
     }
     if not vendidos:
         return {"con_ventas": 0, "ciegos": [], "mudos": [], "sin_puntaje": [],
+                "recien_pronosticados": [],
                 "ventana_dias": days, "ventana_mudos_dias": MUTE_WINDOW_DAYS,
                 "desde": desde, "hasta": hoy}
 
@@ -124,12 +126,44 @@ def find_coverage_gaps(tenant_id: int, days: int = COVERAGE_WINDOW_DAYS,
         .filter(tenant_id=tenant_id, product_id__in=vendidos, date__gte=desde_largo)
         .values_list("product_id", flat=True)
     )
-    mudos = _filas((set(vendidos) & con_pronostico) - medidos_largo)
+    sin_medir = (set(vendidos) & con_pronostico) - medidos_largo
+
+    # Pero solo es mudo el que tuvo algo que medir (13/09/26): una venta en o
+    # despues del dia de su primer pronostico. Un producto nuevo que vendio y
+    # recien despues recibio pronostico no tiene ningun dia puntuable, y la
+    # alarma lo daba por mudo: el chequeo quedo en rojo todas las noches por
+    # tres productos con UNA venta cada uno, anterior a su primer modelo
+    # (empanada camaron queso, Alfajor Caprichos, selladita mechada
+    # multigrano). Se mira el primer MODELO y no las filas de Forecast: las de
+    # fechas pasadas se purgan, y la falla original borraba justamente esas.
+    def _dia_local(momento):
+        return timezone.localtime(momento).date() if timezone.is_aware(momento) else momento.date()
+
+    primer_modelo = dict(
+        ForecastModel.objects
+        .filter(tenant_id=tenant_id, product_id__in=sin_medir)
+        .values("product_id").annotate(primero=Min("trained_at"))
+        .values_list("product_id", "primero")
+    )
+    medibles = set()
+    for pid, dia in (
+        DailySales.objects
+        .filter(tenant_id=tenant_id, product_id__in=sin_medir,
+                date__gte=desde_largo, date__lt=hoy, qty_sold__gt=0)
+        .values_list("product_id", "date")
+    ):
+        primero = primer_modelo.get(pid)
+        if primero is not None and dia >= _dia_local(primero):
+            medibles.add(pid)
+
+    mudos = _filas(sin_medir & medibles)
+    recien_pronosticados = _filas(sin_medir - medibles)
 
     return {
         "con_ventas": len(vendidos),
         "ciegos": ciegos,
         "mudos": mudos,
+        "recien_pronosticados": recien_pronosticados,
         "sin_puntaje": sin_puntaje,
         "ventana_dias": days,
         "ventana_mudos_dias": MUTE_WINDOW_DAYS,
