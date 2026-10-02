@@ -382,11 +382,18 @@ class Command(BaseCommand):
                 # ingrediente clampeado en 0 "abriria" con stock y quedaria
                 # marcado como stockout (y clean_series le interpolaria
                 # encima de la demanda ya recuperada en qty_sold).
-                qty_sold = consumed_map.get((product_id, warehouse_id))
-                if not qty_sold:
-                    qty_sold = sales_map.get((product_id, warehouse_id), {}).get(
-                        "qty_sold_direct", Decimal("0.000")
-                    )
+                #
+                # Solo lo que la venta MOVIO del stock de ESTE producto (13/09/26).
+                # Antes, sin movimiento se caia a la venta directa. Un latte no
+                # tiene stock propio (se descuentan sus ingredientes): su StockItem
+                # vive en 0, y la apertura "cierre + vendido" daba positiva
+                # cualquier dia que vendiera, asi que quedaba marcado como quiebre.
+                # Medido en produccion: 696 de 697 dias de venta de productos con
+                # receta, y 109 de productos que venden sin mover stock (el Te).
+                # Todas las metricas excluyen los dias de quiebre, asi que esos
+                # productos se median sin sus ventas. Si la venta no toco el
+                # stock, no pudo agotarlo.
+                movido = consumed_map.get((product_id, warehouse_id), Decimal("0.000"))
                 qty_lost = loss_map.get((product_id, warehouse_id), Decimal("0.000"))
                 qty_received = recv_map.get((product_id, warehouse_id), Decimal("0.000"))
 
@@ -396,7 +403,7 @@ class Command(BaseCommand):
                 # se agotó. Si abrió en 0 y no recibió (producto sin reponer,
                 # sin demanda), NO lo marcamos: evita el falso positivo que
                 # inflaría la demanda interpolada de productos de baja rotación.
-                opening = closing + qty_sold + qty_lost - qty_received
+                opening = closing + movido + qty_lost - qty_received
                 is_stockout = (closing <= Decimal("0.000")) and (
                     opening > Decimal("0.000") or qty_received > Decimal("0.000")
                 )

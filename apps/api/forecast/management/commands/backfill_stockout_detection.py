@@ -115,13 +115,17 @@ class Command(BaseCommand):
         # move_type (IN/OUT/ADJ, incluidos SALE_VOID/PURCHASE_VOID que son
         # IN/OUT) para reconstruir el saldo correctamente.
         delta_by_pw_day = defaultdict(lambda: defaultdict(lambda: ZERO))
+        entradas_by_pw_day = defaultdict(lambda: defaultdict(lambda: ZERO))
         moves = (
             StockMove.objects.filter(tenant=tenant, created_at__date__gte=start)
             .values_list("product_id", "warehouse_id", "move_type", "qty", "created_at")
         )
         for pid, wid, mtype, qty, created_at in moves.iterator():
             d = timezone.localtime(created_at).date() if timezone.is_aware(created_at) else created_at.date()
-            delta_by_pw_day[(pid, wid)][d] += _move_delta(mtype, qty)
+            delta = _move_delta(mtype, qty)
+            delta_by_pw_day[(pid, wid)][d] += delta
+            if delta > ZERO:
+                entradas_by_pw_day[(pid, wid)][d] += delta
 
         # DailySales del rango (solo reales, no forecast_only) indexados por (p,w)
         ds_rows = DailySales.objects.filter(
@@ -150,11 +154,14 @@ class Command(BaseCommand):
             if closing is None:
                 continue
 
-            qty_sold = ds.qty_sold or ZERO
-            qty_lost = ds.qty_lost or ZERO
-            qty_received = ds.qty_received or ZERO
-            opening = closing + qty_sold + qty_lost - qty_received
-            is_stockout = (closing <= ZERO) and (opening > ZERO or qty_received > ZERO)
+            # La apertura sale del kardex, no de lo vendido (13/09/26): un
+            # producto que vende sin mover su propio stock (con receta, o sin
+            # control de stock) abria "con stock" cualquier dia que vendiera y
+            # quedaba marcado como quiebre. Ver aggregate_daily_sales.
+            delta = delta_by_pw_day.get(key, {}).get(ds.date, ZERO)
+            entradas = entradas_by_pw_day.get(key, {}).get(ds.date, ZERO)
+            opening = closing - delta
+            is_stockout = (closing <= ZERO) and (opening > ZERO or entradas > ZERO)
 
             updates.append((ds.id, closing.quantize(Decimal("0.001")), is_stockout))
             res["rows"] += 1
