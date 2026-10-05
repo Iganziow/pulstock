@@ -55,7 +55,18 @@ MARGEN_CAMBIO_ALGORITMO = 0.85
 # ES TEMPORAL. Se saca de esta lista en cuanto el algoritmo tenga noches medidas
 # en la sombra; si no, deja de ser un periodo de gracia y pasa a ser una
 # excepcion permanente escondida en una constante.
-ALGORITMOS_EN_GRACIA = frozenset({"nivel_dia_semana"})
+#
+# VEREDICTO (05/10/26): `nivel_dia_semana` se saco. Siete noches fieles de sombra
+# y nunca estuvo adelante -- total 46,2% prod contra 46,5% candidato, nucleo
+# 42,0% contra 42,3%, consistente las siete. Le ganaba el backtest a
+# seasonal_naive en 4 de 5 productos grandes y aun asi, con la gracia puesta,
+# solo se llevo 5 modelos de 199 y empeoro el agregado. El backtest no predijo
+# el resultado fuera de muestra: queda anotado para el proximo candidato.
+#
+# La lista queda VACIA a proposito, con el mecanismo en pie: el proximo algoritmo
+# nuevo lo necesita para que el margen anti-parpadeo no lo deje afuera antes de
+# poder medirlo. Agregar un nombre aca obliga a retirarlo cuando tenga noches.
+ALGORITMOS_EN_GRACIA = frozenset()
 
 # F21.2 (18/06/26): cantidad de folds del walk-forward backtest. Antes 3 (solo
 # ~21 días testeados → el estimado oscilaba noche a noche por una sola semana
