@@ -63,8 +63,15 @@ def nivel(demandas):
     return sum((_dec(d) for d in demandas), D0) / len(demandas)
 
 
-def mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows, peso_modelo=PESO_MODELO):
+def mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows, peso_modelo=PESO_MODELO,
+                      factores_nivel=None):
     """Mezcla en el lugar cada dia del pronostico con el nivel.
+
+    `factores_nivel` ({fecha: multiplicador}) escala el nivel de esos dias. Lo
+    usa el derivado de receta: su modelo ya trae el feriado de sus bebidas y el
+    nivel no, asi que el feriado se le aplica al nivel aca y a nada mas despues
+    (ver save_forecasts). Sin el, el nivel de un derivado no recibiria ningun
+    feriado y el del organico si.
 
     En un dia de semana cerrado del negocio el objetivo es 0, no el nivel: la
     mascara de dias cerrados de `save_forecasts` despues pone ese dia en 0 y
@@ -78,7 +85,10 @@ def mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows, peso_modelo=PE
     nivel_diario = _dec(nivel_diario)
     for fc in daily_forecasts:
         pred = _dec(fc["qty_predicted"])
-        objetivo = D0 if fc["date"].weekday() in (closed_dows or ()) else nivel_diario
+        if fc["date"].weekday() in (closed_dows or ()):
+            objetivo = D0
+        else:
+            objetivo = nivel_diario * _dec((factores_nivel or {}).get(fc["date"], 1))
         nuevo = (peso * pred + (1 - peso) * objetivo).quantize(Q, rounding=ROUND_HALF_UP)
         delta = nuevo - pred
         piso = _dec(fc.get("lower_bound", pred)) + delta

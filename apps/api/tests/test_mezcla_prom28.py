@@ -311,3 +311,38 @@ def test_llega_a_la_tabla_por_el_entrenamiento_real_dos_noches(
         assert fm.demand_pattern == "smooth", "precondicion: la serie es smooth"
         assert fm.model_params.get("mezcla_prom28", {}).get("nivel") == 40.0, (
             "noche %d: el nivel no llego (%s)" % (noche, fm.model_params))
+
+
+@pytest.mark.django_db
+class TestConFeriado:
+    """El feriado va UNA vez a las dos partes de la mezcla. En un organico se
+    aplica despues, sobre lo mezclado. En un derivado de receta su modelo ya lo
+    trae de las bebidas (ver test_feriado_derivado), asi que se le aplica solo
+    al nivel."""
+
+    def _caso(self, tenant, warehouse, product, algoritmo):
+        from forecast.models import Holiday
+        _historia(tenant, product, warehouse, lambda i: 40)            # nivel 40
+        h = _proximo(2)                                                 # un miercoles
+        Holiday.objects.create(tenant=None, name="Feriado de prueba", date=h,
+                               demand_multiplier=D("0.50"), pre_days=0,
+                               pre_multiplier=D("1"), ramp_type="instant")
+        fm = ForecastModel.objects.create(
+            tenant=tenant, product=product, warehouse=warehouse, algorithm=algoritmo,
+            demand_pattern="smooth", is_active=True, model_params={}, metrics={})
+        normal = h + datetime.timedelta(days=1)                         # jueves
+        services.save_forecasts(tenant, product, warehouse.id, fm,
+                                [_dia(h), _dia(normal)], D("70"), {})
+        pub = {f.forecast_date: f.qty_predicted for f in _publicado(product)}
+        return pub[h], pub[normal]
+
+    def test_organico_el_feriado_sobre_lo_mezclado(self, tenant, store, warehouse, product):
+        en_feriado, normal = self._caso(tenant, warehouse, product, "theta")
+        assert normal == D("32.500")                                    # 2,5 + 30
+        assert en_feriado == D("16.250")                                # (2,5 + 30) x 0,5
+
+    def test_derivado_el_feriado_solo_al_nivel(self, tenant, store, warehouse, product):
+        en_feriado, normal = self._caso(tenant, warehouse, product, "ingredient_derived")
+        assert normal == D("32.500")
+        assert en_feriado == D("17.500"), (
+            "el modelo del derivado ya trae el feriado: 0,25 x 10 + 0,75 x 40 x 0,5")

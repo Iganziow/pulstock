@@ -1452,6 +1452,21 @@ def nivel_para_mezcla(tenant, product, warehouse_id, today, closed_dows):
     return nivel_promedio(demandas)
 
 
+def _factores_de_feriado(tenant, daily_forecasts):
+    """{fecha: multiplicador} del feriado para los dias del pronostico, con la
+    misma regla que save_forecasts (rampa previa, tipo de negocio, lo aprendido):
+    se calcula pasando un pronostico de unos por apply_holiday_adjustments."""
+    holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
+    if not holidays:
+        return {}
+    unos = [{"date": f["date"], "qty_predicted": Decimal("1"),
+             "lower_bound": Decimal("1"), "upper_bound": Decimal("1")} for f in daily_forecasts]
+    btype = getattr(tenant, "business_type", None) or None
+    apply_holiday_adjustments(unos, holidays, business_type=btype)
+    return {f["date"]: Decimal(str(f["qty_predicted"])) for f in unos
+            if Decimal(str(f["qty_predicted"])) != Decimal("1")}
+
+
 def _guardar_param(fm, clave, valor):
     """Escribe (o saca, con None) una clave de `model_params`, y guarda solo si
     cambio."""
@@ -1495,7 +1510,14 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     if fm.demand_pattern == "smooth" and not os.environ.get("FORECAST_MEZCLA_OFF"):
         nivel_diario = nivel_para_mezcla(tenant, product, warehouse_id, date.today(), closed_dows)
         if nivel_diario is not None:
-            mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows)
+            # El feriado va UNA vez a las dos partes (08/10/26). En un organico
+            # se aplica despues, sobre lo mezclado. En un derivado no: su modelo
+            # ya lo trae de las bebidas y el bloque de feriados de abajo lo
+            # salta, asi que al nivel se le aplica aca.
+            factores = (_factores_de_feriado(tenant, daily_forecasts)
+                        if fm.algorithm == "ingredient_derived" else None)
+            mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows,
+                              factores_nivel=factores)
             mezcla = {"peso_modelo": float(PESO_MODELO_MEZCLA),
                       "nivel": round(float(nivel_diario), 3)}
     _guardar_param(fm, "mezcla_prom28", mezcla)
