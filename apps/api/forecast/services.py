@@ -1501,10 +1501,22 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     _guardar_param(fm, "mezcla_prom28", mezcla)
 
     # Apply holiday multipliers before saving (business_type-aware)
-    holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
-    if holidays:
-        btype = getattr(tenant, "business_type", None) or None
-        apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
+    #
+    # Salvo a los derivados de receta (08/10/26). Su pronostico se arma con lo
+    # PUBLICADO por sus bebidas (train_ingredient_product lee sus filas de
+    # Forecast), y esas filas ya pasaron por aca: ya traen el feriado. Aplicarlo
+    # de nuevo al ingrediente lo contaba dos veces. Medido en produccion: el
+    # lunes 12-oct (x0,8) las bebidas de la leche deslactosada sumaban 119 y se
+    # publicaba (119 + 43) x 0,8 = 130, y la rampa de Fiestas Patrias (x1,7 el
+    # 17-sep) quedaba en x2,89. Del 7-sep al 4-oct, los tres derivados del
+    # nucleo publicaron con 73% de error semanal contra 35% de la suma cruda de
+    # sus bebidas. Es el mismo criterio que la correccion de sesgo de abajo,
+    # que ya dejaba fuera al derivado por la misma razon.
+    if fm.algorithm != "ingredient_derived":
+        holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
+        if holidays:
+            btype = getattr(tenant, "business_type", None) or None
+            apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
 
     # Días cerrados del negocio. Va acá y no dentro de cada algoritmo porque
     # este es el ÚNICO punto por el que pasan todos: hoy sólo adaptive_ma y
