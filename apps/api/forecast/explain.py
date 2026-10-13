@@ -122,7 +122,18 @@ def _base(fm, unidad: str) -> str:
 
 def _dia_de_semana(fm, unidad: str) -> str | None:
     """Lo que el modelo aprendió sobre cada día — suele ser lo que más
-    sorprende al dueño, porque confirma algo que intuía."""
+    sorprende al dueño, porque confirma algo que intuía.
+
+    Solo para el derivado de receta (13/10/26): es el único que PUBLICA esta
+    corrección. En los orgánicos se calculaba y `_regen_from_existing` la pisaba
+    (ya no se calcula), así que decir "ya lo tiene incorporado" era falso.
+
+    El signo: lo guardado es la media del error (predicho - real) amortiguada, y
+    `apply_bias_correction` lo RESTA del pronóstico. Positivo = el modelo se venía
+    pasando ese día = ese día se vende MENOS. Hasta el 13/10/26 se decía al revés.
+    """
+    if fm.algorithm != "ingredient_derived":
+        return None
     corr = ((fm.model_params or {}).get("bias_correction") or {}).get("dow") or {}
     if not corr:
         return None
@@ -132,13 +143,13 @@ def _dia_de_semana(fm, unidad: str) -> str | None:
         d = float(delta or 0)
         if abs(d) < 1:
             continue
-        verbo = "se vende más" if d > 0 else "se vende menos"
+        verbo = "se vende menos" if d > 0 else "se vende más"
         piezas.append(f"{DIAS.get(str(dia), 'ese día')} {verbo} ({_num(abs(d))} {unidad})")
     if not piezas:
         return None
     return (
         "Comparando lo que predijo contra lo que realmente pasó, el sistema "
-        "aprendió que " + " y ".join(piezas) + " de lo que diría el promedio, "
+        "aprendió que " + " y ".join(piezas) + " de lo que suman sus recetas, "
         "y ya lo tiene incorporado."
     )
 

@@ -97,10 +97,8 @@ from forecast.engine import (
     category_prior_forecast, apply_holiday_adjustments,
     clean_series, classify_demand_pattern, detect_closed_weekdays,
     compute_month_position_factors, detect_trend,
-    apply_trend_adjustment, apply_bias_correction,
-    apply_empirical_intervals, detect_price_change_impact,
-    compute_monthly_seasonality, compute_bimodal_seasonality, apply_monthly_seasonality,
-    compute_yoy_growth, apply_yoy_adjustment,
+    apply_bias_correction, apply_empirical_intervals,
+    compute_monthly_seasonality, compute_bimodal_seasonality,
     compute_confidence_decay, _q3,
 )
 
@@ -2020,76 +2018,41 @@ def train_product_model(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
-    # Month-position (payday) adjustment for algorithms that don't use month_factors natively
-    # (HW, Theta, ETS, Croston — WMA/Adaptive already apply month_factors in generate_daily_forecasts)
-    if month_factors and best["algorithm"] not in ("moving_avg", "adaptive_ma") and best["forecasts"]:
-        from forecast.engine import _get_month_bucket
-        for fc in best["forecasts"]:
-            bucket = _get_month_bucket(fc["date"].day)
-            mf = Decimal(str(month_factors.get(bucket, 1.0)))
-            if mf != 1:
-                fc["qty_predicted"] = (fc["qty_predicted"] * mf).quantize(Decimal("0.001"))
-                fc["lower_bound"] = max(Decimal("0"), (fc["lower_bound"] * mf).quantize(Decimal("0.001")))
-                fc["upper_bound"] = (fc["upper_bound"] * mf).quantize(Decimal("0.001"))
-
-    # Trend detection + adjustment
+    # Post-procesos retirados (13/10/26). Aca se aplicaban a best["forecasts"]
+    # seis ajustes: factores de quincena, tendencia, correccion de sesgo por
+    # dia de semana, estacionalidad mensual, crecimiento año contra año y
+    # elasticidad de precio. Ninguno llegaba a la tabla: al final de esta
+    # funcion `_regen_from_existing` re-ejecuta el algoritmo crudo y pisa las
+    # filas, la noche del entrenamiento fresco igual que las de conservacion.
+    # Verificado en produccion la noche del 13-oct: 62 modelos entrenados en
+    # fresco, los 62 con esos ajustes guardados en params, y lo publicado igual
+    # al algoritmo crudo. Eran calculo muerto, y ademas engañaban: quien leia
+    # params creia que se aplicaban (paso con el año contra año del Chocolate
+    # Premium, que habria contado dos veces una caida que el nivel ya trae).
+    #
+    # Se siguen calculando y guardando la tendencia y la estacionalidad mensual
+    # porque la app las muestra como DESCRIPCION de la historia ("las ventas
+    # vienen subiendo", "vendes 30% mas en diciembre"; InsightsSection.tsx),
+    # no como algo aplicado al pronostico. El resto no se mostraba en ninguna
+    # pantalla. La correccion de sesgo que si se publica es la de
+    # save_forecasts (factor_de_sesgo), y la de los derivados de receta.
+    #
+    # Si alguno de estos ajustes vuelve, tiene que llegar a la tabla y pasar
+    # antes por la sombra: el año contra año, por ejemplo, descontaria dos
+    # veces lo que el nivel del algoritmo ya aprendio de la serie reciente.
     trend = detect_trend(cleaned)
-    if trend and best["forecasts"]:
-        avg_daily = Decimal(best["params"].get("avg_daily", "0"))
-        apply_trend_adjustment(best["forecasts"], trend, avg_daily)
+    if trend:
         best["params"]["trend"] = trend
 
-    # Bias correction from recent accuracy
-    recent_acc = list(
-        ForecastAccuracy.objects.filter(
-            tenant=tenant, product=product, warehouse_id=warehouse_id,
-            date__gte=today - timedelta(days=14),
-        ).values("date", "error", "was_stockout")
-    )
-    if recent_acc and best["forecasts"]:
-        avg_daily = Decimal(best["params"].get("avg_daily", "0"))
-        correction = apply_bias_correction(best["forecasts"], recent_acc, avg_daily)
-        if correction:
-            best["params"]["bias_correction"] = correction
-
-    # Monthly seasonality (180+ days) — try bimodal first, then standard, then business prior
     monthly_season = compute_bimodal_seasonality(cleaned) or compute_monthly_seasonality(cleaned)
-    # Fallback: use business-type seasonal prior for hardware (construction seasonality)
     if monthly_season is None:
         from forecast.management.commands.train_forecast_models import Command as TrainCmd
         btype = getattr(tenant, "business_type", "other") or "other"
         profile = TrainCmd.BUSINESS_PROFILES.get(btype, {})
         if profile.get("seasonal_prior"):
             monthly_season = profile["seasonal_prior"]
-    if monthly_season and best["forecasts"]:
-        apply_monthly_seasonality(best["forecasts"], monthly_season)
+    if monthly_season:
         best["params"]["monthly_seasonality"] = monthly_season
-
-    # Year-over-year growth (365+ days)
-    yoy = compute_yoy_growth(cleaned)
-    if yoy and best["forecasts"]:
-        apply_yoy_adjustment(best["forecasts"], yoy)
-        best["params"]["yoy_growth"] = yoy
-
-    # Price elasticity — detect and apply demand adjustment for recent price changes
-    revenue_series = list(ds_qs.values_list("date", "revenue"))
-    price_info = detect_price_change_impact(raw_series, revenue_series)
-    if price_info and price_info["is_price_sensitive"]:
-        best["params"]["price_sensitivity"] = price_info
-        # Apply elasticity: if most recent event is within last 14 days, adjust forecasts
-        if price_info["events"] and best["forecasts"]:
-            last_event = price_info["events"][-1]
-            event_date = date.fromisoformat(last_event["date"]) if isinstance(last_event["date"], str) else last_event["date"]
-            if (today - event_date).days <= 14:
-                demand_change = last_event["demand_change_pct"] / 100  # e.g. -0.20
-                # Apply 50%-damped adjustment to avoid overreaction
-                adj_factor = 1 + (demand_change * 0.5)
-                adj_factor = max(0.5, min(1.5, adj_factor))  # clamp
-                for f in best["forecasts"]:
-                    f["qty_predicted"] = _q3(f["qty_predicted"] * Decimal(str(adj_factor)))
-                    f["lower_bound"] = max(D0, _q3(f["lower_bound"] * Decimal(str(adj_factor))))
-                    f["upper_bound"] = _q3(f["upper_bound"] * Decimal(str(adj_factor)))
-                best["params"]["price_elasticity_applied"] = round(adj_factor, 3)
 
     # Circuit breaker anti-colapso (Mario 31/05/26): rescata el forecast si
     # colapsó a ~0 teniendo demanda real reciente alta (ver _collapse_guard).

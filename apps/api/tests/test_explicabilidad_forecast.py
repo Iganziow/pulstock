@@ -78,20 +78,36 @@ class TestLoQueElModeloAprendio:
         self, tenant, warehouse, product,
     ):
         """Suele ser lo que más sorprende al dueño porque le confirma algo que
-        intuía. Si dice 'más' cuando el modelo resta, destruye la confianza."""
+        intuía. Si dice 'más' cuando el modelo resta, destruye la confianza.
+
+        Lo guardado es el error (predicho - real) amortiguado y se RESTA:
+        +123,4 el lunes = el modelo se pasaba los lunes = el lunes se vende
+        MENOS. Hasta el 13/10/26 este test fijaba la direccion al reves."""
+        fm = _modelo(tenant, warehouse, product, "ingredient_derived", {
+            "avg_daily": "100",
+            "bias_correction": {"dow": {"0": 123.4, "3": -139.9}, "global": 0},
+        })
+        texto = " ".join(explicar_modelo(fm, unidad="ml")["detalles"])
+        assert "los lunes se vende menos" in texto, texto
+        assert "los jueves se vende más" in texto, texto
+
+    def test_el_organico_no_cita_una_correccion_que_no_publica(
+        self, tenant, warehouse, product,
+    ):
+        """En los organicos esa correccion nunca llego a la tabla (la pisaba el
+        regenerado): decir 'ya lo tiene incorporado' era falso."""
         fm = _modelo(tenant, warehouse, product, "simple_avg", {
             "avg_daily": "100",
             "bias_correction": {"dow": {"0": 123.4, "3": -139.9}, "global": 0},
         })
         texto = " ".join(explicar_modelo(fm, unidad="ml")["detalles"])
-        assert "los jueves se vende menos" in texto, texto
-        assert "los lunes se vende más" in texto, texto
+        assert "se vende m" not in texto, texto
 
     def test_ignora_correcciones_insignificantes(
         self, tenant, warehouse, product,
     ):
         """Decir 'los martes se vende 0 más' es ruido que resta credibilidad."""
-        fm = _modelo(tenant, warehouse, product, "simple_avg", {
+        fm = _modelo(tenant, warehouse, product, "ingredient_derived", {
             "avg_daily": "100",
             "bias_correction": {"dow": {"1": 0.2, "2": -0.4}, "global": 0},
         })
