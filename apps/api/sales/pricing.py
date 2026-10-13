@@ -68,6 +68,7 @@ def build_sale_lines(
         dv = agg[pid].get("discount_value", Decimal("0"))
         line_discount = Decimal("0")
         original_up = None
+        promo_aplicada = False
 
         if dt == "pct" and dv > 0:
             line_discount = (gross_line_total * dv / Decimal("100")).quantize(Decimal("1"))
@@ -102,13 +103,23 @@ def build_sale_lines(
                 # line_discount se queda en 0 — el descuento ya está
                 # reflejado en unit_price reducido.
             else:
-                # Cliente respetó el promo (unit_price <= promo_price).
-                # Calculamos el line_discount como "diferencia con
-                # precio lleno" para auditoría.
+                # Cliente respetó el promo (unit_price <= promo_price): es lo
+                # NORMAL -- el POS manda el precio promo (pos/page.tsx) y las
+                # mesas guardan la linea a precio promo y la pasan tal cual.
+                #
+                # FIX 13/10/26 -- PROMOCION DESCONTADA DOS VECES. Aca se
+                # calculaba line_discount = (precio lleno - precio promo) x qty
+                # y se RESTABA del gross, que ya estaba a precio promo: un
+                # producto de $1.000 con 30% quedaba en $400 en vez de $700, y
+                # el ultimo pago se recortaba a $400 aunque el cliente pago $700.
+                # Medido en produccion: 2 de las 3 lineas con promo de la
+                # historia (29-may y 24-sep), $2.480 registrados de menos.
+                #
+                # Ahora igual que la rama de arriba: el unit_price ya ES el de
+                # promo, no hay nada que restar, y el precio lleno queda en
+                # original_up para la boleta ("antes $1.000, hoy $700").
                 original_up = full_price
-                line_discount = ((original_up - unit_price) * qty).quantize(Decimal("1"))
-                if line_discount < 0:
-                    line_discount = Decimal("0")
+            promo_aplicada = True
 
         line_promo_id = agg[pid].get("promotion_id")
 
@@ -160,8 +171,10 @@ def build_sale_lines(
         if original_up is not None:
             sl_kwargs["original_unit_price"] = original_up
 
-        # Promo FK
-        if pid in promo_map and line_discount > 0 and not line_promo_id:
+        # Promo FK. Antes solo se vinculaba si habia line_discount > 0, y
+        # cuando el backend forzaba el precio promo (line_discount = 0) la
+        # linea quedaba sin su promocion (13/10/26).
+        if pid in promo_map and (promo_aplicada or line_discount > 0) and not line_promo_id:
             sl_kwargs["promotion"] = promo_map[pid][0]
         elif line_promo_id:
             try:
