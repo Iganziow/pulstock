@@ -1316,20 +1316,142 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
             por_fecha[h.date] = h
     elegidos = list(por_fecha.values())
 
-    # LO APRENDIDO ES DE CADA NEGOCIO (08/09/26). Antes se guardaba en
-    # `Holiday.learned_multiplier`, o sea sobre la fila compartida: las ventas
-    # de un cliente fijaban el multiplicador de todos, y con el 60% del peso
-    # al mezclarse con lo configurado. Ahora vive en HolidayLearning y se pega
-    # aca EN MEMORIA, sin guardar, para no cambiarle la firma a
-    # apply_holiday_adjustments.
-    from forecast.models import HolidayLearning
-    aprendido = dict(
-        HolidayLearning.objects.filter(tenant=tenant, holiday__in=elegidos)
-        .values_list("holiday_id", "learned_multiplier")
-    )
+    # LO APRENDIDO ES DE CADA NEGOCIO, y se busca POR NOMBRE (19/10/26). Se
+    # pega EN MEMORIA, sin guardar: la fila del calendario es compartida.
+    # Antes se leia HolidayLearning, que se guarda por fila FECHADA: lo
+    # aprendido en Asuncion 2025 no se usaba para Asuncion 2026, y un feriado
+    # futuro se pronosticaba siempre con la configuracion global. Ver
+    # `multiplicador_aprendido`.
+    hoy = date.today()
+    btype = getattr(tenant, "business_type", None) or None
     for h in elegidos:
-        h.learned_multiplier = aprendido.get(h.id)
+        aprendido = multiplicador_aprendido(tenant, h.name, hoy)
+        if aprendido is None:
+            aprendido = multiplicador_del_grupo(tenant, _multiplicador_configurado(h, btype), hoy)
+        h.learned_multiplier = aprendido
     return elegidos
+
+
+# ── Feriados aprendidos por nombre ───────────────────────────────────────────
+
+FERIADO_SEMANAS_BASE = 4
+FERIADO_MULT_MAX = 3.0
+_INGRESO_DIARIO_CACHE: dict = {}
+_FERIADO_APRENDIDO_CACHE: dict = {}
+
+
+def _ingreso_diario(tenant_id, hasta):
+    """{fecha: sum(unidades vendidas x precio)} del negocio, hasta `hasta`.
+
+    Es la vara del multiplicador del feriado. Hace falta una sola cifra por dia
+    para todo el local, y sumar unidades mezcla gramos, mililitros y unidades.
+    El precio las pone en la misma moneda, y los ingredientes (precio 0) quedan
+    fuera solos: su consumo ya viaja dentro de las bebidas. Sale de
+    DailySales y no de Sale porque el historico importado (Fudo) solo existe
+    ahi.
+    """
+    key = (tenant_id, hasta)
+    if key not in _INGRESO_DIARIO_CACHE:
+        filas = (
+            DailySales.objects.filter(tenant_id=tenant_id, date__lte=hasta, qty_sold__gt=0)
+            .values("date")
+            .annotate(v=Sum(db_models.ExpressionWrapper(
+                db_models.F("qty_sold") * db_models.F("product__price"),
+                output_field=db_models.DecimalField(max_digits=20, decimal_places=3))))
+        )
+        _INGRESO_DIARIO_CACHE[key] = {r["date"]: float(r["v"] or 0) for r in filas}
+    return _INGRESO_DIARIO_CACHE[key]
+
+
+def multiplicador_aprendido(tenant, nombre, hoy):
+    """Cuanto vendio ESTE negocio la ultima vez que paso un feriado con este
+    nombre, contra ese mismo dia de la semana en las 4 semanas anteriores
+    (sin feriados). 0 si cerro; None si nunca lo vivio.
+
+    Medido en Marbrava (19/10/26), aprendiendo de 2025 y midiendo los feriados
+    de 2026: los nacionales cierra (configurado 0,75-0,8) y los comerciales
+    estan inflados (Halloween x1,4 configurado, x0,41 real).
+
+    Se saltan las veces que el feriado cayo en una semana sin ninguna venta
+    alrededor (+-3 dias, vacaciones): ahi no se aprende que el feriado cierra.
+    """
+    key = (tenant.id, nombre, hoy)
+    if key not in _FERIADO_APRENDIDO_CACHE:
+        resultado = None
+        for d, ratio in _feriados_vividos(tenant, hoy):
+            if d[1] == nombre:
+                resultado = Decimal(str(round(min(ratio, FERIADO_MULT_MAX), 2)))
+                break
+        _FERIADO_APRENDIDO_CACHE[key] = resultado
+    return _FERIADO_APRENDIDO_CACHE[key]
+
+
+def _feriados_vividos(tenant, hoy):
+    """[((fecha, nombre, configurado), cuanto vendio contra lo normal)] de los
+    feriados que este negocio ya vivio, del mas reciente al mas viejo.
+
+    "Lo normal" es ese mismo dia de la semana en las 4 semanas anteriores que
+    abrio, sin feriados. Se saltan los feriados sin base (un dia de la semana
+    que el local no abre: el domingo de Marbrava no dice nada) y los que
+    cayeron en una semana sin ninguna venta alrededor (vacaciones).
+    """
+    key = ("vividos", tenant.id, hoy)
+    if key in _FERIADO_APRENDIDO_CACHE:
+        return _FERIADO_APRENDIDO_CACHE[key]
+    from forecast.models import Holiday
+
+    ayer = hoy - timedelta(days=1)
+    ingreso = _ingreso_diario(tenant.id, ayer)
+    vividos = []
+    if ingreso:
+        primero = min(ingreso)
+        btype = getattr(tenant, "business_type", None) or None
+        calendario = list(Holiday.objects.filter(
+            Q(tenant=tenant) | Q(tenant__isnull=True), date__lte=ayer))
+        feriados = {h.date for h in calendario}
+        for h in sorted(calendario, key=lambda h: h.date, reverse=True):
+            d = h.date
+            if d < primero:
+                break
+            if not any(d + timedelta(days=k) in ingreso for k in (-3, -2, -1, 1, 2, 3)):
+                continue
+            base, x = [], d - timedelta(days=7)
+            while len(base) < FERIADO_SEMANAS_BASE and x >= max(primero, d - timedelta(weeks=10)):
+                if x in ingreso and x not in feriados:
+                    base.append(ingreso[x])
+                x -= timedelta(days=7)
+            if len(base) < 2 or sum(base) <= 0:
+                continue
+            vividos.append(((d, h.name, _multiplicador_configurado(h, btype)),
+                            ingreso.get(d, 0.0) / (sum(base) / len(base))))
+    _FERIADO_APRENDIDO_CACHE[key] = vividos
+    return vividos
+
+
+def _multiplicador_configurado(h, btype):
+    biz = h.business_multipliers or {}
+    return float(biz[btype]) if btype and btype in biz else float(h.demand_multiplier)
+
+
+def multiplicador_del_grupo(tenant, configurado, hoy):
+    """Para un feriado que el negocio nunca vivio: la mediana de lo que vivio
+    en los feriados del MISMO grupo, si tiene al menos 2.
+
+    El grupo se lee de lo configurado. Debajo de 1 es un feriado legal (el
+    local suele cerrar o vender menos); arriba de 1 es una fecha comercial
+    (Halloween, Black Friday), y esas no tienen grupo: cada una es la suya.
+    Medido en Marbrava: San Pedro y el 12 de octubre 2025 cayeron en domingo,
+    asi que en 2026 no tenian historia propia y quedaban en el x0,8 configurado;
+    el local cerro los dos.
+    """
+    if configurado >= 1:
+        return None
+    ratios = sorted(r for (d, _n, conf), r in _feriados_vividos(tenant, hoy) if conf < 1)
+    if len(ratios) < 2:
+        return None
+    m = len(ratios) // 2
+    mediana = ratios[m] if len(ratios) % 2 else (ratios[m - 1] + ratios[m]) / 2
+    return Decimal(str(round(min(mediana, FERIADO_MULT_MAX), 2)))
 
 
 def _precision_medida(metrics):
@@ -1393,11 +1515,13 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # nucleo publicaron con 73% de error semanal contra 35% de la suma cruda de
     # sus bebidas. Es el mismo criterio que la correccion de sesgo de abajo,
     # que ya dejaba fuera al derivado por la misma razon.
+    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     if fm.algorithm != "ingredient_derived":
         holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
         if holidays:
             btype = getattr(tenant, "business_type", None) or None
-            apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
+            apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype,
+                                      closed_dows=closed_dows)
 
     # Días cerrados del negocio. Va acá y no dentro de cada algoritmo porque
     # este es el ÚNICO punto por el que pasan todos: hoy sólo adaptive_ma y
@@ -1405,7 +1529,6 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # (ingredient_derived, theta, croston) pronosticaban demanda para días con
     # el local cerrado. Antes de calculate_days_to_stockout, para que la
     # proyección de stock tampoco descuente consumo en esos días.
-    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     _apply_closed_weekdays(daily_forecasts, closed_dows)
 
     # Correccion de sesgo del punto (07/09/26). Va ANTES de la calibracion de

@@ -29,10 +29,14 @@ def _limpiar_caches_de_forecast():
     _svc._CLOSED_DOW_CACHE.clear()
     _svc._STOPPED_CACHE.clear()
     _svc._FECHAS_OPERADAS_CACHE.clear()
+    _svc._INGRESO_DIARIO_CACHE.clear()
+    _svc._FERIADO_APRENDIDO_CACHE.clear()
     yield
     _svc._CLOSED_DOW_CACHE.clear()
     _svc._STOPPED_CACHE.clear()
     _svc._FECHAS_OPERADAS_CACHE.clear()
+    _svc._INGRESO_DIARIO_CACHE.clear()
+    _svc._FERIADO_APRENDIDO_CACHE.clear()
 
 
 @pytest.fixture

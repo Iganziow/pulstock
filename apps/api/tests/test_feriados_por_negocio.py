@@ -31,6 +31,7 @@ from django.core.management import call_command
 from core.models import Tenant, Warehouse
 from stores.models import Store
 from forecast import services
+from catalog.models import Product
 from forecast.models import DailySales, Holiday, HolidayLearning
 
 D = Decimal
@@ -53,6 +54,27 @@ def _feriado_nacional(fecha=None, nombre="Fiestas Patrias"):
         tenant=None, name=nombre, date=fecha or AYER,
         demand_multiplier=D("1.50"), pre_days=1, pre_multiplier=D("1.20"),
     )
+
+
+def _dia_habil_hace(dias):
+    """Una fecha de hace ~`dias` que no cae en domingo."""
+    d = HOY - datetime.timedelta(days=dias)
+    while d.weekday() == 6:
+        d -= datetime.timedelta(days=1)
+    return d
+
+
+def _vender_alrededor(tenant, warehouse, product, fecha, ese_dia, normal=10):
+    """Cinco semanas de venta normal antes de `fecha` y una despues; `fecha`
+    vende `ese_dia` (0 = cerrado). Domingos cerrados."""
+    for i in range(-35, 8):
+        d = fecha + datetime.timedelta(days=i)
+        if d.weekday() == 6:
+            continue
+        q = ese_dia if i == 0 else normal
+        if q:
+            DailySales.objects.create(tenant=tenant, product=product, warehouse=warehouse,
+                                      date=d, qty_sold=D(str(q)))
 
 
 def _pronosticos(desde, n=3):
@@ -100,36 +122,47 @@ class TestLoAprendidoEsDeCadaNegocio:
         self, tenant, store, warehouse, product, otro_negocio,
     ):
         """El corazon del hallazgo: dos negocios, el mismo feriado nacional,
-        multiplicadores distintos y ninguno contamina al otro."""
-        feriado = _feriado_nacional(fecha=HOY + datetime.timedelta(days=2))
-        HolidayLearning.objects.create(tenant=tenant, holiday=feriado, learned_multiplier=D("2.50"))
-        HolidayLearning.objects.create(tenant=otro_negocio, holiday=feriado, learned_multiplier=D("0.60"))
+        y cada uno pronostica con lo que vivio EL. Desde el 19/10/26 se calcula
+        de sus propias ventas, por nombre: el que vendio el doble el año pasado
+        ve x2, el que cerro ve 0."""
+        pasado = _dia_habil_hace(364)
+        _feriado_nacional(fecha=pasado)
+        _feriado_nacional(fecha=HOY + datetime.timedelta(days=2))
+        _vender_alrededor(tenant, warehouse, product, pasado, ese_dia=20)
+        wh2 = Warehouse.objects.filter(tenant=otro_negocio).first()
+        p2 = Product.objects.create(tenant=otro_negocio, name="Cafe", price=D("1000"), is_active=True)
+        _vender_alrededor(otro_negocio, wh2, p2, pasado, ese_dia=0)
 
         mio = services._load_holidays_for_horizon(tenant, _pronosticos(HOY + datetime.timedelta(days=1)))
         suyo = services._load_holidays_for_horizon(otro_negocio, _pronosticos(HOY + datetime.timedelta(days=1)))
 
-        assert [h.learned_multiplier for h in mio] == [D("2.50")]
-        assert [h.learned_multiplier for h in suyo] == [D("0.60")]
-        feriado.refresh_from_db()
-        assert feriado.learned_multiplier is None, "el calendario sigue sin escribirse"
+        assert [h.learned_multiplier for h in mio] == [D("2.0")]
+        assert [h.learned_multiplier for h in suyo] == [D("0.0")]
+        assert Holiday.objects.filter(learned_multiplier__isnull=False).count() == 0, (
+            "el calendario sigue sin escribirse")
 
     def test_un_negocio_sin_aprendizaje_usa_solo_lo_configurado(
         self, tenant, store, warehouse, product, otro_negocio,
     ):
-        feriado = _feriado_nacional(fecha=HOY + datetime.timedelta(days=2))
-        HolidayLearning.objects.create(tenant=tenant, holiday=feriado, learned_multiplier=D("2.50"))
+        """El otro negocio vivio el feriado; este no tiene ninguna venta."""
+        pasado = _dia_habil_hace(364)
+        _feriado_nacional(fecha=pasado)
+        _feriado_nacional(fecha=HOY + datetime.timedelta(days=2))
+        _vender_alrededor(tenant, warehouse, product, pasado, ese_dia=20)
         suyo = services._load_holidays_for_horizon(otro_negocio, _pronosticos(HOY + datetime.timedelta(days=1)))
         assert [h.learned_multiplier for h in suyo] == [None]
 
     def test_el_multiplicador_aprendido_llega_al_pronostico(self, tenant, store, warehouse, product):
-        """Que no sea un dato muerto: con 2,5 aprendido y 1,5 configurado, la
-        mezcla 60/40 da 2,1 y el pronostico del dia sube."""
+        """Que no sea un dato muerto: con x2,0 vivido y x1,5 configurado, manda
+        lo vivido (antes se mezclaba 60/40)."""
         from forecast.engine import apply_holiday_adjustments
-        feriado = _feriado_nacional(fecha=HOY + datetime.timedelta(days=1))
-        HolidayLearning.objects.create(tenant=tenant, holiday=feriado, learned_multiplier=D("2.50"))
+        pasado = _dia_habil_hace(364)
+        _feriado_nacional(fecha=pasado)
+        _feriado_nacional(fecha=HOY + datetime.timedelta(days=1))
+        _vender_alrededor(tenant, warehouse, product, pasado, ese_dia=20)
         fcs = _pronosticos(HOY + datetime.timedelta(days=1), n=1)
         apply_holiday_adjustments(fcs, services._load_holidays_for_horizon(tenant, fcs))
-        assert fcs[0]["qty_predicted"] == D("21.000"), fcs[0]["qty_predicted"]
+        assert fcs[0]["qty_predicted"] == D("20.000"), fcs[0]["qty_predicted"]
 
 
 @pytest.mark.django_db
