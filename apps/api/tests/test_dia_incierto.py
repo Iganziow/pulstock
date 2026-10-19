@@ -95,6 +95,21 @@ class TestFraccionQueAbre:
         assert DOMINGO not in services.fraccion_que_abre(
             tenant.id, warehouse.id, closed_dows={DOMINGO})
 
+    def test_unas_vacaciones_no_son_un_patron(self, tenant, warehouse, product):
+        """Dos semanas sin vender nada: cada día de la semana "cerró" 2 de 8,
+        pero no hay nada que decir del sábado ni de ningún otro día."""
+        _historia(tenant, warehouse, product)
+        s = _sabados_atras(4)
+        DailySales.objects.filter(date__gt=s[3], date__lte=s[1]).delete()
+        assert services.fraccion_que_abre(tenant.id, warehouse.id, closed_dows={DOMINGO}) == {}
+
+    def test_la_historia_cortada_no_apaga_el_pronostico(self, tenant, warehouse, product):
+        """El local dejó de registrar ventas hace 10 semanas (o los datos se
+        cortaron): no es que cierre todos los días."""
+        _historia(tenant, warehouse, product, semanas=20)
+        DailySales.objects.filter(date__gte=hoy() - datetime.timedelta(weeks=10)).delete()
+        assert services.fraccion_que_abre(tenant.id, warehouse.id, closed_dows={DOMINGO}) == {}
+
     def test_un_negocio_nuevo_no_cerro_antes_de_existir(self, tenant, warehouse, product):
         """Con 3 semanas de historia, los sábados de antes no son cierres."""
         _historia(tenant, warehouse, product, semanas=3)

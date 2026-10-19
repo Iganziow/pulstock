@@ -1129,6 +1129,11 @@ def fraccion_que_abre(tenant_id, warehouse_id, today=None, closed_dows=None):
 
     - Las fechas de feriado no cuentan: un cierre por feriado lo explica el
       feriado, no el día de la semana. Se sigue hacia atrás hasta juntar 8.
+    - Tampoco las de una semana en que el local no vendió NADA alrededor (±3
+      días): vacaciones, un corte largo, el POS sin sincronizar. Eso no dice
+      nada del sábado, y sin esta regla dos semanas de vacaciones ponderaban
+      TODOS los días por 0,75 durante seis semanas al volver; y un local con
+      la historia cortada quedaba con el pronóstico entero en 0.
     - Tampoco cuentan las fechas anteriores a la primera venta del local (un
       negocio recién creado no "cerró" esos días), y con menos de
       BUSINESS_CLOSED_MIN_OCCURRENCES ocurrencias no se juzga.
@@ -1160,7 +1165,9 @@ def fraccion_que_abre(tenant_id, warehouse_id, today=None, closed_dows=None):
             d = ayer - timedelta(days=(ayer.weekday() - dow) % 7)
             abrio = []
             while len(abrio) < DIA_INCIERTO_OCURRENCIAS and d >= desde:
-                if d not in feriados:
+                opero_cerca = any(
+                    d + timedelta(days=k) in operadas for k in (-3, -2, -1, 1, 2, 3))
+                if d not in feriados and opero_cerca:
                     abrio.append(d in operadas)
                 d -= timedelta(days=7)
             cierres = abrio.count(False)
