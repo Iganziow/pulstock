@@ -1100,6 +1100,96 @@ def dias_sin_operacion(tenant_id, warehouse_id, desde, hasta, closed_dows=None):
     return sin_operar
 
 
+# ── Días que a veces abre y a veces no ───────────────────────────────────────
+#
+# Marbrava, octubre de 2026: el sábado cerró los últimos cinco seguidos y nadie
+# sabe con anticipación si el próximo abre — ni el dueño. Entre "siempre
+# abierto" (lo que pronosticábamos) y "cerrado" (`get_business_closed_weekdays`
+# lo marca recién cuando abrió menos del 10% de 8 semanas) no había nada: cada
+# sábado cerrado publicaba ~1.000 unidades de demanda fantasma que inflaban la
+# compra y la proyección de quiebre.
+#
+# La serie de entrenamiento ya no tiene esos días (`dias_sin_operacion`), así
+# que lo que el algoritmo publica para un sábado es "lo que se vende SI abre".
+# Multiplicarlo por la fracción de veces que abrió da lo que se espera vender.
+# Medido sobre los 8 sábados del 29-ago al 17-oct, con lo publicado la noche
+# anterior: error absoluto del núcleo en esos días 6.561 -> 5.079.
+
+DIA_INCIERTO_OCURRENCIAS = 8
+# Un cierre aislado (un corte de luz, un día libre) no es un patrón: con uno
+# solo, ponderar todos los lunes por 7/8 movería la compra sin razón.
+DIA_INCIERTO_MIN_CIERRES = 2
+
+_DIA_INCIERTO_CACHE: dict = {}
+
+
+def fraccion_que_abre(tenant_id, warehouse_id, today=None, closed_dows=None):
+    """{día de la semana: fracción de sus últimas 8 ocurrencias en que abrió},
+    solo para los días que cerraron al menos DIA_INCIERTO_MIN_CIERRES veces.
+
+    - Las fechas de feriado no cuentan: un cierre por feriado lo explica el
+      feriado, no el día de la semana. Se sigue hacia atrás hasta juntar 8.
+    - Tampoco cuentan las fechas anteriores a la primera venta del local (un
+      negocio recién creado no "cerró" esos días), y con menos de
+      BUSINESS_CLOSED_MIN_OCCURRENCES ocurrencias no se juzga.
+    - Los días en `closed_dows` ya los pone en 0 `_apply_closed_weekdays`.
+    """
+    from forecast.models import Holiday
+    today = today or date.today()
+    closed_dows = closed_dows or set()
+    key = (tenant_id, warehouse_id, today, frozenset(closed_dows))
+    if key in _DIA_INCIERTO_CACHE:
+        return _DIA_INCIERTO_CACHE[key]
+
+    ayer = today - timedelta(days=1)
+    operadas = _fechas_operadas(tenant_id, warehouse_id, ayer)
+    resultado = {}
+    if operadas:
+        primero = min(operadas)
+        # Margen de semanas para saltar feriados sin quedarse corto.
+        desde = max(primero, today - timedelta(weeks=DIA_INCIERTO_OCURRENCIAS + 8))
+        feriados = set(
+            Holiday.objects.filter(
+                Q(tenant_id=tenant_id) | Q(tenant__isnull=True),
+                date__gte=desde, date__lte=ayer,
+            ).values_list("date", flat=True)
+        )
+        for dow in range(7):
+            if dow in closed_dows:
+                continue
+            d = ayer - timedelta(days=(ayer.weekday() - dow) % 7)
+            abrio = []
+            while len(abrio) < DIA_INCIERTO_OCURRENCIAS and d >= desde:
+                if d not in feriados:
+                    abrio.append(d in operadas)
+                d -= timedelta(days=7)
+            cierres = abrio.count(False)
+            if (len(abrio) >= BUSINESS_CLOSED_MIN_OCCURRENCES
+                    and cierres >= DIA_INCIERTO_MIN_CIERRES):
+                resultado[dow] = (len(abrio) - cierres) / len(abrio)
+
+    _DIA_INCIERTO_CACHE[key] = resultado
+    return resultado
+
+
+def _ponderar_dias_inciertos(daily_forecasts, fracciones):
+    """Lleva el punto de cada día incierto a lo esperado: punto x fracción.
+
+    El techo NO se toca: si abre, la demanda es la de un día abierto, y es el
+    techo lo que usa la proyección de quiebre conservadora. El piso va a 0:
+    con 2 o más cierres en 8 hay al menos un 25% de chance de vender nada, así
+    que el percentil 10 es cero.
+    """
+    if not fracciones:
+        return
+    for f in daily_forecasts:
+        p = fracciones.get(f["date"].weekday())
+        if p is None:
+            continue
+        f["qty_predicted"] = _q3(f["qty_predicted"] * Decimal(str(p)))
+        f["lower_bound"] = D0
+
+
 # ── Demanda detenida ─────────────────────────────────────────────────────────
 #
 # Medido en Marbrava el 11/08/26: de 4.931 unidades de sobre-predicción en 7
@@ -1594,6 +1684,27 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                 params["calibracion"] = factores
                 fm.model_params = params
                 fm.save(update_fields=["model_params"])
+
+    # Días que a veces abre y a veces no (19/10/26): el sábado de Marbrava. Ver
+    # `fraccion_que_abre`. Va DESPUÉS de la calibración para que el techo quede
+    # como el de un día abierto, y ANTES de demanda detenida y del quiebre.
+    #
+    # Salvo a los derivados de receta, por lo mismo que el feriado: lo arman
+    # con lo publicado por sus bebidas, que ya viene ponderado.
+    # Interruptor de emergencia: FORECAST_DIA_INCIERTO_OFF=1.
+    if (fm.algorithm != "ingredient_derived"
+            and not os.environ.get("FORECAST_DIA_INCIERTO_OFF")):
+        fracciones = fraccion_que_abre(tenant.id, warehouse_id, closed_dows=closed_dows)
+        _ponderar_dias_inciertos(daily_forecasts, fracciones)
+        params = dict(fm.model_params or {})
+        guardar = {str(k): round(v, 3) for k, v in sorted(fracciones.items())}
+        if params.get("dia_incierto", {}) != guardar:
+            if guardar:
+                params["dia_incierto"] = guardar
+            else:
+                params.pop("dia_incierto", None)
+            fm.model_params = params
+            fm.save(update_fields=["model_params"])
 
     # Apply confidence decay for stale models
     confidence_base = compute_confidence_decay(fm.trained_at, confidence_base)
