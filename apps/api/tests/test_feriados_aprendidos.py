@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 tests/test_feriados_aprendidos.py — un feriado se pronostica con lo que el
-negocio VIVIO la ultima vez, y en un restaurante sin rampas inventadas.
+negocio VIVIO la ultima vez; sin historia, con un estandar que no invente
+efectos (feriados legales configurados, fechas comerciales neutras, sin rampas).
 
 Medido en Marbrava el 19/10/26 con lo que publicaria el codigo, sobre la copia
 de produccion (|multiplicador - real| x venta normal, solo los dias que alguna
@@ -139,7 +140,32 @@ class TestGrupo:
         _vender(tenant, warehouse, product, a - datetime.timedelta(days=40),
                 HOY - datetime.timedelta(days=1), salvo={a: 0, b: 0})
         elegidos = services._load_holidays_for_horizon(tenant, _unos([futuro.date]))
+        assert [h.learned_multiplier for h in elegidos] == [D("1")], "neutra, no el cierre de los legales"
+
+
+@pytest.mark.django_db
+class TestEstandarParaUnLocalNuevo:
+    """Solo lo que sabemos (20/10/26): sin historia propia, los feriados
+    legales usan lo configurado y las fechas comerciales quedan neutras."""
+
+    def test_una_fecha_comercial_queda_neutra(self, tenant, warehouse, product):
+        futuro = _feriado(HOY + datetime.timedelta(days=3), nombre="Halloween", mult="1.40")
+        elegidos = services._load_holidays_for_horizon(tenant, _unos([futuro.date]))
+        assert [h.learned_multiplier for h in elegidos] == [D("1")]
+
+    def test_un_feriado_legal_conserva_lo_configurado(self, tenant, warehouse, product):
+        futuro = _feriado(HOY + datetime.timedelta(days=3), nombre="Legal", mult="0.80")
+        elegidos = services._load_holidays_for_horizon(tenant, _unos([futuro.date]))
         assert [h.learned_multiplier for h in elegidos] == [None]
+
+    def test_una_vez_vivida_manda_lo_del_local(self, tenant, warehouse, product):
+        pasado = _habil(HOY - datetime.timedelta(days=364))
+        _feriado(pasado, nombre="Halloween", mult="1.40")
+        futuro = _feriado(HOY + datetime.timedelta(days=3), nombre="Halloween", mult="1.40")
+        _vender(tenant, warehouse, product, pasado - datetime.timedelta(days=40),
+                HOY - datetime.timedelta(days=1), salvo={pasado: 4})
+        elegidos = services._load_holidays_for_horizon(tenant, _unos([futuro.date]))
+        assert [h.learned_multiplier for h in elegidos] == [D("0.4")]
 
 
 @pytest.mark.django_db
@@ -153,23 +179,23 @@ class TestAplicacion:
                                          "pre_multiplier": 1}])
         assert fcs[0]["qty_predicted"] == D("0")
 
-    def test_el_restaurante_no_lleva_rampas(self):
+    def test_produccion_no_lleva_rampas(self):
+        """save_forecasts llama con rampas=False, para todo tipo de negocio."""
         d = HOY + datetime.timedelta(days=5)
         dias = [d + datetime.timedelta(days=k) for k in range(-3, 4)]
         h = {"date": d, "demand_multiplier": 1.5, "pre_days": 3, "pre_multiplier": 1.5,
              "post_days": 2, "post_multiplier": 0.8}
         fcs = _unos(dias)
-        apply_holiday_adjustments(fcs, [h], business_type="restaurant")
+        apply_holiday_adjustments(fcs, [h], business_type="retail", rampas=False)
         por = {f["date"]: f["qty_predicted"] for f in fcs}
         assert por[d] == D("15.000")
         assert all(por[x] == D("10") for x in dias if x != d), por
 
-    def test_los_demas_negocios_conservan_las_rampas(self):
-        """Solo esta medido el restaurante."""
+    def test_la_funcion_generica_conserva_las_rampas_si_se_piden(self):
         d = HOY + datetime.timedelta(days=5)
         h = {"date": d, "demand_multiplier": 1.5, "pre_days": 1, "pre_multiplier": 1.2}
         fcs = _unos([d - datetime.timedelta(days=1), d])
-        apply_holiday_adjustments(fcs, [h], business_type="retail")
+        apply_holiday_adjustments(fcs, [h])
         assert fcs[0]["qty_predicted"] == D("12.000")
 
     def test_un_feriado_en_dia_cerrado_no_se_come_su_masa(self):

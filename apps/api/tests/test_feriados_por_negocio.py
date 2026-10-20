@@ -144,13 +144,16 @@ class TestLoAprendidoEsDeCadaNegocio:
     def test_un_negocio_sin_aprendizaje_usa_solo_lo_configurado(
         self, tenant, store, warehouse, product, otro_negocio,
     ):
-        """El otro negocio vivio el feriado; este no tiene ninguna venta."""
+        """El otro negocio vivio el feriado; este no tiene ninguna venta, asi que
+        no hereda el x2,0 ajeno. Como el feriado de prueba esta configurado en
+        x1,5 (fecha comercial), queda neutro: ver "solo lo que sabemos" en
+        _load_holidays_for_horizon."""
         pasado = _dia_habil_hace(364)
         _feriado_nacional(fecha=pasado)
         _feriado_nacional(fecha=HOY + datetime.timedelta(days=2))
         _vender_alrededor(tenant, warehouse, product, pasado, ese_dia=20)
         suyo = services._load_holidays_for_horizon(otro_negocio, _pronosticos(HOY + datetime.timedelta(days=1)))
-        assert [h.learned_multiplier for h in suyo] == [None]
+        assert [h.learned_multiplier for h in suyo] == [D("1")]
 
     def test_el_multiplicador_aprendido_llega_al_pronostico(self, tenant, store, warehouse, product):
         """Que no sea un dato muerto: con x2,0 vivido y x1,5 configurado, manda

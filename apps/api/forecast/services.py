@@ -1325,9 +1325,21 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
     hoy = date.today()
     btype = getattr(tenant, "business_type", None) or None
     for h in elegidos:
+        configurado = _multiplicador_configurado(h, btype)
         aprendido = multiplicador_aprendido(tenant, h.name, hoy)
         if aprendido is None:
-            aprendido = multiplicador_del_grupo(tenant, _multiplicador_configurado(h, btype), hoy)
+            aprendido = multiplicador_del_grupo(tenant, configurado, hoy)
+        if aprendido is None and configurado > 1:
+            # SOLO LO QUE SABEMOS (20/10/26). Una fecha comercial (Halloween,
+            # Nochevieja, Black Friday: configuradas arriba de 1) queda neutra
+            # hasta que el negocio la viva. Los feriados legales (abajo de 1)
+            # conservan lo configurado: que se cierra o se vende menos es
+            # general. Medido como local NUEVO (Marbrava 25-oct-2025..3-ene-
+            # 2026, sin año previo): 2.578k hoy -> 2.060k sin rampas ->
+            # 1.804k ademas con las comerciales neutras (-30%). El dueño lo
+            # pidio asi: un estandar que no invente efectos, no un calendario
+            # por local.
+            aprendido = Decimal("1")
         h.learned_multiplier = aprendido
     return elegidos
 
@@ -1521,7 +1533,7 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
         if holidays:
             btype = getattr(tenant, "business_type", None) or None
             apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype,
-                                      closed_dows=closed_dows)
+                                      closed_dows=closed_dows, rampas=False)
 
     # Días cerrados del negocio. Va acá y no dentro de cada algoritmo porque
     # este es el ÚNICO punto por el que pasan todos: hoy sólo adaptive_ma y

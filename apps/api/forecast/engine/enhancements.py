@@ -392,19 +392,17 @@ def detect_price_change_impact(daily_series, revenue_series=None):
 # viene de `services.multiplicador_aprendido`.
 PESO_APRENDIDO = 1.0
 
-# Tipos de negocio en que las rampas configuradas (dias previos y posteriores)
-# NO se aplican (19/10/26). Medido en Marbrava: en los feriados de 2026 las
-# rampas dan 227 de error contra 138 sin rampa, y las aprendidas del año
-# anterior 230, o sea que tampoco se repiten de un año a otro. Del 25-oct-2025
-# al 3-ene-2026 el calendario completo dio 651 contra 589 sin ningun ajuste:
-# Navidad x1,75 en 14 dias (real 0,9), Nochevieja x1,8 (0,51) y la post-rampa
-# de Black Friday x0,8 donde se vendio x1,4 a x2,8. Solo esta medido el
-# restaurante; los demas conservan las rampas hasta que haya con que medirlos.
-TIPOS_SIN_RAMPA = frozenset({"restaurant"})
-
-
-def apply_holiday_adjustments(forecasts, holidays, business_type=None, closed_dows=None):
+def apply_holiday_adjustments(forecasts, holidays, business_type=None, closed_dows=None,
+                              rampas=True):
     """Post-process forecasts by applying holiday demand multipliers.
+
+    `rampas=False`: no aplica los dias previos ni posteriores configurados.
+    Es lo que usa produccion desde el 19/10/26 (ver save_forecasts): medido en
+    Marbrava, las rampas de 2026 dan 227 de error contra 138 sin rampa, las
+    aprendidas del año anterior 230 (no se repiten), y del 25-oct-2025 al
+    3-ene-2026 el calendario completo dio 651 contra 589 sin ningun ajuste
+    (Navidad x1,75 en 14 dias, real 0,9; la post-rampa de Black Friday x0,8
+    donde se vendio x1,4 a x2,8).
 
     `closed_dows`: dias de la semana que el local no abre. Ahi el feriado no se
     aplica (19/10/26): ese dia lo pone en 0 `_apply_closed_weekdays`, que
@@ -413,7 +411,6 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None, closed_do
     ese domingo, y con el 0 aprendido (el 1-nov-2025 cerro) todo, o sea un 1-2%
     menos en cada dia abierto del horizonte.
     """
-    sin_rampa = business_type in TIPOS_SIN_RAMPA
     closed_dows = closed_dows or set()
     holiday_map = {}
     for h in holidays:
@@ -449,7 +446,7 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None, closed_do
             event_date = h_date + timedelta(days=d)
             holiday_map[event_date] = mult
 
-        if sin_rampa:
+        if not rampas:
             continue
 
         ramp = getattr(h, 'ramp_type', None) or (h.get('ramp_type', 'instant') if isinstance(h, dict) else 'instant')

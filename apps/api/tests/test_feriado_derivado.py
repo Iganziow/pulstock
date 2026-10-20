@@ -85,8 +85,9 @@ class TestEnSaveForecasts:
         services.save_forecasts(tenant, product, warehouse.id, fm, _semana(), D("70"), {})
         pub = _publicado(product)
         assert pub[h.date] == D("5.000")                                      # x0,5
-        assert pub[h.date - datetime.timedelta(days=1)] == D("15.000")         # rampa x1,5
-        assert pub[h.date - datetime.timedelta(days=2)] == D("15.000")
+        # Sin rampa desde el 20/10/26 (ver apply_holiday_adjustments, rampas).
+        assert pub[h.date - datetime.timedelta(days=1)] == D("10.000")
+        assert pub[h.date - datetime.timedelta(days=2)] == D("10.000")
 
 
 @pytest.mark.django_db
