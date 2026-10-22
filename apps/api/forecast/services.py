@@ -101,10 +101,8 @@ from forecast.engine import (
     category_prior_forecast, apply_holiday_adjustments,
     clean_series, classify_demand_pattern, detect_closed_weekdays,
     compute_month_position_factors, detect_trend,
-    apply_trend_adjustment, apply_bias_correction,
-    apply_empirical_intervals, detect_price_change_impact,
-    compute_monthly_seasonality, compute_bimodal_seasonality, apply_monthly_seasonality,
-    compute_yoy_growth, apply_yoy_adjustment,
+    apply_bias_correction, apply_empirical_intervals,
+    compute_monthly_seasonality, compute_bimodal_seasonality,
     compute_confidence_decay, _q3,
 )
 
@@ -1322,20 +1320,154 @@ def _load_holidays_for_horizon(tenant, daily_forecasts):
             por_fecha[h.date] = h
     elegidos = list(por_fecha.values())
 
-    # LO APRENDIDO ES DE CADA NEGOCIO (08/09/26). Antes se guardaba en
-    # `Holiday.learned_multiplier`, o sea sobre la fila compartida: las ventas
-    # de un cliente fijaban el multiplicador de todos, y con el 60% del peso
-    # al mezclarse con lo configurado. Ahora vive en HolidayLearning y se pega
-    # aca EN MEMORIA, sin guardar, para no cambiarle la firma a
-    # apply_holiday_adjustments.
-    from forecast.models import HolidayLearning
-    aprendido = dict(
-        HolidayLearning.objects.filter(tenant=tenant, holiday__in=elegidos)
-        .values_list("holiday_id", "learned_multiplier")
-    )
+    # LO APRENDIDO ES DE CADA NEGOCIO, y se busca POR NOMBRE (19/10/26). Se
+    # pega EN MEMORIA, sin guardar: la fila del calendario es compartida.
+    # Antes se leia HolidayLearning, que se guarda por fila FECHADA: lo
+    # aprendido en Asuncion 2025 no se usaba para Asuncion 2026, y un feriado
+    # futuro se pronosticaba siempre con la configuracion global. Ver
+    # `multiplicador_aprendido`.
+    hoy = date.today()
+    btype = getattr(tenant, "business_type", None) or None
     for h in elegidos:
-        h.learned_multiplier = aprendido.get(h.id)
+        configurado = _multiplicador_configurado(h, btype)
+        aprendido = multiplicador_aprendido(tenant, h.name, hoy)
+        if aprendido is None:
+            aprendido = multiplicador_del_grupo(tenant, configurado, hoy)
+        if aprendido is None and configurado > 1:
+            # SOLO LO QUE SABEMOS (20/10/26). Una fecha comercial (Halloween,
+            # Nochevieja, Black Friday: configuradas arriba de 1) queda neutra
+            # hasta que el negocio la viva. Los feriados legales (abajo de 1)
+            # conservan lo configurado: que se cierra o se vende menos es
+            # general. Medido como local NUEVO (Marbrava 25-oct-2025..3-ene-
+            # 2026, sin año previo): 2.578k hoy -> 2.060k sin rampas ->
+            # 1.804k ademas con las comerciales neutras (-30%). El dueño lo
+            # pidio asi: un estandar que no invente efectos, no un calendario
+            # por local.
+            aprendido = Decimal("1")
+        h.learned_multiplier = aprendido
     return elegidos
+
+
+# ── Feriados aprendidos por nombre ───────────────────────────────────────────
+
+FERIADO_SEMANAS_BASE = 4
+FERIADO_MULT_MAX = 3.0
+_INGRESO_DIARIO_CACHE: dict = {}
+_FERIADO_APRENDIDO_CACHE: dict = {}
+
+
+def _ingreso_diario(tenant_id, hasta):
+    """{fecha: sum(unidades vendidas x precio)} del negocio, hasta `hasta`.
+
+    Es la vara del multiplicador del feriado. Hace falta una sola cifra por dia
+    para todo el local, y sumar unidades mezcla gramos, mililitros y unidades.
+    El precio las pone en la misma moneda, y los ingredientes (precio 0) quedan
+    fuera solos: su consumo ya viaja dentro de las bebidas. Sale de
+    DailySales y no de Sale porque el historico importado (Fudo) solo existe
+    ahi.
+    """
+    key = (tenant_id, hasta)
+    if key not in _INGRESO_DIARIO_CACHE:
+        filas = (
+            DailySales.objects.filter(tenant_id=tenant_id, date__lte=hasta, qty_sold__gt=0)
+            .values("date")
+            .annotate(v=Sum(db_models.ExpressionWrapper(
+                db_models.F("qty_sold") * db_models.F("product__price"),
+                output_field=db_models.DecimalField(max_digits=20, decimal_places=3))))
+        )
+        _INGRESO_DIARIO_CACHE[key] = {r["date"]: float(r["v"] or 0) for r in filas}
+    return _INGRESO_DIARIO_CACHE[key]
+
+
+def multiplicador_aprendido(tenant, nombre, hoy):
+    """Cuanto vendio ESTE negocio la ultima vez que paso un feriado con este
+    nombre, contra ese mismo dia de la semana en las 4 semanas anteriores
+    (sin feriados). 0 si cerro; None si nunca lo vivio.
+
+    Medido en Marbrava (19/10/26), aprendiendo de 2025 y midiendo los feriados
+    de 2026: los nacionales cierra (configurado 0,75-0,8) y los comerciales
+    estan inflados (Halloween x1,4 configurado, x0,41 real).
+
+    Se saltan las veces que el feriado cayo en una semana sin ninguna venta
+    alrededor (+-3 dias, vacaciones): ahi no se aprende que el feriado cierra.
+    """
+    key = (tenant.id, nombre, hoy)
+    if key not in _FERIADO_APRENDIDO_CACHE:
+        resultado = None
+        for d, ratio in _feriados_vividos(tenant, hoy):
+            if d[1] == nombre:
+                resultado = Decimal(str(round(min(ratio, FERIADO_MULT_MAX), 2)))
+                break
+        _FERIADO_APRENDIDO_CACHE[key] = resultado
+    return _FERIADO_APRENDIDO_CACHE[key]
+
+
+def _feriados_vividos(tenant, hoy):
+    """[((fecha, nombre, configurado), cuanto vendio contra lo normal)] de los
+    feriados que este negocio ya vivio, del mas reciente al mas viejo.
+
+    "Lo normal" es ese mismo dia de la semana en las 4 semanas anteriores que
+    abrio, sin feriados. Se saltan los feriados sin base (un dia de la semana
+    que el local no abre: el domingo de Marbrava no dice nada) y los que
+    cayeron en una semana sin ninguna venta alrededor (vacaciones).
+    """
+    key = ("vividos", tenant.id, hoy)
+    if key in _FERIADO_APRENDIDO_CACHE:
+        return _FERIADO_APRENDIDO_CACHE[key]
+    from forecast.models import Holiday
+
+    ayer = hoy - timedelta(days=1)
+    ingreso = _ingreso_diario(tenant.id, ayer)
+    vividos = []
+    if ingreso:
+        primero = min(ingreso)
+        btype = getattr(tenant, "business_type", None) or None
+        calendario = list(Holiday.objects.filter(
+            Q(tenant=tenant) | Q(tenant__isnull=True), date__lte=ayer))
+        feriados = {h.date for h in calendario}
+        for h in sorted(calendario, key=lambda h: h.date, reverse=True):
+            d = h.date
+            if d < primero:
+                break
+            if not any(d + timedelta(days=k) in ingreso for k in (-3, -2, -1, 1, 2, 3)):
+                continue
+            base, x = [], d - timedelta(days=7)
+            while len(base) < FERIADO_SEMANAS_BASE and x >= max(primero, d - timedelta(weeks=10)):
+                if x in ingreso and x not in feriados:
+                    base.append(ingreso[x])
+                x -= timedelta(days=7)
+            if len(base) < 2 or sum(base) <= 0:
+                continue
+            vividos.append(((d, h.name, _multiplicador_configurado(h, btype)),
+                            ingreso.get(d, 0.0) / (sum(base) / len(base))))
+    _FERIADO_APRENDIDO_CACHE[key] = vividos
+    return vividos
+
+
+def _multiplicador_configurado(h, btype):
+    biz = h.business_multipliers or {}
+    return float(biz[btype]) if btype and btype in biz else float(h.demand_multiplier)
+
+
+def multiplicador_del_grupo(tenant, configurado, hoy):
+    """Para un feriado que el negocio nunca vivio: la mediana de lo que vivio
+    en los feriados del MISMO grupo, si tiene al menos 2.
+
+    El grupo se lee de lo configurado. Debajo de 1 es un feriado legal (el
+    local suele cerrar o vender menos); arriba de 1 es una fecha comercial
+    (Halloween, Black Friday), y esas no tienen grupo: cada una es la suya.
+    Medido en Marbrava: San Pedro y el 12 de octubre 2025 cayeron en domingo,
+    asi que en 2026 no tenian historia propia y quedaban en el x0,8 configurado;
+    el local cerro los dos.
+    """
+    if configurado >= 1:
+        return None
+    ratios = sorted(r for (d, _n, conf), r in _feriados_vividos(tenant, hoy) if conf < 1)
+    if len(ratios) < 2:
+        return None
+    m = len(ratios) // 2
+    mediana = ratios[m] if len(ratios) % 2 else (ratios[m - 1] + ratios[m]) / 2
+    return Decimal(str(round(min(mediana, FERIADO_MULT_MAX), 2)))
 
 
 def _precision_medida(metrics):
@@ -1534,11 +1666,13 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # nucleo publicaron con 73% de error semanal contra 35% de la suma cruda de
     # sus bebidas. Es el mismo criterio que la correccion de sesgo de abajo,
     # que ya dejaba fuera al derivado por la misma razon.
+    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     if fm.algorithm != "ingredient_derived":
         holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
         if holidays:
             btype = getattr(tenant, "business_type", None) or None
-            apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype)
+            apply_holiday_adjustments(daily_forecasts, holidays, business_type=btype,
+                                      closed_dows=closed_dows, rampas=False)
 
     # Días cerrados del negocio. Va acá y no dentro de cada algoritmo porque
     # este es el ÚNICO punto por el que pasan todos: hoy sólo adaptive_ma y
@@ -2166,76 +2300,41 @@ def train_product_model(tenant, product, warehouse_id, today,
         stats["skipped"] += 1
         return
 
-    # Month-position (payday) adjustment for algorithms that don't use month_factors natively
-    # (HW, Theta, ETS, Croston — WMA/Adaptive already apply month_factors in generate_daily_forecasts)
-    if month_factors and best["algorithm"] not in ("moving_avg", "adaptive_ma") and best["forecasts"]:
-        from forecast.engine import _get_month_bucket
-        for fc in best["forecasts"]:
-            bucket = _get_month_bucket(fc["date"].day)
-            mf = Decimal(str(month_factors.get(bucket, 1.0)))
-            if mf != 1:
-                fc["qty_predicted"] = (fc["qty_predicted"] * mf).quantize(Decimal("0.001"))
-                fc["lower_bound"] = max(Decimal("0"), (fc["lower_bound"] * mf).quantize(Decimal("0.001")))
-                fc["upper_bound"] = (fc["upper_bound"] * mf).quantize(Decimal("0.001"))
-
-    # Trend detection + adjustment
+    # Post-procesos retirados (13/10/26). Aca se aplicaban a best["forecasts"]
+    # seis ajustes: factores de quincena, tendencia, correccion de sesgo por
+    # dia de semana, estacionalidad mensual, crecimiento año contra año y
+    # elasticidad de precio. Ninguno llegaba a la tabla: al final de esta
+    # funcion `_regen_from_existing` re-ejecuta el algoritmo crudo y pisa las
+    # filas, la noche del entrenamiento fresco igual que las de conservacion.
+    # Verificado en produccion la noche del 13-oct: 62 modelos entrenados en
+    # fresco, los 62 con esos ajustes guardados en params, y lo publicado igual
+    # al algoritmo crudo. Eran calculo muerto, y ademas engañaban: quien leia
+    # params creia que se aplicaban (paso con el año contra año del Chocolate
+    # Premium, que habria contado dos veces una caida que el nivel ya trae).
+    #
+    # Se siguen calculando y guardando la tendencia y la estacionalidad mensual
+    # porque la app las muestra como DESCRIPCION de la historia ("las ventas
+    # vienen subiendo", "vendes 30% mas en diciembre"; InsightsSection.tsx),
+    # no como algo aplicado al pronostico. El resto no se mostraba en ninguna
+    # pantalla. La correccion de sesgo que si se publica es la de
+    # save_forecasts (factor_de_sesgo), y la de los derivados de receta.
+    #
+    # Si alguno de estos ajustes vuelve, tiene que llegar a la tabla y pasar
+    # antes por la sombra: el año contra año, por ejemplo, descontaria dos
+    # veces lo que el nivel del algoritmo ya aprendio de la serie reciente.
     trend = detect_trend(cleaned)
-    if trend and best["forecasts"]:
-        avg_daily = Decimal(best["params"].get("avg_daily", "0"))
-        apply_trend_adjustment(best["forecasts"], trend, avg_daily)
+    if trend:
         best["params"]["trend"] = trend
 
-    # Bias correction from recent accuracy
-    recent_acc = list(
-        ForecastAccuracy.objects.filter(
-            tenant=tenant, product=product, warehouse_id=warehouse_id,
-            date__gte=today - timedelta(days=14),
-        ).values("date", "error", "was_stockout")
-    )
-    if recent_acc and best["forecasts"]:
-        avg_daily = Decimal(best["params"].get("avg_daily", "0"))
-        correction = apply_bias_correction(best["forecasts"], recent_acc, avg_daily)
-        if correction:
-            best["params"]["bias_correction"] = correction
-
-    # Monthly seasonality (180+ days) — try bimodal first, then standard, then business prior
     monthly_season = compute_bimodal_seasonality(cleaned) or compute_monthly_seasonality(cleaned)
-    # Fallback: use business-type seasonal prior for hardware (construction seasonality)
     if monthly_season is None:
         from forecast.management.commands.train_forecast_models import Command as TrainCmd
         btype = getattr(tenant, "business_type", "other") or "other"
         profile = TrainCmd.BUSINESS_PROFILES.get(btype, {})
         if profile.get("seasonal_prior"):
             monthly_season = profile["seasonal_prior"]
-    if monthly_season and best["forecasts"]:
-        apply_monthly_seasonality(best["forecasts"], monthly_season)
+    if monthly_season:
         best["params"]["monthly_seasonality"] = monthly_season
-
-    # Year-over-year growth (365+ days)
-    yoy = compute_yoy_growth(cleaned)
-    if yoy and best["forecasts"]:
-        apply_yoy_adjustment(best["forecasts"], yoy)
-        best["params"]["yoy_growth"] = yoy
-
-    # Price elasticity — detect and apply demand adjustment for recent price changes
-    revenue_series = list(ds_qs.values_list("date", "revenue"))
-    price_info = detect_price_change_impact(raw_series, revenue_series)
-    if price_info and price_info["is_price_sensitive"]:
-        best["params"]["price_sensitivity"] = price_info
-        # Apply elasticity: if most recent event is within last 14 days, adjust forecasts
-        if price_info["events"] and best["forecasts"]:
-            last_event = price_info["events"][-1]
-            event_date = date.fromisoformat(last_event["date"]) if isinstance(last_event["date"], str) else last_event["date"]
-            if (today - event_date).days <= 14:
-                demand_change = last_event["demand_change_pct"] / 100  # e.g. -0.20
-                # Apply 50%-damped adjustment to avoid overreaction
-                adj_factor = 1 + (demand_change * 0.5)
-                adj_factor = max(0.5, min(1.5, adj_factor))  # clamp
-                for f in best["forecasts"]:
-                    f["qty_predicted"] = _q3(f["qty_predicted"] * Decimal(str(adj_factor)))
-                    f["lower_bound"] = max(D0, _q3(f["lower_bound"] * Decimal(str(adj_factor))))
-                    f["upper_bound"] = _q3(f["upper_bound"] * Decimal(str(adj_factor)))
-                best["params"]["price_elasticity_applied"] = round(adj_factor, 3)
 
     # Circuit breaker anti-colapso (Mario 31/05/26): rescata el forecast si
     # colapsó a ~0 teniendo demanda real reciente alta (ver _collapse_guard).

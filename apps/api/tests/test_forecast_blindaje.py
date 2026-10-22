@@ -717,7 +717,8 @@ class TestHolidayAdjustmentsBlindaje:
         assert len(result) == 3
 
     def test_learned_multiplier_blending(self):
-        """60% learned + 40% configured."""
+        """Lo vivido por el negocio manda sobre lo configurado (19/10/26; antes
+        60/40). Ver PESO_APRENDIDO en enhancements."""
         forecasts = _make_forecasts(3)
         h_date = TODAY + timedelta(days=1)
         holidays = [{
@@ -728,11 +729,9 @@ class TestHolidayAdjustmentsBlindaje:
             "pre_multiplier": 1,
         }]
         result = apply_holiday_adjustments(forecasts, holidays)
-        # Blended = 0.6*3.0 + 0.4*2.0 = 2.6
         hit = [f for f in result if f["date"] == h_date]
-        if hit:
-            expected = 10 * 2.6  # avg was 10
-            assert abs(float(hit[0]["qty_predicted"]) - expected) < 0.1
+        assert hit
+        assert abs(float(hit[0]["qty_predicted"]) - 10 * 3.0) < 0.1  # avg was 10
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

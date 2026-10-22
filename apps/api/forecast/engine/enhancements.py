@@ -385,8 +385,33 @@ def detect_price_change_impact(daily_series, revenue_series=None):
 
 # ── Holiday adjustments ──────────────────────────────────────────────────────
 
-def apply_holiday_adjustments(forecasts, holidays, business_type=None):
-    """Post-process forecasts by applying holiday demand multipliers."""
+# Lo que el negocio VIVIO el feriado le gana a lo configurado (19/10/26). Antes
+# se mezclaba 60/40. Medido en Marbrava aprendiendo de 2025 y midiendo los 7
+# feriados de 2026 ya pasados: error del dia del feriado configurado 67,
+# aprendido 44, sin ajuste 161 (|multiplicador - real| x base). El aprendido
+# viene de `services.multiplicador_aprendido`.
+PESO_APRENDIDO = 1.0
+
+def apply_holiday_adjustments(forecasts, holidays, business_type=None, closed_dows=None,
+                              rampas=True):
+    """Post-process forecasts by applying holiday demand multipliers.
+
+    `rampas=False`: no aplica los dias previos ni posteriores configurados.
+    Es lo que usa produccion desde el 19/10/26 (ver save_forecasts): medido en
+    Marbrava, las rampas de 2026 dan 227 de error contra 138 sin rampa, las
+    aprendidas del año anterior 230 (no se repiten), y del 25-oct-2025 al
+    3-ene-2026 el calendario completo dio 651 contra 589 sin ningun ajuste
+    (Navidad x1,75 en 14 dias, real 0,9; la post-rampa de Black Friday x0,8
+    donde se vendio x1,4 a x2,8).
+
+    `closed_dows`: dias de la semana que el local no abre. Ahi el feriado no se
+    aplica (19/10/26): ese dia lo pone en 0 `_apply_closed_weekdays`, que
+    REPARTE su masa entre los abiertos, y multiplicarlo antes se comia esa
+    masa. El 1-nov-2026 cae domingo: con x0,8 configurado se perdia el 20% de
+    ese domingo, y con el 0 aprendido (el 1-nov-2025 cerro) todo, o sea un 1-2%
+    menos en cada dia abierto del horizonte.
+    """
+    closed_dows = closed_dows or set()
     holiday_map = {}
     for h in holidays:
         biz_mults = getattr(h, 'business_multipliers', None) or (h.get('business_multipliers') if isinstance(h, dict) else None) or {}
@@ -402,7 +427,7 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None):
             learned = float(h['learned_multiplier'])
 
         if learned is not None:
-            mult = 0.6 * learned + 0.4 * configured
+            mult = PESO_APRENDIDO * learned + (1 - PESO_APRENDIDO) * configured
         else:
             mult = configured
 
@@ -420,6 +445,9 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None):
         for d in range(duration):
             event_date = h_date + timedelta(days=d)
             holiday_map[event_date] = mult
+
+        if not rampas:
+            continue
 
         ramp = getattr(h, 'ramp_type', None) or (h.get('ramp_type', 'instant') if isinstance(h, dict) else 'instant')
         for d in range(1, pre_days + 1):
@@ -443,8 +471,12 @@ def apply_holiday_adjustments(forecasts, holidays, business_type=None):
 
     for fc in forecasts:
         fc_date = fc["date"]
+        if fc_date.weekday() in closed_dows:
+            continue
         mult = holiday_map.get(fc_date)
-        if mult and mult != 1:
+        # `is not None` y no `if mult`: un 0 es un local que cierra ese dia
+        # (aprendido), no "sin ajuste". Con `if mult` el cierre no bajaba nada.
+        if mult is not None and mult != 1:
             mult_d = Decimal(str(mult))
             fc["qty_predicted"] = _q3(fc["qty_predicted"] * mult_d)
             fc["lower_bound"] = _q3(fc["lower_bound"] * mult_d)
