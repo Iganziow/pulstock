@@ -1681,7 +1681,7 @@ def nivel_para_mezcla(tenant, product, warehouse_id, today, closed_dows):
     return nivel_promedio(demandas)
 
 
-def _factores_de_feriado(tenant, daily_forecasts):
+def _factores_de_feriado(tenant, daily_forecasts, closed_dows=None):
     """{fecha: multiplicador} del feriado para los dias del pronostico, con la
     misma regla que save_forecasts (rampa previa, tipo de negocio, lo aprendido):
     se calcula pasando un pronostico de unos por apply_holiday_adjustments."""
@@ -1691,7 +1691,10 @@ def _factores_de_feriado(tenant, daily_forecasts):
     unos = [{"date": f["date"], "qty_predicted": Decimal("1"),
              "lower_bound": Decimal("1"), "upper_bound": Decimal("1")} for f in daily_forecasts]
     btype = getattr(tenant, "business_type", None) or None
-    apply_holiday_adjustments(unos, holidays, business_type=btype)
+    # Misma regla que save_forecasts (20/10/26): sin rampas, y un dia cerrado
+    # no lleva feriado (lo pone en 0 _apply_closed_weekdays).
+    apply_holiday_adjustments(unos, holidays, business_type=btype,
+                              closed_dows=closed_dows, rampas=False)
     return {f["date"]: Decimal(str(f["qty_predicted"])) for f in unos
             if Decimal(str(f["qty_predicted"])) != Decimal("1")}
 
@@ -1743,7 +1746,7 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
             # se aplica despues, sobre lo mezclado. En un derivado no: su modelo
             # ya lo trae de las bebidas y el bloque de feriados de abajo lo
             # salta, asi que al nivel se le aplica aca.
-            factores = (_factores_de_feriado(tenant, daily_forecasts)
+            factores = (_factores_de_feriado(tenant, daily_forecasts, closed_dows)
                         if fm.algorithm == "ingredient_derived" else None)
             mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows,
                               factores_nivel=factores)
@@ -1763,7 +1766,6 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # nucleo publicaron con 73% de error semanal contra 35% de la suma cruda de
     # sus bebidas. Es el mismo criterio que la correccion de sesgo de abajo,
     # que ya dejaba fuera al derivado por la misma razon.
-    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     if fm.algorithm != "ingredient_derived":
         holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
         if holidays:
