@@ -49,6 +49,11 @@ const nextConfig: NextConfig = {
 
   // Suppress cross-origin warning for the dev preview proxy
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Sin optimizador de imagenes (23/10/26). No usamos next/image, pero la ruta
+  // /_next/image existe igual y es la puerta de las fallas de 2026 en sharp,
+  // libvips y librsvg (incluida una ejecucion de codigo con SVG, CVE-2026-
+  // 96889). Apagarlo no cambia nada visible: las <img> siguen igual.
+  images: { unoptimized: true },
 
   async headers() {
     return [
