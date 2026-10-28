@@ -139,9 +139,15 @@ class TestEnSaveForecasts:
         assert fm.model_params["dia_incierto"] == {str(SABADO): 0.375}
 
     def test_el_derivado_no_se_pondera_dos_veces(self, tenant, store, warehouse, product):
-        """Lo arma con lo publicado por sus bebidas, que ya viene ponderado."""
+        """Lo arma con lo publicado por sus bebidas, que ya viene ponderado.
+
+        Con un derivado intermitente: el `smooth` entra a la mezcla con el nivel
+        de 28 dias, y ESE nivel si se pondera (ver test_mezcla_prom28,
+        TestConDiaIncierto). Aca se prueba solo que la parte del modelo no se
+        pondera de nuevo."""
         _historia(tenant, warehouse, product, sabados_cerrados=_sabados_atras(5))
         fm = _modelo(tenant, product, warehouse, algoritmo="ingredient_derived")
+        fm.demand_pattern = "intermittent"; fm.save(update_fields=["demand_pattern"])
         services.save_forecasts(tenant, product, warehouse.id, fm, _semana(), D("70"), {})
         sabados = [f for d, f in _publicado(product).items() if d.weekday() == SABADO]
         assert sabados and all(f.qty_predicted >= D("10") for f in sabados)

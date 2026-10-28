@@ -1748,6 +1748,20 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
             # salta, asi que al nivel se le aplica aca.
             factores = (_factores_de_feriado(tenant, daily_forecasts, closed_dows)
                         if fm.algorithm == "ingredient_derived" else None)
+            # Lo mismo con el dia incierto (28/10/26): al derivado no se lo
+            # pondera abajo porque sus bebidas ya vienen ponderadas, pero el
+            # NIVEL es su propia demanda, que no viene de las bebidas. Sin esto
+            # la Leche entera publicaba el sabado 7-nov en 911 ml, como un dia
+            # normal, y el sabado 24 cerrado en 365 contra 188 del brazo sin
+            # mezcla.
+            if fm.algorithm == "ingredient_derived" and not os.environ.get("FORECAST_DIA_INCIERTO_OFF"):
+                fracciones = fraccion_que_abre(tenant.id, warehouse_id, closed_dows=closed_dows)
+                if fracciones:
+                    factores = dict(factores or {})
+                    for f in daily_forecasts:
+                        p = fracciones.get(f["date"].weekday())
+                        if p is not None:
+                            factores[f["date"]] = Decimal(str(factores.get(f["date"], 1))) * Decimal(str(p))
             mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows,
                               factores_nivel=factores)
             mezcla = {"peso_modelo": float(PESO_MODELO_MEZCLA),

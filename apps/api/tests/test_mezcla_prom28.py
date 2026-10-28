@@ -346,3 +346,38 @@ class TestConFeriado:
         assert normal == D("32.500")
         assert en_feriado == D("17.500"), (
             "el modelo del derivado ya trae el feriado: 0,25 x 10 + 0,75 x 40 x 0,5")
+
+
+@pytest.mark.django_db
+class TestConDiaIncierto:
+    """El dia incierto va UNA vez a las dos partes (28/10/26), igual que el
+    feriado. Al derivado no se lo pondera despues porque sus bebidas ya vienen
+    ponderadas, pero su NIVEL es demanda propia: sin esto la Leche entera
+    publicaba un sabado incierto como un dia normal (911 ml el sabado 7-nov)."""
+
+    def _caso(self, tenant, warehouse, product, algoritmo):
+        sabados_cerrados = 5   # cerro 5 de los ultimos 8 sabados: x 3/8
+        def venta(i):
+            d = hoy() - datetime.timedelta(days=i)
+            if d.weekday() == 5 and (i - 1) // 7 < sabados_cerrados:
+                return None
+            return 40
+        _historia(tenant, product, warehouse, venta)
+        sab, jue = _proximo(5), _proximo(3)
+        fm = ForecastModel.objects.create(
+            tenant=tenant, product=product, warehouse=warehouse, algorithm=algoritmo,
+            demand_pattern="smooth", is_active=True, model_params={}, metrics={})
+        services.save_forecasts(tenant, product, warehouse.id, fm, [_dia(jue), _dia(sab)], D("70"), {})
+        pub = {f.forecast_date: f.qty_predicted for f in _publicado(product)}
+        return pub[sab], pub[jue]
+
+    def test_derivado_el_nivel_se_pondera(self, tenant, store, warehouse, product):
+        sab, jue = self._caso(tenant, warehouse, product, "ingredient_derived")
+        assert jue == D("32.500")                                        # 2,5 + 30
+        assert sab == D("13.750"), (
+            "el modelo del derivado ya viene ponderado: 0,25 x 10 + 0,75 x 40 x 3/8, no %s" % sab)
+
+    def test_organico_se_pondera_lo_mezclado(self, tenant, store, warehouse, product):
+        sab, jue = self._caso(tenant, warehouse, product, "theta")
+        assert jue == D("32.500")
+        assert sab == D("12.188")                                        # (2,5 + 30) x 3/8
