@@ -48,10 +48,14 @@ class TestElCorreoNombraLosProductos:
         _s, plain, _h = render_low_stock_v2(tenant, [_alerta("Queso")], [])
         assert "Queso" in plain
 
-    def test_la_bodega_sigue_apareciendo(self, tenant):
-        """El nombre no puede haber reemplazado a la bodega."""
+    def test_la_bodega_aparece_si_hay_mas_de_una(self, tenant):
+        """Desde el 29/10/26 la bodega solo se muestra si el negocio tiene mas
+        de una: con una sola es ruido en cada fila."""
+        otra = dict(_alerta("Cafe"), warehouse="Bodega Local 2")
+        _s, _p, html = render_low_stock_v2(tenant, [_alerta("Te"), otra], [])
+        assert "Bodega Principal" in html and "Bodega Local 2" in html
         _s, _p, html = render_low_stock_v2(tenant, [_alerta("Te")], [])
-        assert "Bodega Principal" in html
+        assert "Bodega Principal" not in html
 
     def test_sin_criticos_no_revienta(self, tenant):
         _s, _p, html = render_low_stock_v2(tenant, [], [_alerta("Cacao", on_hand=2)])

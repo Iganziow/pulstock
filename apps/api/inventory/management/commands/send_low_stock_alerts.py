@@ -28,7 +28,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
-from django.db.models import F, Sum
+from django.db.models import Count, F, Q, Sum
 
 
 class Command(BaseCommand):
@@ -51,6 +51,12 @@ class Command(BaseCommand):
     # desde el primer email. La regla #3 se activa POR PRODUCTO solo
     # cuando su modelo tiene madurez suficiente.
     FORECAST_MIN_DATA_POINTS = 14         # >=14 días de historial del producto
+    # "Se vende sin stock cargado": vendio al menos estos dias en la ventana y
+    # ninguno cerro con stock. Ver _compute_alerts.
+    SIN_CONTROL_DIAS = 60
+    SIN_CONTROL_MIN_DIAS = 3
+    # Cuantos dias cubre la cantidad sugerida en el correo.
+    DIAS_A_CUBRIR = 7
     FORECAST_REJECTED_CONFIDENCE = "very_low"   # excluir modelos very_low
 
     def add_arguments(self, parser):
@@ -131,6 +137,7 @@ class Command(BaseCommand):
                 critical_alerts=critical,
                 warning_alerts=warning,
                 truncated_count=truncated,
+                sin_control=getattr(self, "sin_control_por_tenant", {}).get(tenant.id, []),
             )
 
             # Un correo por persona, no uno con todos en copia: cada quien ve
@@ -149,7 +156,7 @@ class Command(BaseCommand):
                     )
                     sent += 1
                     self.stdout.write(self.style.SUCCESS(
-                        f"  [sent] {u.email} → {len(alerts)} alertas"
+                        f"  [sent] {u.email} → {len(shown)} alertas"
                     ))
                 except Exception as e:
                     self.stderr.write(self.style.ERROR(
@@ -187,6 +194,35 @@ class Command(BaseCommand):
             row["product_id"]: float(row["total"] or 0) / self.AVG_DAILY_WINDOW
             for row in recent_qs
         }
+        # Uso real (29/10/26): DailySales trae tambien lo que se consume por
+        # receta. Con solo las ventas directas, un insumo como la leche daba
+        # 0 por dia y el correo no podia decir cuanto se usa ni cuanto pedir.
+        # Se toma el mayor de los dos para no perder ventas del dia en curso.
+        from forecast.models import DailySales
+        uso_qs = (
+            DailySales.objects.filter(tenant=tenant, date__gte=recent_window, date__lt=today)
+            .values("product_id").annotate(total=Sum("qty_sold"))
+        )
+        for row in uso_qs:
+            uso = float(row["total"] or 0) / self.AVG_DAILY_WINDOW
+            if uso > avg_daily_map.get(row["product_id"], 0.0):
+                avg_daily_map[row["product_id"]] = uso
+
+        # Productos que se venden SIN stock cargado (29/10/26). El Te vendio
+        # 21 en dos semanas y en 60 dias nunca cerro un dia con stock: no hay
+        # nada que reponer, es inventario que no se registra. Avisarlo como
+        # "critico" todos los dias es ruido; va a una nota aparte.
+        desde_60 = today - timedelta(days=self.SIN_CONTROL_DIAS)
+        sin_control = set()
+        for row in (
+            DailySales.objects.filter(tenant=tenant, date__gte=desde_60, qty_sold__gt=0)
+            .values("product_id")
+            .annotate(dias=Count("id"), con_stock=Count("id", filter=Q(closing_stock__gt=0)))
+        ):
+            if row["dias"] >= self.SIN_CONTROL_MIN_DIAS and row["con_stock"] == 0:
+                sin_control.add(row["product_id"])
+        self.sin_control_por_tenant = getattr(self, "sin_control_por_tenant", {})
+        self.sin_control_por_tenant[tenant.id] = []
 
         # ── (b) Predicciones del forecast — CON GATE DE MADUREZ ────────
         # IMPORTANTE: solo confiamos en la predicción cuando el modelo del
@@ -230,6 +266,19 @@ class Command(BaseCommand):
                 if cur is None or row["days_to_stockout"] < cur:
                     forecast_map[key] = row["days_to_stockout"]
 
+        # Lo que se espera usar en los proximos DIAS_A_CUBRIR dias, segun lo
+        # publicado (29/10/26). Es lo que decide cuanto pedir: el promedio de
+        # 14 dias no ve los dias fuertes que vienen (la leche "alcanza 2 dias"
+        # con un promedio que decia 5).
+        proximos = {}
+        for row in (
+            Forecast.objects.filter(
+                tenant=tenant, forecast_date__gt=today,
+                forecast_date__lte=today + timedelta(days=self.DIAS_A_CUBRIR),
+            ).values("product_id", "warehouse_id").annotate(total=Sum("qty_predicted"))
+        ):
+            proximos[(row["product_id"], row["warehouse_id"])] = float(row["total"] or 0)
+
         # ── (c) Recorrer cada StockItem y ver si dispara alguna regla ──
         #
         # Se EXCLUYEN los productos con receta. Un capuccino, un latte o un
@@ -253,6 +302,9 @@ class Command(BaseCommand):
             product = item.product
             warehouse_name = item.warehouse.name if item.warehouse else "—"
             avg_daily = avg_daily_map.get(product.id, 0.0)
+            if product.id in sin_control and on_hand <= 0:
+                self.sin_control_por_tenant[tenant.id].append(product.name)
+                continue
 
             alert = self._build_alert(
                 item=item,
@@ -263,6 +315,7 @@ class Command(BaseCommand):
                 forecast_days=forecast_map.get((product.id, item.warehouse_id)),
             )
             if alert:
+                alert["proximos_dias"] = proximos.get((product.id, item.warehouse_id))
                 alerts.append(alert)
 
         # Ordenar por (prioridad, rotación desc, días restantes asc):
@@ -303,6 +356,7 @@ class Command(BaseCommand):
             return {
                 "product_name": product.name,
                 "sku": product.sku or "—",
+                "unit": (product.unit or "UN").upper(),
                 "warehouse": warehouse_name,
                 "on_hand": on_hand,
                 "reason": "stockout",
@@ -320,6 +374,7 @@ class Command(BaseCommand):
             return {
                 "product_name": product.name,
                 "sku": product.sku or "—",
+                "unit": (product.unit or "UN").upper(),
                 "warehouse": warehouse_name,
                 "on_hand": on_hand,
                 "reason": "manual",
@@ -336,6 +391,7 @@ class Command(BaseCommand):
             return {
                 "product_name": product.name,
                 "sku": product.sku or "—",
+                "unit": (product.unit or "UN").upper(),
                 "warehouse": warehouse_name,
                 "on_hand": on_hand,
                 "reason": "forecast",
@@ -386,6 +442,7 @@ class Command(BaseCommand):
                 return {
                     "product_name": product.name,
                     "sku": product.sku or "—",
+                "unit": (product.unit or "UN").upper(),
                     "warehouse": warehouse_name,
                     "on_hand": on_hand,
                     "reason": "auto",

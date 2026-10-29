@@ -32,30 +32,13 @@ Context:
   </tr>
 </table>
 
-<!-- Texto introductorio -->
-<p style="margin:0 0 22px;font-size:14px;line-height:1.65;color:#3F3F46;">
-  Estos son los productos que necesitan atención hoy. Cada uno te indica
-  <b>por qué</b> entró al listado: si lo pediste con un mínimo manual,
-  si se va a acabar pronto según tu ritmo de venta, o si el modelo
-  predice un quiebre.
-  {% if truncated_count %}
-  <br><br>
-  <span style="color:#71717A;font-size:13px;">
-  Te mostramos los <b>{{ critical_count|add:low_count }}</b> productos de
-  mayor rotación. Hay <b>{{ truncated_count }}</b> producto{{ truncated_count|pluralize:"s" }}
-  más que también necesita{{ truncated_count|pluralize:"n" }} atención —
-  vas a verlos al hacer click abajo.
-  </span>
-  {% endif %}
-</p>
-
 {% if critical_items %}
-<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">🚨 Críticos · Reponer hoy</h2>
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Reponer hoy</h2>
 {% include "emails/_partials/stock_table_v2.html" with items=critical_items fg="#DC2626" bg="#FEF2F2" line="#FECACA" is_critical=True %}
 {% endif %}
 
 {% if low_items %}
-<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">⚠️ Bajo umbral · Reponer pronto</h2>
+<h2 style="margin:8px 0 14px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;color:#18181B;letter-spacing:-0.3px;">Reponer pronto</h2>
 {% include "emails/_partials/stock_table_v2.html" with items=low_items fg="#D97706" bg="#FFFBEB" line="#FDE68A" is_critical=False %}
 {% endif %}
 
@@ -69,16 +52,6 @@ Context:
 </table>
 {% endif %}
 
-<!-- Notita pedagógica al final sobre cómo funciona el sistema -->
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:8px 0 0;">
-  <tr>
-    <td bgcolor="#EEF2FF" style="background:#EEF2FF;border-radius:10px;padding:14px 18px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:12.5px;color:#3F3F46;line-height:1.55;">
-      <b style="color:#4F46E5;">💡 Cómo decidimos esto:</b>
-      Comparamos tu stock contra <b>tres reglas</b>: el mínimo manual que pusiste en cada producto,
-      un mínimo automático basado en cuánto vendes (rotación × 2 días), y la predicción del modelo
-      de cuándo se va a acabar. Si alguna de las tres se cumple, te avisamos.
-    </td>
-  </tr>
-</table>
+
 
 {% endblock %}

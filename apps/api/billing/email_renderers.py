@@ -483,54 +483,127 @@ def render_low_stock(tenant, critical_items, low_items, snapshot_at=None):
     return subject, plain, html
 
 
-def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None, truncated_count=0):
-    """Email enriquecido con razón explícita por producto.
+def _cantidad(valor, unidad):
+    """Una cantidad como la diria una persona: 2.618 ml -> "2,6 L"; 1.500 g ->
+    "1,5 kg"; 3 unidades -> "3 un.". Formato chileno (coma decimal, punto de
+    miles)."""
+    unidad = (unidad or "UN").upper()
+    v = float(valor or 0)
+    if unidad == "ML" and abs(v) >= 1000:
+        v, txt = v / 1000, "L"
+    elif unidad == "GR" and abs(v) >= 1000:
+        v, txt = v / 1000, "kg"
+    else:
+        txt = {"ML": "ml", "GR": "g", "KG": "kg", "L": "L"}.get(unidad, unidad.lower())
+        if unidad == "UN":
+            txt = "unidad" if abs(v) == 1 else "unidades"
+    if abs(v) >= 100 or float(v).is_integer():
+        num = f"{v:,.0f}"
+    else:
+        num = f"{v:,.1f}"
+    num = num.replace(",", "§").replace(".", ",").replace("§", ".")
+    return f"{num} {txt}"
 
-    Cada alerta viene con:
-      - product_name, sku, warehouse, on_hand, avg_daily, days_left
-      - reason_text: prosa que explica por qué entra al email, ej:
-          "Sin stock"
-          "Bajo tu mínimo de 10"
-          "Te alcanza para 1.2 días (vendés 4/día)"
-          "Predicción: se acaba en ~2 días"
 
-    Usa el template low_stock_v2.html (más limpio: columnas Producto/Stock/Razón
-    en vez del viejo Producto/Ubicación/Stock/Mín/Pedir).
+def _dias(d, con_en=False):
+    """"hoy" / "mañana" / "~3 días" (o "en ~3 días" para "se acaba ...")."""
+    if d is None:
+        return None
+    if d < 1:
+        return "hoy"
+    if d < 1.5:
+        return "mañana"
+    return ("en " if con_en else "") + f"~{int(round(d))} días"
+
+
+def _explicar_alerta(a, dias_a_cubrir=7):
+    """Lo que el destinatario necesita para decidir, sin contexto previo:
+    cuanto queda, cuanto se usa, por que esta en la lista y cuanto pedir."""
+    unidad = a.get("unit") or "UN"
+    on_hand = max(float(a.get("on_hand") or 0), 0.0)
+    uso = float(a.get("avg_daily") or 0)
+    dias = a.get("days_left")
+    razon = a.get("reason")
+
+    if on_hand <= 0:
+        estado = "Sin stock"
+    elif razon == "manual":
+        estado = "Bajo tu mínimo"
+    elif dias is not None:
+        estado = "Se acaba " + _dias(float(dias)) if float(dias) < 1.5 else "Alcanza " + _dias(float(dias))
+    else:
+        estado = "Stock bajo"
+
+    quedan = "No queda nada" if on_hand <= 0 else f"Quedan {_cantidad(on_hand, unidad)}"
+    usa = f"se usan ~{_cantidad(uso, unidad)} por día" if uso > 0 else "casi no rota"
+    situacion = f"{quedan} · {usa}"
+
+    if razon == "stockout":
+        porque = (f"Se acabó y en las últimas 2 semanas se usaron {_cantidad(uso * 14, unidad)}."
+                  if uso > 0 else "Se acabó y tiene un mínimo definido por ti.")
+    elif razon == "manual":
+        porque = f"Está bajo el mínimo que definiste ({_cantidad(a.get('threshold') or 0, unidad)})."
+    elif razon == "forecast":
+        porque = f"Según el pronóstico de los próximos días, se acaba {_dias(float(dias), con_en=True)}."
+    elif razon == "auto":
+        porque = ("Quedan menos días de los que tarda en reponerse." if dias is not None
+                  else "Rota poco, pero ya está bajo el mínimo que el sistema calculó para él.")
+    else:
+        porque = a.get("reason_text", "")
+
+    # Cuanto pedir: lo que se espera usar en los proximos dias segun el
+    # pronostico (si hay), si no el promedio; y nunca menos que lo necesario
+    # para llegar al minimo que definio el dueño.
+    # El mayor de los dos: el pronostico ve los dias fuertes que vienen, pero
+    # hoy trae ceros que no son reales (el "cero de hoy" de seasonal_naive: la
+    # leche del 29-oct sumaba 3,8 L para 7 dias con dos dias en 0, y sugeria
+    # pedir 432 ml). El promedio de uso x dias es el piso.
+    necesidad = max(float(a.get("proximos_dias") or 0), uso * dias_a_cubrir)
+    if razon == "manual" and a.get("threshold"):
+        necesidad = max(necesidad, float(a["threshold"]))
+    pedir = max(0.0, necesidad - on_hand)
+    if unidad == "UN":
+        import math
+        pedir = math.ceil(pedir)
+    if pedir <= 0:
+        sugerencia = ""
+    elif razon == "manual" and a.get("threshold") and float(a["threshold"]) >= necesidad - 1e-9:
+        sugerencia = f"Para llegar a tu mínimo: pedir ~{_cantidad(pedir, unidad)}"
+    else:
+        sugerencia = f"Para cubrir {dias_a_cubrir} días: pedir ~{_cantidad(pedir, unidad)}"
+    return estado, situacion, porque, sugerencia
+
+
+def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=None,
+                        truncated_count=0, sin_control=None):
+    """Correo de stock bajo (29/10/26: reescrito para leerse sin contexto).
+
+    Antes cada fila decia solo "Sin stock / sin stock" o "Predicción: se acaba
+    en ~1 día / 1 d": no decia cuanto quedaba, cuanto se usa ni cuanto pedir,
+    y avisaba como "critico" productos que se venden sin stock cargado (el Te,
+    todos los dias). Ahora cada fila trae estado, situacion (cuanto queda y
+    cuanto se usa, con su unidad), el porque en palabras y cuanto pedir para
+    7 dias. Lo que se vende sin stock cargado no se avisa (no hay nada que
+    reponer); `sin_control` queda en la firma por compatibilidad.
     """
     snapshot_at = snapshot_at or timezone.now()
+    sin_control = list(sin_control or [])
 
     def _prep(alerts):
-        # Pasamos los items casi tal cual al template — solo redondeamos on_hand
-        # para que se vea limpio en la tabla.
         out = []
         for a in alerts:
-            on_hand_raw = a["on_hand"]
-            if on_hand_raw <= 0:
-                on_hand = 0
-            elif on_hand_raw >= 10:
-                on_hand = int(on_hand_raw)
-            else:
-                on_hand = round(on_hand_raw, 1)
+            estado, situacion, porque, sugerencia = _explicar_alerta(a)
             out.append({
-                # La plantilla lee `name`, igual que los otros dos correos de
-                # producto (render_abc_weekly y render_low_stock lo traducen
-                # asi). Este mandaba `product_name` y el HTML quedaba con el
-                # nombre VACIO: Django resuelve una clave inexistente como
-                # cadena vacia, sin avisar. Visto en produccion el 03/09/26:
-                # el correo listaba "Sin stock" cuatro veces sin decir de que
-                # producto. El texto plano si los mostraba (usa las alertas
-                # originales), asi que el defecto solo se veia en HTML, que es
-                # lo que abre casi todo el mundo.
+                # La plantilla lee `name` (ver tests/test_correo_stock_bajo.py:
+                # con `product_name` el HTML salia sin el nombre del producto).
                 "name": a["product_name"],
-                # Se mantiene tambien con el nombre largo por si alguna
-                # plantilla futura lo espera asi.
                 "product_name": a["product_name"],
                 "sku": a["sku"],
                 "warehouse": a["warehouse"],
-                "on_hand": on_hand,
-                "reason_text": a.get("reason_text", ""),
-                "days_left": a.get("days_left"),
-                "avg_daily": a.get("avg_daily", 0),
+                "estado": estado,
+                "situacion": situacion,
+                "porque": porque,
+                "sugerencia": sugerencia,
             })
         return out
 
@@ -538,17 +611,21 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
     low = _prep(warning_alerts)
     total_shown = len(critical) + len(low)
     total_full = total_shown + (truncated_count or 0)
-    flag = "🚨" if critical else "⚠️"
-    subject = f"{flag} Stock bajo — {total_full} producto{'s' if total_full != 1 else ''} ({tenant.name})"
 
-    base_subtitle = f"{tenant.name} · revisado a las {snapshot_at.strftime('%H:%M del %d/%m/%Y')}."
+    partes = []
+    sin_stock = sum(1 for a in critical_alerts if float(a.get("on_hand") or 0) <= 0)
+    if sin_stock:
+        partes.append(f"{sin_stock} sin stock")
+    otros_criticos = len(critical) - sin_stock
+    if otros_criticos:
+        partes.append(f"{otros_criticos} se acaba{'n' if otros_criticos != 1 else ''} pronto")
+    if low:
+        partes.append(f"{len(low)} por reponer")
+    resumen = ", ".join(partes) or "sin alertas"
+    subject = f"Stock: {resumen} — {tenant.name}"
 
-    if critical and low:
-        hero = f"{len(critical)} crítico{'s' if len(critical) != 1 else ''} y {len(low)} bajo umbral"
-    elif critical:
-        hero = f"{len(critical)} producto{'s' if len(critical) != 1 else ''} crítico{'s' if len(critical) != 1 else ''}"
-    else:
-        hero = f"{len(low)} producto{'s' if len(low) != 1 else ''} bajo umbral"
+    base_subtitle = f"{tenant.name} · revisado el {snapshot_at.strftime('%d/%m a las %H:%M')}."
+    hero = resumen[:1].upper() + resumen[1:]
     if truncated_count:
         hero += f" (+{truncated_count} más)"
 
@@ -565,6 +642,7 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
         critical_items=critical,
         low_items=low,
         truncated_count=truncated_count,
+        varias_bodegas=len({a.get("warehouse") for a in list(critical_alerts) + list(warning_alerts)}) > 1,
         cta_text=(
             f"Ver los otros {truncated_count} producto{'s' if truncated_count != 1 else ''}"
             if truncated_count else "Ver inventario completo"
@@ -573,24 +651,20 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
         secondary_text="Configurar alertas",
         secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
     )
-    # Usa el template v2 con columnas Producto/Stock/Por qué (no el viejo
-    # con columnas Mín/Pedir que asumía números crudos)
     html = render_to_string("emails/low_stock_v2.html", ctx)
 
-    # Plain text claro y accionable
-    lines = [f"{flag} Pulstock — Stock bajo en {tenant.name}", ""]
-    if critical:
-        lines.append(f"🚨 Críticos ({len(critical)}):")
-        for a in critical_alerts:
-            lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
-        lines.append("")
-    if low:
-        lines.append(f"⚠️ Bajo umbral ({len(low)}):")
-        for a in warning_alerts:
-            lines.append(f"  • {a['product_name']} — {a.get('reason_text', '')}")
+    lines = [f"Pulstock — Stock en {tenant.name}: {resumen}", ""]
+    for titulo, items in (("REPONER HOY", critical), ("REPONER PRONTO", low)):
+        if not items:
+            continue
+        lines.append(f"{titulo} ({len(items)}):")
+        for it in items:
+            lines.append(f"  - {it['name']}: {it['estado']}. {it['situacion']}.")
+            if it["sugerencia"]:
+                lines.append(f"    {it['sugerencia']}.")
         lines.append("")
     if truncated_count:
-        lines.append(f"… y {truncated_count} producto{'s' if truncated_count != 1 else ''} más con menor rotación.")
+        lines.append(f"... y {truncated_count} producto{'s' if truncated_count != 1 else ''} más con menor rotación.")
         lines.append("")
     lines.append(f"Ver detalle completo: {APP_URL}/dashboard/forecast")
     plain = "\n".join(lines)
