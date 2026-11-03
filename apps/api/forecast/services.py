@@ -2021,6 +2021,30 @@ def armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days):
 
 
 @transaction.atomic
+def _sin_modelo_usar_prior(tenant, product, warehouse_id, today, horizon, stock_items, stats):
+    """Red de seguridad: un producto que se vende no puede quedar sin pronostico.
+
+    Antes el respaldo a category_prior exigia que el producto tuviera
+    categoria con perfil. Sin categoria, se descartaba en silencio: la
+    "Galletas craqueladas naranja" (30/10/26) se creo con stock el 13-oct, vendio
+    2 el 29, y como su historia contaba desde el 13 (18 dias, mas que el minimo)
+    fue al camino normal, ningun algoritmo pudo con una sola venta, y quedo sin
+    modelo. train_sparse_product ya sabe arreglarselas sin categoria (promedio
+    de la bodega, o un minimo), asi que se le pasan todos los perfiles.
+    """
+    from forecast.models import CategoryDemandProfile
+    perfiles = {
+        (cp.category_id, cp.warehouse_id): cp
+        for cp in CategoryDemandProfile.objects.filter(tenant=tenant)
+    }
+    try:
+        train_sparse_product(tenant, product, warehouse_id, today,
+                             horizon, stock_items, perfiles, stats)
+    except Exception as e:
+        logger.warning("Fallback a category_prior fallo para product %s: %s", product.id, e)
+        stats["skipped"] += 1
+
+
 def train_product_model(tenant, product, warehouse_id, today,
                         min_days, horizon, window, stock_items, stats):
     """Train a forecast model for one product in one warehouse."""
@@ -2029,7 +2053,7 @@ def train_product_model(tenant, product, warehouse_id, today,
 
     serie = armar_serie_entrenamiento(tenant, product, warehouse_id, today, min_days)
     if serie is None:
-        stats["skipped"] += 1
+        _sin_modelo_usar_prior(tenant, product, warehouse_id, today, horizon, stock_items, stats)
         return
     ds_qs = serie["ds_qs"]
     raw_series = serie["raw_series"]
@@ -2131,26 +2155,7 @@ def train_product_model(tenant, product, warehouse_id, today,
         # Ahora intentamos category_prior como red de seguridad — al
         # menos da una predicción razonable basada en la mediana de
         # la categoría. Importa más tener algo malo que nada.
-        try:
-            from forecast.management.commands.train_forecast_models import Command
-            from forecast.models import CategoryDemandProfile
-            cp = CategoryDemandProfile.objects.filter(
-                tenant=tenant, category=product.category, warehouse_id=warehouse_id,
-            ).first() if product.category_id else None
-            if cp:
-                category_profiles = {(cp.category_id, cp.warehouse_id): cp}
-                from forecast.services import train_sparse_product
-                train_sparse_product(
-                    tenant, product, warehouse_id, today,
-                    horizon, stock_items, category_profiles, stats,
-                )
-                return
-        except Exception as e:
-            logger.warning(
-                "Fallback a category_prior falló para product %s: %s",
-                product.id, e,
-            )
-        stats["skipped"] += 1
+        _sin_modelo_usar_prior(tenant, product, warehouse_id, today, horizon, stock_items, stats)
         return
 
     # Post-procesos retirados (13/10/26). Aca se aplicaban a best["forecasts"]
