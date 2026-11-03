@@ -452,18 +452,24 @@ class ABCAnalysisPDFView(APIView):
             date_from=date_from, date_to=date_to,
         )
 
-        headers = ["#", "Producto", "SKU", "Clase", "Revenue", "Costo", "Utilidad", "Margen", "Contrib.%"]
+        headers = ["#", "Producto", "SKU", "Clase", "Ingresos", "Costo", "Utilidad", "Margen", "Contrib.%"]
+        clp = lambda v: f"${float(v or 0):,.0f}".replace(",", ".")
         rows = []
         # get_abc_analysis entrega la lista en "results" (no "items").
         for item in data.get("results", []):
+            # Margen None = costo no confiable (se vendio sin costo cargado):
+            # va el estimado con ≈ o "—", nunca el 100% registrado.
+            if item.get("margin_pct") is not None:
+                margen = f"{item['margin_pct']}%"
+            elif item.get("margin_pct_at_current_cost") is not None:
+                margen = f"≈{item['margin_pct_at_current_cost']}%"
+            else:
+                margen = "—"
             rows.append([
                 item.get("rank", ""), item.get("product_name", ""),
                 item.get("sku", ""), item.get("abc_class", ""),
-                f"${float(item.get('revenue', 0)):,.0f}",
-                f"${float(item.get('cost', 0)):,.0f}",
-                f"${float(item.get('profit', 0)):,.0f}",
-                f"{item.get('margin_pct', 0)}%",
-                f"{item.get('contribution_pct', 0)}%",
+                clp(item.get("revenue")), clp(item.get("cost")), clp(item.get("profit")),
+                margen, f"{item.get('contribution_pct', 0)}%",
             ])
 
         return _make_pdf("Análisis ABC", headers, rows,

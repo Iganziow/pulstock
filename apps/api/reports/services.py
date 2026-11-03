@@ -974,17 +974,27 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
     if warehouse_id:
         qs = qs.filter(sale__warehouse_id=warehouse_id)
 
+    # Lineas vendidas sin costo registrado: el producto no tenia costo cargado
+    # (o su receta estaba incompleta) cuando se vendio. Sobre ellas el margen
+    # sale 100% y la utilidad queda inflada. Se cuentan para no mostrar ese
+    # margen como si fuera real.
+    sin_costo = Q(line_cost=0, line_total__gt=0)
     agg = list(
-        qs.values("product_id", "product__name", "product__sku", "product__category__name")
+        qs.values("product_id", "product__name", "product__sku", "product__unit",
+                  "product__category__name")
         .annotate(
             revenue=Coalesce(Sum("line_total"), D0),
             cost=Coalesce(Sum("line_cost"), D0),
             profit=Coalesce(Sum("line_gross_profit"), D0),
             qty=Coalesce(Sum("qty"), D0),
             sale_count=Count("sale_id", distinct=True),
+            line_count=Count("id"),
+            lines_without_cost=Count("id", filter=sin_costo),
+            revenue_without_cost=Coalesce(Sum("line_total", filter=sin_costo), D0),
         )
         .order_by(f"-{criterion}")
     )
+    costo_actual = _costo_actual_por_producto(t_id, [r["product_id"] for r in agg])
 
     # Get current stock for each product (raw on_hand + stock_value).
     stock_map = {}
@@ -1046,17 +1056,32 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
         else:
             current_stock = stk.get("stock", D0)
 
+        cost_note = _nota_costo(r, costo_actual.get(r["product_id"]))
+        cost_now = costo_actual.get(r["product_id"])
+        margin_at_current = None
+        if cost_now and r["revenue"] > 0:
+            margin_at_current = _margin_pct(r["revenue"] - r["qty"] * cost_now, r["revenue"])
+
         results.append({
             "rank": i + 1,
             "product_id": r["product_id"],
             "product_name": r["product__name"],
             "sku": r["product__sku"] or "",
+            "unit": r["product__unit"] or "UN",
             "category": r["product__category__name"] or "Sin categoría",
             "abc_class": abc_class,
             "revenue": str(r["revenue"]),
             "cost": str(r["cost"]),
             "profit": str(r["profit"]),
-            "margin_pct": str(_margin_pct(r["profit"], r["revenue"])),
+            # Sin costo confiable no hay margen: igual que en la lista de
+            # precios, un margen sobre un costo parcial es falso. Queda
+            # `margin_pct_at_current_cost` como estimacion con el costo de hoy.
+            "margin_pct": (str(_margin_pct(r["profit"], r["revenue"]))
+                           if not cost_note else None),
+            "cost_complete": not cost_note,
+            "cost_note": cost_note,
+            "margin_pct_at_current_cost": (str(margin_at_current)
+                                           if margin_at_current is not None else None),
             "qty": str(r["qty"]),
             "sale_count": r["sale_count"],
             "contribution_pct": str(Decimal(str(pct)).quantize(Decimal("0.1"))),
@@ -1086,13 +1111,65 @@ def get_abc_analysis(t_id, s_id, warehouse_id=None, criterion="revenue",
             "stock_value": str(cls_stock),
         }
 
+    incompletos = [r for r in results if not r["cost_complete"]]
     return {
         "meta": {
             "date_from": str(date_from), "date_to": str(date_to),
             "warehouse_id": warehouse_id, "criterion": criterion,
             "total_products": len(results),
             "grand_total": str(Decimal(str(grand_total)).quantize(Decimal("1"))),
+            # Cuanta venta esta detras de margenes que no se pueden creer: la
+            # utilidad total incluye esas lineas con costo 0 o incompleto.
+            "cost_incomplete_products": len(incompletos),
+            "cost_incomplete_revenue": str(sum((Decimal(r["revenue"]) for r in incompletos), D0)),
         },
         "class_summary": class_summary,
         "results": results,
     }
+
+
+def _costo_actual_por_producto(t_id, product_ids):
+    """Costo unitario de hoy: promedio ponderado del stock (respaldo
+    Product.cost) y, para lo que se prepara, la receta cuando esta completa.
+    Una receta a medias NO da costo (daria un numero verosimil y bajo); en ese
+    caso queda el costo que el dueno cargo a mano, si lo hay. Es el que
+    delata al chai latte registrado a $200 con un costo cargado de $1.200."""
+    if not product_ids:
+        return {}
+    costo = {}
+    for si in (StockItem.objects
+               .filter(tenant_id=t_id, product_id__in=product_ids, avg_cost__gt=0)
+               .values("product_id").annotate(c=Avg("avg_cost"))):
+        costo[si["product_id"]] = si["c"]
+    for p in Product.objects.filter(tenant_id=t_id, id__in=product_ids, cost__gt=0) \
+                            .values_list("id", "cost"):
+        costo.setdefault(p[0], p[1])
+    from catalog.recipe_costing import costos_de_receta
+    for pid, r in costos_de_receta(t_id, product_ids).items():
+        if r["completo"] and r["costo"] > 0:
+            costo[pid] = r["costo"]
+    return costo
+
+
+def _nota_costo(r, cost_now):
+    """Por que no se puede creer el margen registrado de este producto, o ""
+    si se puede. En espanol y corto: va en el correo y en la tabla."""
+    if r["revenue"] <= 0:
+        return ""
+    if r["lines_without_cost"] >= r["line_count"]:
+        return "sin costo registrado"
+    if r["lines_without_cost"]:
+        return "%d de %d ventas sin costo registrado" % (r["lines_without_cost"], r["line_count"])
+    # Costo registrado muy por debajo del de hoy: tipico de una receta que
+    # al venderse solo tenia costeado un ingrediente (jugo a $11 el vaso).
+    # Aca todas las lineas tienen costo, asi que cost/qty es el unitario.
+    if cost_now and r["qty"] > 0:
+        unitario = r["cost"] / r["qty"]
+        if unitario < cost_now / 2:
+            return "costo registrado ($%s) muy por debajo del actual ($%s)" % (
+                _clp_simple(unitario), _clp_simple(cost_now))
+    return ""
+
+
+def _clp_simple(n):
+    return f"{n:,.0f}".replace(",", ".")

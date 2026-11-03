@@ -33,9 +33,11 @@ def send_weekly_abc_report(self):
     from stores.models import Store
     from reports.services import get_abc_analysis
 
-    now = timezone.now()
-    date_to = now.date()
-    date_from = date_to - timedelta(days=90)
+    # Sale el lunes a las 8:00: la ventana cierra el domingo (ayer), asi el
+    # lunes a medias no entra, y son 90 dias exactos.
+    hoy = timezone.localdate()
+    date_to = hoy - timedelta(days=1)
+    date_from = date_to - timedelta(days=89)
 
     sent = 0
     for tenant in Tenant.objects.filter(is_active=True):
@@ -84,6 +86,8 @@ def send_weekly_abc_report(self):
             items_c=c_items,
             total_revenue=total_revenue,
             total_profit=total_profit,
+            semana=resumen_semana(tenant.id, store.id, date_to),
+            meta=data.get("meta"),
         )
 
         # Un correo por persona: cada quien puede darse de baja sin afectar
@@ -106,5 +110,29 @@ def send_weekly_abc_report(self):
                              u.email, tenant.id, exc)
 
     logger.info("send_weekly_abc_report: %d emails sent", sent)
+
+
+def resumen_semana(t_id, s_id, domingo):
+    """La semana que cerro (lunes a `domingo`) contra la anterior: venta y
+    boletas. El ABC de 90 dias casi no cambia de un lunes a otro; esto es lo
+    que si paso esta semana."""
+    from django.db.models import Count, Sum
+    from sales.models import Sale
+
+    def _bloque(desde, hasta):
+        a = Sale.objects.filter(
+            tenant_id=t_id, store_id=s_id, status=Sale.STATUS_COMPLETED,
+            sale_type=Sale.SALE_TYPE_VENTA,
+            created_at__date__gte=desde, created_at__date__lte=hasta,
+        ).aggregate(total=Sum("total"), n=Count("id"))
+        return {"desde": desde, "hasta": hasta,
+                "total": a["total"] or 0, "boletas": a["n"] or 0}
+
+    actual = _bloque(domingo - timedelta(days=6), domingo)
+    anterior = _bloque(domingo - timedelta(days=13), domingo - timedelta(days=7))
+    variacion = None
+    if anterior["total"]:
+        variacion = (float(actual["total"]) - float(anterior["total"])) / float(anterior["total"]) * 100
+    return {"actual": actual, "anterior": anterior, "variacion_pct": variacion}
     return {"sent": sent}
 

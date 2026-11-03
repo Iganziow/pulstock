@@ -388,56 +388,135 @@ def render_trial_expired(sub, products_count=0, products_limit=None):
 
 
 # ─────────── 09 ABC weekly ───────────
+MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def _fecha(d, con_anio=False):
+    """"4 ago" / "2 nov 2026": strftime('%b') sale en ingles."""
+    s = f"{d.day} {MESES[d.month - 1]}"
+    return f"{s} {d.year}" if con_anio else s
+
+
+def _clp(n):
+    """"$6.624.020": la cifra completa, como la ve el dueno en su caja. "$6.6M"
+    obliga a convertir y mezcla el punto decimal ingles con el de miles."""
+    return f"${float(n or 0):,.0f}".replace(",", ".")
+
+
+def _margen_txt(i):
+    """Que decir del margen de un producto del ABC.
+
+    Con costo completo, el registrado. Si el costo no es confiable (se vendio
+    sin costo cargado o con la receta a medias), NO se muestra el registrado:
+    saldria 100% o negativo. Va el estimado con el costo de hoy, marcado con
+    ≈, o "—" si tampoco hay costo de hoy."""
+    if i.get("cost_complete", True) and i.get("margin_pct") not in (None, ""):
+        return f"{float(i['margin_pct']):.0f}%", False
+    est = i.get("margin_pct_at_current_cost")
+    if est not in (None, ""):
+        return f"≈{float(est):.0f}%", True
+    return "—", True
+
+
 def render_abc_weekly(tenant, date_from, date_to, items_a, items_b, items_c,
-                      total_revenue, total_profit):
+                      total_revenue, total_profit, semana=None, meta=None):
     margin_pct = (total_profit / total_revenue * 100) if total_revenue else 0
     products_count = len(items_a) + len(items_b) + len(items_c)
+    rev_a = sum(float(i["revenue"]) for i in items_a)
+    rev_b = sum(float(i["revenue"]) for i in items_b)
+    rev_c = sum(float(i["revenue"]) for i in items_c)
+    pct = lambda v: round(v / total_revenue * 100) if total_revenue else 0
 
-    def _fmt_short(n):
-        if n >= 1_000_000:
-            return f"${n/1_000_000:.1f}M"
-        if n >= 1_000:
-            return f"${n/1_000:.0f}k"
-        return f"${n:.0f}"
+    hay_estimados = False
 
     def _prep(items, cls):
-        return [{
-            "name": i["product_name"],
-            "sku": i.get("sku") or "—",
-            # reports.services.get_abc_analysis retorna `qty` (string Decimal).
-            # Fallback a `units` por compat con mocks del management command.
-            "units": f"{int(float(i.get('qty') or i.get('units') or 0)):,}".replace(",", "."),
-            "revenue_formatted": _fmt_short(float(i["revenue"])),
-            "margin_pct": f"{float(i.get('margin_pct', 0)):.0f}",
-            "cls": cls,
-        } for i in items]
+        nonlocal hay_estimados
+        filas = []
+        for i in items:
+            margen, estimado = _margen_txt(i)
+            hay_estimados = hay_estimados or estimado
+            filas.append({
+                "name": i["product_name"] or "(sin nombre)",
+                "sku": i.get("sku") or "—",
+                # El Chocolate Premium se vende por gramo: "3.303" a secas se
+                # lee como unidades. _cantidad lo pasa a "3,3 kg".
+                "units": _cantidad(i.get("qty") or i.get("units") or 0, i.get("unit")),
+                "revenue_formatted": _clp(i["revenue"]),
+                "margin_txt": margen,
+                "cost_note": i.get("cost_note") or "",
+                "cls": cls,
+            })
+        return filas
 
-    subject = f"Reporte ABC Semanal — {tenant.name}"
+    # Utilidad con costo incompleto detras: decirlo, no inflarla en silencio.
+    nota_utilidad = ""
+    if meta and int(meta.get("cost_incomplete_products") or 0):
+        nota_utilidad = (
+            f"{meta['cost_incomplete_products']} productos "
+            f"({_clp(meta['cost_incomplete_revenue'])} de venta) se vendieron sin costo cargado "
+            f"o con la receta incompleta: la utilidad real es menor."
+        )
+
+    sem = None
+    if semana and semana.get("actual"):
+        a, ant, var = semana["actual"], semana["anterior"], semana.get("variacion_pct")
+        if var is None:
+            comparacion = "sin semana anterior para comparar"
+        else:
+            comparacion = f"{'+' if var >= 0 else '−'}{abs(var):.0f}% contra la semana anterior ({_clp(ant['total'])})"
+        sem = {
+            "rango": f"{_fecha(a['desde'])} al {_fecha(a['hasta'])}",
+            "total": _clp(a["total"]),
+            "boletas": a["boletas"],
+            "comparacion": comparacion,
+            "sube": var is not None and var >= 0,
+        }
+
+    subject = f"Reporte semanal — {tenant.name} · semana del {_fecha(date_to - timedelta(days=6))}"
     ctx = _base_ctx(
         tone="indigo",
         subject_line=subject,
-        eyebrow="Reporte · ABC semanal",
-        hero_title="Tus productos estrella de los últimos 90 días",
-        subtitle=f"{tenant.name} · {date_from.strftime('%d %b')} → {date_to.strftime('%d %b %Y')}. {len(items_a)} productos A concentran el 80% de tus ingresos.",
+        eyebrow="Reporte · semanal",
+        hero_title="Lo que más vendiste en los últimos 90 días",
+        subtitle=f"{tenant.name} · {_fecha(date_from)} al {_fecha(date_to, con_anio=True)}. "
+                 f"{len(items_a)} productos concentran el {pct(rev_a)}% de los ingresos.",
+        semana=sem,
         kpis={
-            "revenue_formatted": _fmt_short(total_revenue),
-            "revenue_delta": "últimos 90 días",
-            "profit_formatted": _fmt_short(total_profit),
+            "revenue_formatted": _clp(total_revenue),
+            "revenue_delta": "ingresos de 90 días",
+            "profit_formatted": _clp(total_profit),
             "margin_pct": f"{margin_pct:.0f}",
             "margin_sublabel": f"Margen {margin_pct:.0f}%",
             "products_count": f"{products_count}",
         },
+        nota_utilidad=nota_utilidad,
         class_counts={"a_count": len(items_a), "b_count": len(items_b), "c_count": len(items_c)},
-        class_bars={"a_pct": 80, "b_pct": 15, "c_pct": 5},
+        class_bars={"a_pct": pct(rev_a), "b_pct": pct(rev_b), "c_pct": pct(rev_c)},
         items_a=_prep(items_a[:5], "A"),
         items_b=_prep(items_b[:3], "B"),
+        hay_estimados=hay_estimados,
         cta_text="Ver reporte completo",
-        cta_url=f"{APP_URL}/dashboard/reports",
-        secondary_text="Ver histórico de reportes",
-        secondary_url=f"{APP_URL}/dashboard/reports",
+        cta_url=f"{APP_URL}/dashboard/reports/abc-analysis",
+        secondary_text="Preferencias de correo",
+        secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
     )
     html = render_to_string("emails/abc_weekly.html", ctx)
-    plain = f"Reporte ABC — {tenant.name}. Revenue: {_fmt_short(total_revenue)}. Ver: {APP_URL}/dashboard/reports"
+
+    lineas = [f"Reporte semanal — {tenant.name}"]
+    if sem:
+        lineas.append(f"Semana del {sem['rango']}: {sem['total']} en {sem['boletas']} boletas, {sem['comparacion']}.")
+    lineas.append(f"Últimos 90 días ({_fecha(date_from)} al {_fecha(date_to, con_anio=True)}): "
+                  f"ingresos {_clp(total_revenue)}, utilidad {_clp(total_profit)} (margen {margin_pct:.0f}%), "
+                  f"{products_count} productos.")
+    if nota_utilidad:
+        lineas.append(nota_utilidad)
+    lineas.append("Los que más venden:")
+    for f in ctx["items_a"]:
+        lineas.append(f"  {f['name']}: {f['revenue_formatted']} · {f['units']} · margen {f['margin_txt']}")
+    if hay_estimados:
+        lineas.append("≈ margen estimado con el costo de hoy (se vendió sin costo cargado).")
+    lineas.append(f"Ver reporte completo: {APP_URL}/dashboard/reports/abc-analysis")
+    plain = chr(10).join(lineas)
     return subject, plain, html
 
 
