@@ -13,6 +13,27 @@ const fmtPct = (v: number) => isNaN(v) ? "0.0" : v.toFixed(1);
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (d: number) => { const t = new Date(); t.setDate(t.getDate() - d); return t.toISOString().slice(0, 10); };
 const toNum = (v: string | number) => { const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? 0 : n; };
+// Una cantidad como la diría una persona: 3.303 g → "3,3 kg". Sin esto el
+// Chocolate Premium (se vende por gramo) aparecía como 3.303 "unidades".
+const fmtQty = (v: string | number, unit?: string) => {
+  const n = toNum(v); const u = (unit || "UN").toUpperCase();
+  const f = (x: number) => x.toLocaleString("es-CL", { maximumFractionDigits: Math.abs(x) >= 100 ? 0 : 1 });
+  if (u === "ML" && Math.abs(n) >= 1000) return f(n / 1000) + " L";
+  if (u === "GR" && Math.abs(n) >= 1000) return f(n / 1000) + " kg";
+  const sufijo: Record<string, string> = { ML: " ml", GR: " g", KG: " kg", L: " L", UN: "" };
+  return f(n) + (sufijo[u] ?? " " + u.toLowerCase());
+};
+// Qué decir del margen. Con costo completo, el registrado. Si el producto se
+// vendió sin costo cargado (o con la receta a medias) el registrado sale 100%
+// o negativo: va el estimado con el costo de hoy (≈) o "—".
+const marginOf = (r: { margin_pct: string | null; cost_complete?: boolean; margin_pct_at_current_cost?: string | null }) => {
+  if (r.cost_complete !== false && r.margin_pct != null && r.margin_pct !== "") return { txt: fmtPct(toNum(r.margin_pct)) + "%", real: true, n: toNum(r.margin_pct) };
+  if (r.margin_pct_at_current_cost != null && r.margin_pct_at_current_cost !== "") return { txt: "≈" + fmtPct(toNum(r.margin_pct_at_current_cost)) + "%", real: false, n: toNum(r.margin_pct_at_current_cost) };
+  return { txt: "—", real: false, n: null as number | null };
+};
+const costTitle = (r: { cost_note?: string }, m: { real: boolean; n: number | null }) =>
+  r.cost_note ? `Costo incompleto: ${r.cost_note}. ${m.n !== null ? "Margen estimado con el costo de hoy." : "Sin costo de hoy para estimar."}` : undefined;
+const marginColor = (m: { real: boolean; n: number | null }) => !m.real || m.n === null ? C.mute : m.n >= 30 ? C.green : m.n >= 15 ? C.amber : C.red;
 
 const ABC_CONFIG: Record<string, { color: string; bg: string; bd: string; icon: string; label: string; advice: string }> = {
   A: { color: "#16A34A", bg: "#ECFDF5", bd: "#A7F3D0", icon: "⭐", label: "Estrella", advice: "Estos productos son tu fuente principal de ingreso. Nunca te quedes sin stock, negocia mejores precios con proveedores, y dales la mejor ubicación en tu local." },
@@ -22,7 +43,7 @@ const ABC_CONFIG: Record<string, { color: string; bg: string; bd: string; icon: 
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-type Row = { rank: number; product_id: number; product_name: string; sku: string; category: string; abc_class: string; revenue: string; cost: string; profit: string; margin_pct: string; qty: string; sale_count: number; contribution_pct: string; cumulative_pct: string; current_stock: string; stock_value: string; is_virtual_stock?: boolean };
+type Row = { rank: number; product_id: number; product_name: string; sku: string; unit?: string; category: string; abc_class: string; revenue: string; cost: string; profit: string; margin_pct: string | null; cost_complete?: boolean; cost_note?: string; margin_pct_at_current_cost?: string | null; qty: string; sale_count: number; contribution_pct: string; cumulative_pct: string; current_stock: string; stock_value: string; is_virtual_stock?: boolean };
 type ClassSummary = Record<string, { count: number; pct_products: string; revenue: string; profit: string; pct_revenue: string; stock_value: string }>;
 type ViewTab = "pareto" | "topn" | "category";
 
@@ -61,6 +82,8 @@ export default function ABCAnalysisPage() {
     const profit = rows.reduce((s, r) => s + toNum(r.profit), 0);
     return { revenue: rev, cost, profit, margin: rev > 0 ? (profit / rev) * 100 : 0 };
   }, [rows]);
+  const incompletos = useMemo(() => rows.filter(r => r.cost_complete === false), [rows]);
+  const hayEstimados = incompletos.length > 0;
 
   const filtered = filter === "all" ? rows : rows.filter(r => r.abc_class === filter);
 
@@ -148,6 +171,13 @@ export default function ABCAnalysisPage() {
               <div style={{ fontSize: mob ? 17 : 20, fontWeight: 800, color: kpi.color, marginTop: 2, fontFamily: C.mono }}>{kpi.value}</div>
             </div>
           ))}
+        </div>
+      )}
+      {!loading && hayEstimados && (
+        <div style={{ fontSize: 12, color: C.mid, lineHeight: 1.5, padding: "8px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: C.r }}>
+          {incompletos.length} {incompletos.length === 1 ? "producto se vendió" : "productos se vendieron"} sin costo cargado o con la receta incompleta
+          ({fmtMoney(incompletos.reduce((s, r) => s + toNum(r.revenue), 0))} de venta): el costo total está incompleto y la ganancia real es menor.
+          En la tabla, ≈ es el margen estimado con el costo de hoy y — es que no hay costo para estimar.
         </div>
       )}
 
@@ -283,11 +313,11 @@ export default function ABCAnalysisPage() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.mid, marginTop: 4 }}>
                     <span>Ingreso: <b style={{ color: C.text }}>{fmtMoney(r.revenue)}</b></span>
-                    <span>Margen: <b>{r.margin_pct}%</b></span>
+                    <span title={costTitle(r, marginOf(r))}>Margen: <b>{marginOf(r).txt}</b></span>
                   </div>
                   <div style={{ height: 3, borderRadius: 2, background: "#E4E4E7", marginTop: 6, overflow: "hidden" }}><div style={{ height: "100%", width: `${barPct}%`, background: cfg.color, borderRadius: 2, opacity: .5 }} /></div>
                   <div style={{ fontSize: 10, color: C.mute, marginTop: 3 }}>
-                    {r.contribution_pct}% del total · Acumulado: {r.cumulative_pct}% · Stock: {fmt(r.current_stock)}
+                    {r.contribution_pct}% del total · Acumulado: {r.cumulative_pct}% · Stock: {fmtQty(r.current_stock, r.unit)}
                     {r.is_virtual_stock && <span title="Stock calculado a partir de los ingredientes de la receta. El producto se 'arma' al vender." style={{ marginLeft: 4, fontSize: 9, padding: "1px 4px", background: "#EEF2FF", color: "#4F46E5", borderRadius: 3, fontWeight: 600 }}>vía receta</span>}
                   </div>
                 </div>
@@ -303,9 +333,9 @@ export default function ABCAnalysisPage() {
                   <div style={{ textAlign: "center" }}><span style={{ fontSize: 11, fontWeight: 700, color: cfg.color, background: cfg.bg, padding: "2px 8px", borderRadius: 4, border: `1px solid ${cfg.bd}` }}>{r.abc_class}</span></div>
                   <div style={{ textAlign: "right", fontWeight: 600, fontSize: 12 }}>{fmtMoney(r.revenue)}</div>
                   <div style={{ textAlign: "right", fontSize: 12, color: parseFloat(r.profit) > 0 ? C.green : C.red }}>{fmtMoney(r.profit)}</div>
-                  <div style={{ textAlign: "right", fontSize: 12, color: C.mid }}>{r.margin_pct}%</div>
+                  <div style={{ textAlign: "right", fontSize: 12, color: C.mid, cursor: r.cost_note ? "help" : undefined }} title={costTitle(r, marginOf(r))}>{marginOf(r).txt}</div>
                   <div style={{ textAlign: "right", fontSize: 12 }}>
-                    {fmt(r.current_stock)}
+                    {fmtQty(r.current_stock, r.unit)}
                     {r.is_virtual_stock && <span title="Stock calculado a partir de los ingredientes de la receta. El producto se 'arma' al vender." style={{ display: "inline-block", marginLeft: 4, fontSize: 9, padding: "1px 4px", background: "#EEF2FF", color: "#4F46E5", borderRadius: 3, fontWeight: 600 }}>vía receta</span>}
                   </div>
                   <div style={{ textAlign: "right", fontSize: 11, color: C.mute }}>{r.cumulative_pct}%</div>
@@ -376,8 +406,8 @@ export default function ABCAnalysisPage() {
                 </div>
                 <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13 }}>{fmtMoney(r.revenue)}</div>
                 <div style={{ textAlign: "right", fontSize: 12, color: parseFloat(r.profit) > 0 ? C.green : C.red }}>{fmtMoney(r.profit)}</div>
-                <div style={{ textAlign: "right", fontSize: 12 }}>{fmt(r.qty)}</div>
-                <div style={{ textAlign: "right", fontSize: 12, color: parseFloat(r.margin_pct) >= 30 ? C.green : parseFloat(r.margin_pct) >= 15 ? C.amber : C.red }}>{r.margin_pct}%</div>
+                <div style={{ textAlign: "right", fontSize: 12 }}>{fmtQty(r.qty, r.unit)}</div>
+                <div style={{ textAlign: "right", fontSize: 12, color: marginColor(marginOf(r)), cursor: r.cost_note ? "help" : undefined }} title={costTitle(r, marginOf(r))}>{marginOf(r).txt}</div>
               </div>
             );
           })}
@@ -403,7 +433,7 @@ export default function ABCAnalysisPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>{cat.category}</div>
-                    <div style={{ fontSize: 11, color: C.mute }}>{cat.count} productos · {fmt(cat.qty)} unidades</div>
+                    <div style={{ fontSize: 11, color: C.mute }}>{cat.count} productos</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{fmtMoney(cat.revenue)}</div>
