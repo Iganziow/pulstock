@@ -127,6 +127,13 @@ class TestAbcWeeklyEmail:
         store.is_active = True
         store.save(update_fields=["is_active"])
 
+        # El correo sale el lunes y su ventana cierra el domingo (ayer): una
+        # venta de hoy no entra. La venta sembrada se mueve a ayer.
+        from datetime import timedelta
+        from django.utils import timezone
+        from sales.models import Sale
+        Sale.objects.update(created_at=timezone.now() - timedelta(days=1))
+
         mail.outbox = []
         send_weekly_abc_report()
         assert len(mail.outbox) == 1, (
