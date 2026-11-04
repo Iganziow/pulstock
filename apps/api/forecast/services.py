@@ -94,6 +94,7 @@ from forecast.engine.mezcla import (
 from forecast.engine.calibracion import (
     factores_de_calibracion, aplicar_calibracion,
     factor_de_sesgo, aplicar_factor_de_sesgo,
+    objetivo_de_sesgo, siguiente_factor,
     VENTANA_DIAS as VENTANA_CALIBRACION, SESGO_DIAS,
 )
 from forecast.engine import (
@@ -1610,6 +1611,89 @@ def _mediciones_recientes(tenant, product, warehouse_id, dias=SESGO_DIAS):
     )
 
 
+SESGO_HIST_DIAS = 40
+
+
+def _factor_usado(fm, noche):
+    """Factor de sesgo con que `fm` publico la noche `noche`. El historial
+    (`sesgo_hist`) existe desde el 04/11/26; antes, el ultimo factor guardado
+    del modelo es la mejor aproximacion."""
+    params = (fm.model_params or {}) if fm else {}
+    hist = params.get("sesgo_hist") or {}
+    if noche.isoformat() in hist:
+        return float(hist[noche.isoformat()] or 1.0)
+    if "sesgo_legado" in params:
+        # Noche anterior al historial: el factor que el modelo traia entonces.
+        return float(params["sesgo_legado"] or 1.0)
+    if not hist:
+        return float((params.get("sesgo") or {}).get("factor") or 1.0)
+    return 1.0
+
+
+def _mediciones_crudas(tenant, product, warehouse_id, dias=SESGO_DIAS):
+    """(crudo, real) de los ultimos `dias`, sin quiebres: lo publicado cada
+    dia dividido por el factor de sesgo que ese dia ya traia. Es lo que permite
+    que la correccion se componga en vez de medirse sobre si misma."""
+    from forecast.models import Forecast, ForecastAccuracy
+    acc = list(
+        ForecastAccuracy.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            date__gte=date.today() - timedelta(days=dias), was_stockout=False,
+        ).values_list("date", "qty_predicted", "qty_actual")
+    )
+    if not acc:
+        return []
+    filas = {
+        f.forecast_date: f
+        for f in Forecast.objects.filter(
+            tenant=tenant, product=product, warehouse_id=warehouse_id,
+            forecast_date__in=[d for d, _, _ in acc],
+        ).select_related("model")
+    }
+    pares = []
+    for d, pred, real in acc:
+        f = filas.get(d)
+        usado = _factor_usado(f.model, timezone.localdate(f.generated_at)) if f else 1.0
+        pares.append((float(pred or 0) / (usado or 1.0), real))
+    return pares
+
+
+def _previo_en(params, hoy):
+    """El factor de la ultima noche ANTERIOR a hoy segun estos params, o None.
+
+    Nunca el de hoy: en una misma noche save_forecasts puede correr dos veces
+    para el mismo producto (entrenamiento y regeneracion), y tomar el de hoy
+    haria avanzar el factor dos pasos."""
+    hist = (params or {}).get("sesgo_hist") or {}
+    antes = sorted(k for k in hist if k < hoy.isoformat())
+    if antes:
+        return float(hist[antes[-1]] or 1.0)
+    if "sesgo_legado" in (params or {}):
+        return float(params["sesgo_legado"] or 1.0)
+    if not hist and (params or {}).get("sesgo"):
+        # Modelo de antes del historial: su ultimo factor es de una noche previa.
+        return float(params["sesgo"].get("factor") or 1.0)
+    return None
+
+
+def _factor_de_anoche(tenant, product, warehouse_id, fm):
+    """El factor con que se publico anoche: el del modelo, o si el modelo
+    nacio esta noche, el del ultimo modelo del mismo producto. Cada noche se
+    crean ~68 modelos nuevos; sin heredar, la correccion volveria a 1 todas
+    las noches."""
+    hoy = date.today()
+    v = _previo_en(fm.model_params, hoy)
+    if v is not None:
+        return v
+    from forecast.models import ForecastModel
+    previo = (ForecastModel.objects
+              .filter(tenant=tenant, product=product, warehouse_id=warehouse_id)
+              .exclude(id=fm.id).order_by("-trained_at", "-id")
+              .values_list("model_params", flat=True).first())
+    v = _previo_en(previo, hoy)
+    return 1.0 if v is None else v
+
+
 def nivel_para_mezcla(tenant, product, warehouse_id, today, closed_dows):
     """Demanda diaria promedio del producto en los ultimos DIAS_NIVEL dias en
     que el local opero, o None si no hay con que calcularla bien.
@@ -1821,17 +1905,34 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
         _guardar_param(fm, "sesgo", None)
     elif (fm.algorithm != "ingredient_derived"
             and not os.environ.get("FORECAST_SESGO_OFF")):
-        sesgo = factor_de_sesgo(
-            _mediciones_recientes(tenant, product, warehouse_id)
-        )
+        # Se compone (04/11/26): objetivo medido sobre el crudo, y el factor
+        # avanza medio camino desde el de anoche. Ver engine/calibracion.py.
+        # FORECAST_SESGO_COMPUESTO_OFF=1 vuelve a la regla anterior.
+        if os.environ.get("FORECAST_SESGO_COMPUESTO_OFF"):
+            sesgo = factor_de_sesgo(_mediciones_recientes(tenant, product, warehouse_id))
+        else:
+            sesgo = siguiente_factor(
+                _factor_de_anoche(tenant, product, warehouse_id, fm),
+                objetivo_de_sesgo(_mediciones_crudas(tenant, product, warehouse_id)),
+            )
         if sesgo:
             aplicar_factor_de_sesgo(daily_forecasts, sesgo)
         params = dict(fm.model_params or {})
-        if params.get("sesgo") != sesgo:
+        # Historial del factor con que se publico cada noche: con el se
+        # reconstruye el crudo de manana. La primera vez, el factor que el
+        # modelo traia queda como `sesgo_legado` para sus noches anteriores.
+        if "sesgo_hist" not in params:
+            params["sesgo_legado"] = float((params.get("sesgo") or {}).get("factor") or 1.0)
+        hist = dict(params.get("sesgo_hist") or {})
+        hist[date.today().isoformat()] = sesgo["factor"] if sesgo else 1.0
+        hist = dict(sorted(hist.items())[-SESGO_HIST_DIAS:])
+        if (params.get("sesgo") != sesgo or params.get("sesgo_hist") != hist
+                or params != (fm.model_params or {})):
             if sesgo:
                 params["sesgo"] = sesgo
             else:
                 params.pop("sesgo", None)
+            params["sesgo_hist"] = hist
             fm.model_params = params
             fm.save(update_fields=["model_params"])
 

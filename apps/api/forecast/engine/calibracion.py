@@ -174,6 +174,66 @@ def factor_de_sesgo(pares, damp=SESGO_DAMP, min_n=SESGO_MIN_N,
             "totales": round(r_tot, 3), "n": len(utiles)}
 
 
+# Correccion de sesgo que se compone (04/11/26).
+#
+# El defecto de factor_de_sesgo: mide sobre lo PUBLICADO, que ya trae el factor
+# de la noche anterior, y aplica el resultado sobre el pronostico CRUDO. Con el
+# amortiguado al 50% queda clavada en un punto fijo: Helado vainilla, factor
+# 0,84 = 1 + 0,5 x (0,68 - 1), publicando +47% sobre lo real noche tras noche.
+# En prod (2-nov) 67 modelos de la cola con factor medio 0,64 publicaban +71%.
+#
+# La regla nueva separa dos cosas que la vieja mezclaba:
+#   - el OBJETIVO: real / CRUDO de los ultimos 28 dias (el crudo se reconstruye
+#     dividiendo lo publicado por el factor que se uso esa noche), con la misma
+#     condicion de acuerdo entre mediana y totales, SIN amortiguar;
+#   - el PASO: el factor se mueve la mitad del camino hacia el objetivo cada
+#     noche. Converge al objetivo en vez de quedarse a medio camino, y como el
+#     objetivo se mide sobre el crudo no depende del factor: no hay sobrepaso.
+# Replay con datos de prod (cola por unidad, 19-oct..1-nov): WAPE 166,6 -> 160,5,
+# sesgo +28 -> +21, 22 productos mejoran y 9 empeoran (piso 0,3).
+SESGO_PASO = 0.5
+SESGO_PISO_COMPUESTO = 0.3
+
+
+def objetivo_de_sesgo(pares_crudos, min_n=SESGO_MIN_N, piso=SESGO_PISO_COMPUESTO,
+                      techo=SESGO_TECHO):
+    """real / crudo al que tiende el factor, o None si no hay evidencia.
+
+    Mismas dos evidencias que factor_de_sesgo (mediana del cociente y razon de
+    totales) y la misma condicion: si no coinciden en la direccion, None. Se
+    toma la mas conservadora. `pares_crudos` son (crudo, real), sin quiebres.
+    """
+    utiles = [(float(p), float(y)) for p, y in pares_crudos if float(p or 0) > 0]
+    if len(utiles) < min_n:
+        return None
+    sp = sum(p for p, _ in utiles)
+    if sp <= 0:
+        return None
+    r_med = cuantil([y / p for p, y in utiles], 0.5)
+    r_tot = sum(y for _, y in utiles) / sp
+    if (r_med - 1.0) * (r_tot - 1.0) <= 0:
+        return None
+    r = min(r_med, r_tot) if r_tot > 1 else max(r_med, r_tot)
+    return {"objetivo": round(max(piso, min(techo, r)), 3),
+            "mediana": round(r_med, 3), "totales": round(r_tot, 3), "n": len(utiles)}
+
+
+def siguiente_factor(factor_previo, objetivo, paso=SESGO_PASO, umbral=SESGO_UMBRAL,
+                     piso=SESGO_PISO_COMPUESTO, techo=SESGO_TECHO):
+    """El factor de esta noche: medio camino desde el de anoche hacia el
+    objetivo (hacia 1 si no hay objetivo). None si queda a menos del umbral
+    de 1."""
+    previo = float(factor_previo or 1.0)
+    meta = objetivo["objetivo"] if objetivo else 1.0
+    f = max(piso, min(techo, previo + paso * (meta - previo)))
+    if abs(f - 1.0) < umbral:
+        return None
+    sesgo = {"factor": round(f, 3), "previo": round(previo, 3)}
+    if objetivo:
+        sesgo.update(objetivo)
+    return sesgo
+
+
 def aplicar_factor_de_sesgo(forecasts, sesgo):
     """Escala la predicción (y su banda) por el factor. In place."""
     if not sesgo:
