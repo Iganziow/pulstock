@@ -207,6 +207,18 @@ class TestElCorreoSeLeeEnChileno:
         fila = html[inicio:html.index("</tr>", inicio)]
         assert fila.count("<td") == 3, "tres indicadores, tres celdas"
 
+    def test_el_pie_es_corto_y_sin_enlace_duplicado(self, tenant):
+        _a, _p, html = self._render(tenant)
+        assert "Alguna duda" not in html and "Pulstock SpA" not in html
+        assert html.count("Preferencias de correo") == 1, "solo la del pie, para poder darse de baja"
+
+    def test_la_cantidad_va_bajo_el_nombre_no_en_columna(self, tenant):
+        """En el telefono '210 unidades' como columna quedaba apretado."""
+        _a, _p, html = self._render(tenant)
+        assert ">Cantidad<" not in html
+        nombre = html.index(">Americano<div")
+        assert html.index("215 unidades") - nombre < 300
+
     def test_sin_emojis(self, tenant):
         asunto, plano, html = self._render(tenant)
         for e in ("🚨", "⚠", "💡", "📊", "⭐", "🥇"):

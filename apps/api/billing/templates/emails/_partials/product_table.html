@@ -1,17 +1,16 @@
 {% comment %}Tabla de productos del ABC. Números en monoespaciada para que las
-columnas se alineen; la clase va como letra sola, sin píldora.
+columnas se alineen; la clase va como letra sola, sin píldora. La cantidad va
+bajo el nombre: como columna no cabía en el teléfono ("210 unidades").
 Contexto: items · cada item {name, units, revenue_formatted, margin_txt, cost_note}
 {% endcomment %}<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 26px;">
   <tr>
     <td style="padding:0 0 8px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:9.5px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#9E9BAC;border-bottom:2px solid #191825;">Producto</td>
-    <td align="right" style="padding:0 0 8px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:9.5px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#9E9BAC;border-bottom:2px solid #191825;">Cantidad</td>
     <td align="right" style="padding:0 0 8px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:9.5px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#9E9BAC;border-bottom:2px solid #191825;">Ingresos</td>
     <td align="right" style="padding:0 0 8px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:9.5px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#9E9BAC;border-bottom:2px solid #191825;">Margen</td>
   </tr>
   {% for it in items %}
   <tr>
-    <td style="padding:10px 0;{% if not forloop.last %}border-bottom:1px solid #E7E4DE;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:14px;color:#191825;">{{ it.name }}{% if it.cost_note %}<div style="font-size:11px;color:#9E9BAC;padding-top:2px;">{{ it.cost_note }}</div>{% endif %}</td>
-    <td align="right" style="padding:10px 8px 10px 0;{% if not forloop.last %}border-bottom:1px solid #E7E4DE;{% endif %}font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:12.5px;color:#6C6A7D;white-space:nowrap;">{{ it.units }}</td>
+    <td style="padding:10px 0;{% if not forloop.last %}border-bottom:1px solid #E7E4DE;{% endif %}font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:14px;color:#191825;">{{ it.name }}<div style="font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:12.5px;color:#6C6A7D;padding-top:2px;">{{ it.units }}</div>{% if it.cost_note %}<div style="font-size:11px;color:#9E9BAC;padding-top:2px;">{{ it.cost_note }}</div>{% endif %}</td>
     <td align="right" style="padding:10px 8px 10px 0;{% if not forloop.last %}border-bottom:1px solid #E7E4DE;{% endif %}font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:13px;color:#191825;white-space:nowrap;">{{ it.revenue_formatted }}</td>
     <td align="right" width="52" style="padding:10px 0;{% if not forloop.last %}border-bottom:1px solid #E7E4DE;{% endif %}font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:12.5px;color:#6C6A7D;">{{ it.margin_txt }}</td>
   </tr>

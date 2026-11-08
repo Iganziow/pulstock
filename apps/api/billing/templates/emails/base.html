@@ -21,6 +21,7 @@ Contexto (igual que antes, no rompe los renderers):
   cta_text/cta_url str — botón principal
   secondary_text/secondary_url — enlace bajo el botón
   unsubscribe_url  str
+  pie_corto        bool: reportes de todos los dias, sin soporte ni razon social
 
 Bloques:
   {% block body %}{% endblock %}
@@ -136,11 +137,13 @@ table,td,div,p,a,.ps-sans{font-family:Arial,Helvetica,sans-serif !important;}</s
     <tr>
       <td class="ps-p" style="padding:40px 0 0;">
         <div style="height:1px;background:#E7E4DE;font-size:0;line-height:0;">&nbsp;</div>
+        {% if not pie_corto %}
         <div class="ps-sans" style="padding-top:24px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.7;color:#6C6A7D;">
           ¿Alguna duda? Responde este correo — lo lee una persona.
         </div>
+        {% endif %}
         <div class="ps-sans" style="padding-top:12px;font-family:'DM Sans',Helvetica,Arial,sans-serif;font-size:11.5px;line-height:1.9;color:#9E9BAC;">
-          Pulstock SpA · Santiago, Chile<br>
+          {% if not pie_corto %}Pulstock SpA · Santiago, Chile<br>{% endif %}
           <a href="https://pulstock.cl/ayuda" style="color:#9E9BAC;border-bottom:1px solid #E7E4DE;">Ayuda</a>&nbsp;&nbsp;
           <a href="https://app.pulstock.cl/dashboard/settings?tab=plan" style="color:#9E9BAC;border-bottom:1px solid #E7E4DE;">Facturación</a>&nbsp;&nbsp;
           <a href="{{ unsubscribe_url|default:'https://app.pulstock.cl/dashboard/settings?tab=alertas' }}" style="color:#9E9BAC;border-bottom:1px solid #E7E4DE;">Preferencias de correo</a>

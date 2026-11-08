@@ -497,8 +497,7 @@ def render_abc_weekly(tenant, date_from, date_to, items_a, items_b, items_c,
         hay_estimados=hay_estimados,
         cta_text="Ver reporte completo",
         cta_url=f"{APP_URL}/dashboard/reports/abc-analysis",
-        secondary_text="Preferencias de correo",
-        secondary_url=f"{APP_URL}/dashboard/settings?tab=alertas",
+        pie_corto=True,
     )
     html = render_to_string("emails/abc_weekly.html", ctx)
 
@@ -710,6 +709,7 @@ def render_low_stock_v2(tenant, critical_alerts, warning_alerts, snapshot_at=Non
         hero += f" (+{truncated_count} más)"
 
     ctx = _base_ctx(
+        pie_corto=True,
         tone="red" if critical else "amber",
         subject_line=subject,
         eyebrow="Alerta · Stock bajo",

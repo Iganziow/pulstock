@@ -109,6 +109,15 @@ class TestElCorreo:
         fila = html[inicio:html.index("</tr>", inicio)]
         assert fila.count("<td") == 3, "tres indicadores, tres celdas"
 
+    def test_el_pie_es_corto_solo_en_los_reportes(self, tenant):
+        _a, _p, html = render_low_stock_v2(tenant, [_alerta("Torta", 0, 0.5, "stockout", dias=0)], [])
+        assert "Alguna duda" not in html and "Pulstock SpA" not in html
+        # Un correo de cobro conserva soporte y razon social.
+        from django.template.loader import render_to_string
+        from billing.email_renderers import _base_ctx
+        base = render_to_string("emails/base.html", _base_ctx(subject_line="x", eyebrow="x", hero_title="x", subtitle="x"))
+        assert "Alguna duda" in base and "Pulstock SpA" in base
+
     def test_lo_que_se_vende_sin_stock_cargado_no_se_menciona(self, tenant):
         _a, plano, html = render_low_stock_v2(tenant, [_alerta("Torta", 0, 0.5, "stockout", dias=0)], [],
                                               sin_control=["Té", "Extra Bebida fría"])
