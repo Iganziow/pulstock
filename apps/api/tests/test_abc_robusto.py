@@ -198,6 +198,15 @@ class TestElCorreoSeLeeEnChileno:
         assert "22 productos ($170.770 de venta) se vendieron sin costo cargado" in html
         assert "la utilidad real es menor" in plano
 
+    def test_los_indicadores_no_van_en_celdas_anidadas(self, tenant):
+        """kpi_tile ya trae su <td>. Envuelto en otro, el navegador cierra el
+        de afuera y deja columnas vacias: "Ingresos" salia corrido a la derecha
+        y "Productos" contra el borde (correo real, 8-nov)."""
+        _a, _p, html = self._render(tenant)
+        inicio = html.index("<!-- KPIs de 90")
+        fila = html[inicio:html.index("</tr>", inicio)]
+        assert fila.count("<td") == 3, "tres indicadores, tres celdas"
+
     def test_sin_emojis(self, tenant):
         asunto, plano, html = self._render(tenant)
         for e in ("🚨", "⚠", "💡", "📊", "⭐", "🥇"):

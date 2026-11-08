@@ -24,18 +24,12 @@ Context:
 </table>
 {% endif %}
 
-<!-- KPIs de 90 días -->
+<!-- KPIs de 90 días. kpi_tile ya trae su propia celda: no envolverla en otra -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 10px;">
   <tr>
-    <td class="ps-kpi" valign="top" width="40%" style="padding-right:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Ingresos" value=kpis.revenue_formatted sublabel=kpis.revenue_delta %}
-    </td>
-    <td class="ps-kpi" valign="top" width="40%" style="padding:0 5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Utilidad" value=kpis.profit_formatted sublabel=kpis.margin_sublabel color="#16A34A" %}
-    </td>
-    <td class="ps-kpi" valign="top" width="20%" style="padding-left:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Productos" value=kpis.products_count sublabel="con venta" %}
-    </td>
+    {% include "emails/_partials/kpi_tile.html" with label="Ingresos" value=kpis.revenue_formatted sublabel=kpis.revenue_delta %}
+    {% include "emails/_partials/kpi_tile.html" with label="Utilidad" value=kpis.profit_formatted sublabel=kpis.margin_sublabel color="#16A34A" %}
+    {% include "emails/_partials/kpi_tile.html" with label="Productos" value=kpis.products_count sublabel="con venta" %}
   </tr>
 </table>
 {% if nota_utilidad %}
