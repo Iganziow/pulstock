@@ -613,7 +613,8 @@ def _explicar_alerta(a, dias_a_cubrir=7):
     else:
         estado = "Stock bajo"
 
-    quedan = "No queda nada" if on_hand <= 0 else f"Quedan {_cantidad(on_hand, unidad)}"
+    quedan = ("No queda nada" if on_hand <= 0 else
+              f"{'Queda' if _cantidad(on_hand, unidad).endswith(' unidad') else 'Quedan'} {_cantidad(on_hand, unidad)}")
     usa = f"se usan ~{_cantidad(uso, unidad)} por día" if uso > 0 else "casi no rota"
     situacion = f"{quedan} · {usa}"
 

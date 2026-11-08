@@ -20,15 +20,9 @@ Context:
 <!-- KPIs: 3 tiles -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
   <tr>
-    <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Críticos" value=critical_count sublabel="atención inmediata" color="#DC2626" %}
-    </td>
-    <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Bajo umbral" value=low_count sublabel="reponer pronto" color="#D97706" %}
-    </td>
-    <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Total" value=total_deficit sublabel="alertas hoy" %}
-    </td>
+    {% include "emails/_partials/kpi_tile.html" with label="Críticos" value=critical_count sublabel="atención inmediata" color="#DC2626" %}
+    {% include "emails/_partials/kpi_tile.html" with label="Bajo umbral" value=low_count sublabel="reponer pronto" color="#D97706" %}
+    {% include "emails/_partials/kpi_tile.html" with label="Total" value=total_deficit sublabel="alertas hoy" %}
   </tr>
 </table>
 

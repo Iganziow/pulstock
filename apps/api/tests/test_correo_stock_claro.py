@@ -51,6 +51,10 @@ class TestCadaFilaSeExplicaSola:
         assert "se acaba mañana" in porque
         assert pedir == "Para cubrir 7 días: pedir ~2,3 L"          # 7 x 700 - 2.618
 
+    def test_una_sola_unidad_va_en_singular(self):
+        _e, situacion, _p, _q = _explicar_alerta(_alerta("Super 8", 1, 0, "stockout", dias=None))
+        assert situacion.startswith("Queda 1 unidad"), situacion
+
     def test_sin_stock_dice_cuanto_se_uso(self):
         estado, situacion, porque, pedir = _explicar_alerta(
             _alerta("Torta", 0, 0.5, "stockout", dias=0))
@@ -96,6 +100,14 @@ class TestElCorreo:
         for e in ("🚨", "⚠", "💡"):
             assert e not in asunto and e not in html and e not in plano
         assert "Quedan 2,6 L" in html and "pedir ~2,3 L" in html
+
+    def test_los_indicadores_no_van_en_celdas_anidadas(self, tenant):
+        """kpi_tile ya trae su <td>: envuelto en otro, el navegador deja columnas
+        vacias y la fila sale desalineada (visto en el correo ABC, 8-nov)."""
+        _a, _p, html = render_low_stock_v2(tenant, [_alerta("Torta", 0, 0.5, "stockout", dias=0)], [])
+        inicio = html.index("<!-- KPIs")
+        fila = html[inicio:html.index("</tr>", inicio)]
+        assert fila.count("<td") == 3, "tres indicadores, tres celdas"
 
     def test_lo_que_se_vende_sin_stock_cargado_no_se_menciona(self, tenant):
         _a, plano, html = render_low_stock_v2(tenant, [_alerta("Torta", 0, 0.5, "stockout", dias=0)], [],

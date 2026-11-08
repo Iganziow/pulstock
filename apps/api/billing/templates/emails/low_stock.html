@@ -12,15 +12,9 @@ Context:
 <!-- KPIs (3 tiles uniformes vía partial kpi_tile) -->
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 24px;">
   <tr>
-    <td class="ps-kpi" valign="top" width="33%" style="padding-right:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Agotados" value=critical_count sublabel="stock en 0" color="#DC2626" %}
-    </td>
-    <td class="ps-kpi" valign="top" width="34%" style="padding:0 5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="Bajo mínimo" value=low_count sublabel="productos" color="#D97706" %}
-    </td>
-    <td class="ps-kpi" valign="top" width="33%" style="padding-left:5px;">
-      {% include "emails/_partials/kpi_tile.html" with label="A reponer" value=total_deficit_formatted sublabel="suma total" %}
-    </td>
+    {% include "emails/_partials/kpi_tile.html" with label="Agotados" value=critical_count sublabel="stock en 0" color="#DC2626" %}
+    {% include "emails/_partials/kpi_tile.html" with label="Bajo mínimo" value=low_count sublabel="productos" color="#D97706" %}
+    {% include "emails/_partials/kpi_tile.html" with label="A reponer" value=total_deficit_formatted sublabel="suma total" %}
   </tr>
 </table>
 
