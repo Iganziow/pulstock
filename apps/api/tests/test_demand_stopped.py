@@ -202,10 +202,22 @@ def test_sin_dato_de_stock_se_asume_lo_conservador(tenant, warehouse, product):
     assert demand_stopped(tenant.id, product.id, warehouse.id, today=HOY) is False
 
 
+@pytest.fixture
+def _reloj_en_hoy(monkeypatch):
+    """save_forecasts no recibe `today`: la racha seca se mide contra el reloj
+    real. Con HOY fijo en agosto, cada dia que pasa el negocio 'ancla' sale de
+    la ventana de STOPPED_LOOKBACK_DAYS y el resultado cambia solo (fallo el
+    8-nov-2026 sin tocar el codigo)."""
+    from forecast import services
+    original = services.demand_stopped
+    monkeypatch.setattr(services, "demand_stopped",
+                        lambda *a, **k: original(*a, **{**k, "today": HOY}))
+
+
 # ── Integración: el pronóstico realmente se pone en cero ─────────────────────
 
 @pytest.mark.django_db
-def test_save_forecasts_pone_en_cero_lo_que_paro(tenant, warehouse, product, store):
+def test_save_forecasts_pone_en_cero_lo_que_paro(tenant, warehouse, product, store, _reloj_en_hoy):
     from forecast.models import ForecastModel, Forecast
     from forecast.services import save_forecasts
 
@@ -230,7 +242,7 @@ def test_save_forecasts_pone_en_cero_lo_que_paro(tenant, warehouse, product, sto
 
 
 @pytest.mark.django_db
-def test_save_forecasts_respeta_al_producto_vivo(tenant, warehouse, product, store):
+def test_save_forecasts_respeta_al_producto_vivo(tenant, warehouse, product, store, _reloj_en_hoy):
     """Control: el que sigue vendiendo conserva su pronóstico intacto."""
     from forecast.models import ForecastModel, Forecast
     from forecast.services import save_forecasts
