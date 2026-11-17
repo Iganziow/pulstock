@@ -87,6 +87,10 @@ from forecast.models import (
     DailySales, ForecastModel, Forecast,
     PurchaseSuggestion, SuggestionLine,
 )
+from forecast.engine.mezcla import (
+    mezclar_con_nivel, nivel as nivel_promedio,
+    PESO_MODELO as PESO_MODELO_MEZCLA, DIAS_NIVEL, MIN_DIAS_MEDIBLES,
+)
 from forecast.engine.calibracion import (
     factores_de_calibracion, aplicar_calibracion,
     factor_de_sesgo, aplicar_factor_de_sesgo,
@@ -1100,6 +1104,103 @@ def dias_sin_operacion(tenant_id, warehouse_id, desde, hasta, closed_dows=None):
     return sin_operar
 
 
+# ── Días que a veces abre y a veces no ───────────────────────────────────────
+#
+# Marbrava, octubre de 2026: el sábado cerró los últimos cinco seguidos y nadie
+# sabe con anticipación si el próximo abre — ni el dueño. Entre "siempre
+# abierto" (lo que pronosticábamos) y "cerrado" (`get_business_closed_weekdays`
+# lo marca recién cuando abrió menos del 10% de 8 semanas) no había nada: cada
+# sábado cerrado publicaba ~1.000 unidades de demanda fantasma que inflaban la
+# compra y la proyección de quiebre.
+#
+# La serie de entrenamiento ya no tiene esos días (`dias_sin_operacion`), así
+# que lo que el algoritmo publica para un sábado es "lo que se vende SI abre".
+# Multiplicarlo por la fracción de veces que abrió da lo que se espera vender.
+# Medido sobre los 8 sábados del 29-ago al 17-oct, con lo publicado la noche
+# anterior: error absoluto del núcleo en esos días 6.561 -> 5.079.
+
+DIA_INCIERTO_OCURRENCIAS = 8
+# Un cierre aislado (un corte de luz, un día libre) no es un patrón: con uno
+# solo, ponderar todos los lunes por 7/8 movería la compra sin razón.
+DIA_INCIERTO_MIN_CIERRES = 2
+
+_DIA_INCIERTO_CACHE: dict = {}
+
+
+def fraccion_que_abre(tenant_id, warehouse_id, today=None, closed_dows=None):
+    """{día de la semana: fracción de sus últimas 8 ocurrencias en que abrió},
+    solo para los días que cerraron al menos DIA_INCIERTO_MIN_CIERRES veces.
+
+    - Las fechas de feriado no cuentan: un cierre por feriado lo explica el
+      feriado, no el día de la semana. Se sigue hacia atrás hasta juntar 8.
+    - Tampoco las de una semana en que el local no vendió NADA alrededor (±3
+      días): vacaciones, un corte largo, el POS sin sincronizar. Eso no dice
+      nada del sábado, y sin esta regla dos semanas de vacaciones ponderaban
+      TODOS los días por 0,75 durante seis semanas al volver; y un local con
+      la historia cortada quedaba con el pronóstico entero en 0.
+    - Tampoco cuentan las fechas anteriores a la primera venta del local (un
+      negocio recién creado no "cerró" esos días), y con menos de
+      BUSINESS_CLOSED_MIN_OCCURRENCES ocurrencias no se juzga.
+    - Los días en `closed_dows` ya los pone en 0 `_apply_closed_weekdays`.
+    """
+    from forecast.models import Holiday
+    today = today or date.today()
+    closed_dows = closed_dows or set()
+    key = (tenant_id, warehouse_id, today, frozenset(closed_dows))
+    if key in _DIA_INCIERTO_CACHE:
+        return _DIA_INCIERTO_CACHE[key]
+
+    ayer = today - timedelta(days=1)
+    operadas = _fechas_operadas(tenant_id, warehouse_id, ayer)
+    resultado = {}
+    if operadas:
+        primero = min(operadas)
+        # Margen de semanas para saltar feriados sin quedarse corto.
+        desde = max(primero, today - timedelta(weeks=DIA_INCIERTO_OCURRENCIAS + 8))
+        feriados = set(
+            Holiday.objects.filter(
+                Q(tenant_id=tenant_id) | Q(tenant__isnull=True),
+                date__gte=desde, date__lte=ayer,
+            ).values_list("date", flat=True)
+        )
+        for dow in range(7):
+            if dow in closed_dows:
+                continue
+            d = ayer - timedelta(days=(ayer.weekday() - dow) % 7)
+            abrio = []
+            while len(abrio) < DIA_INCIERTO_OCURRENCIAS and d >= desde:
+                opero_cerca = any(
+                    d + timedelta(days=k) in operadas for k in (-3, -2, -1, 1, 2, 3))
+                if d not in feriados and opero_cerca:
+                    abrio.append(d in operadas)
+                d -= timedelta(days=7)
+            cierres = abrio.count(False)
+            if (len(abrio) >= BUSINESS_CLOSED_MIN_OCCURRENCES
+                    and cierres >= DIA_INCIERTO_MIN_CIERRES):
+                resultado[dow] = (len(abrio) - cierres) / len(abrio)
+
+    _DIA_INCIERTO_CACHE[key] = resultado
+    return resultado
+
+
+def _ponderar_dias_inciertos(daily_forecasts, fracciones):
+    """Lleva el punto de cada día incierto a lo esperado: punto x fracción.
+
+    El techo NO se toca: si abre, la demanda es la de un día abierto, y es el
+    techo lo que usa la proyección de quiebre conservadora. El piso va a 0:
+    con 2 o más cierres en 8 hay al menos un 25% de chance de vender nada, así
+    que el percentil 10 es cero.
+    """
+    if not fracciones:
+        return
+    for f in daily_forecasts:
+        p = fracciones.get(f["date"].weekday())
+        if p is None:
+            continue
+        f["qty_predicted"] = _q3(f["qty_predicted"] * Decimal(str(p)))
+        f["lower_bound"] = D0
+
+
 # ── Demanda detenida ─────────────────────────────────────────────────────────
 #
 # Medido en Marbrava el 11/08/26: de 4.931 unidades de sobre-predicción en 7
@@ -1509,11 +1610,163 @@ def _mediciones_recientes(tenant, product, warehouse_id, dias=SESGO_DIAS):
     )
 
 
+def nivel_para_mezcla(tenant, product, warehouse_id, today, closed_dows):
+    """Demanda diaria promedio del producto en los ultimos DIAS_NIVEL dias en
+    que el local opero, o None si no hay con que calcularla bien.
+
+    Los dias que cuentan son los del NEGOCIO, no los del producto: un dia en que
+    el local abrio y el producto no se vendio es demanda cero de verdad y entra
+    como cero. Quedan fuera los que el local no opero (feriados, sabados
+    oscuros) y sus dias de semana cerrados (el domingo de Marbrava): esos ya
+    los pone en 0 la mascara de dias cerrados.
+
+    Misma demanda con que entrena el modelo (`demanda_efectiva`: venta organica,
+    mas la merma en un restaurante). Se saltan los dias que el entrenamiento
+    interpola en vez de creerles: quiebre real (la venta esta censurada), dia
+    todo-promo, y el periodo de transicion de un ingrediente (los dias de
+    Pulstock anteriores a `ingredient_forecast_trusted_from`, cuando todavia no
+    habia recetas y su consumo quedaba subregistrado).
+
+    None si el producto es mas nuevo que la ventana -- los dias en que no existia
+    lo diluirian -- o si quedan menos de MIN_DIAS_MEDIBLES dias medibles.
+    """
+    from django.db.models import Min
+    abiertos = sorted(
+        (d for d in _fechas_operadas(tenant.id, warehouse_id, today - timedelta(days=1))
+         if d < today and d.weekday() not in (closed_dows or ())),
+        reverse=True,
+    )[:DIAS_NIVEL]
+    if len(abiertos) < DIAS_NIVEL:
+        return None
+    desde = abiertos[-1]
+    filas_producto = DailySales.objects.filter(
+        tenant=tenant, product=product, warehouse_id=warehouse_id,
+    )
+    primera = filas_producto.aggregate(primera=Min("date"))["primera"]
+    if primera is None or primera > desde:
+        return None
+
+    confiable_desde = getattr(tenant, "ingredient_forecast_trusted_from", None)
+    en_transicion = bool(
+        confiable_desde and desde < confiable_desde
+        and RecipeLine.objects.filter(
+            tenant=tenant, recipe__is_active=True, ingredient=product,
+        ).exists()
+    )
+
+    incluir_mermas = cuenta_mermas_como_demanda(tenant)
+    por_dia = {
+        d: (vendido, promo, merma, quiebre, solo_forecast)
+        for d, vendido, promo, merma, quiebre, solo_forecast in filas_producto.filter(
+            date__gte=desde, date__lt=today,
+        ).values_list("date", "qty_sold", "promo_qty", "qty_lost", "is_stockout",
+                      "forecast_only")
+    }
+    demandas = []
+    for d in abiertos:
+        fila = por_dia.get(d)
+        if fila is None:
+            demandas.append(Decimal("0"))
+            continue
+        vendido, promo, merma, quiebre, solo_forecast = fila
+        if quiebre:
+            continue
+        if en_transicion and not solo_forecast and d < confiable_desde:
+            continue
+        if promo and vendido and promo >= vendido:
+            continue
+        demandas.append(demanda_efectiva(incluir_mermas, vendido, promo, merma))
+    if len(demandas) < MIN_DIAS_MEDIBLES:
+        return None
+    return nivel_promedio(demandas)
+
+
+def _factores_de_feriado(tenant, daily_forecasts, closed_dows=None):
+    """{fecha: multiplicador} del feriado para los dias del pronostico, con la
+    misma regla que save_forecasts (rampa previa, tipo de negocio, lo aprendido):
+    se calcula pasando un pronostico de unos por apply_holiday_adjustments."""
+    holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
+    if not holidays:
+        return {}
+    unos = [{"date": f["date"], "qty_predicted": Decimal("1"),
+             "lower_bound": Decimal("1"), "upper_bound": Decimal("1")} for f in daily_forecasts]
+    btype = getattr(tenant, "business_type", None) or None
+    # Misma regla que save_forecasts (20/10/26): sin rampas, y un dia cerrado
+    # no lleva feriado (lo pone en 0 _apply_closed_weekdays).
+    apply_holiday_adjustments(unos, holidays, business_type=btype,
+                              closed_dows=closed_dows, rampas=False)
+    return {f["date"]: Decimal(str(f["qty_predicted"])) for f in unos
+            if Decimal(str(f["qty_predicted"])) != Decimal("1")}
+
+
+def _guardar_param(fm, clave, valor):
+    """Escribe (o saca, con None) una clave de `model_params`, y guarda solo si
+    cambio."""
+    params = dict(fm.model_params or {})
+    if params.get(clave) == valor:
+        return
+    if valor is None:
+        if clave not in params:
+            return
+        params.pop(clave)
+    else:
+        params[clave] = valor
+    fm.model_params = params
+    fm.save(update_fields=["model_params"])
+
+
 def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                    confidence_base, stock_items):
     """Delete old forecasts, apply holiday adjustments, and bulk-insert."""
     if not daily_forecasts:
         return  # Guard: never delete existing forecasts without replacements
+
+    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
+
+    # Mezcla con el nivel de los ultimos 28 dias abiertos (06/10/26). Ver
+    # forecast/engine/mezcla.py: medido, un promedio de 28 dias le gana al
+    # motor en los seis productos del nucleo (38% contra 48%), porque el modelo
+    # acierta el nivel y erra la forma.
+    #
+    # Va PRIMERO, sobre la salida cruda del modelo: los feriados, los dias
+    # cerrados, la calibracion de bandas y la demanda detenida se aplican
+    # despues sobre lo ya mezclado, igual que antes sobre el modelo solo. Y va
+    # aca y no en cada algoritmo porque este es el unico punto por el que pasan
+    # todos, derivados de receta incluidos.
+    #
+    # Solo demanda `smooth`: son 19 de 199 modelos y el 92% del volumen, el
+    # nucleo entero menos Helado vainilla. A los intermitentes no se los toca:
+    # un nivel plano repartido en todos los dias no es lo que se midio para
+    # ellos. Interruptor de emergencia: FORECAST_MEZCLA_OFF=1.
+    mezcla = None
+    if fm.demand_pattern == "smooth" and not os.environ.get("FORECAST_MEZCLA_OFF"):
+        nivel_diario = nivel_para_mezcla(tenant, product, warehouse_id, date.today(), closed_dows)
+        if nivel_diario is not None:
+            # El feriado va UNA vez a las dos partes (08/10/26). En un organico
+            # se aplica despues, sobre lo mezclado. En un derivado no: su modelo
+            # ya lo trae de las bebidas y el bloque de feriados de abajo lo
+            # salta, asi que al nivel se le aplica aca.
+            factores = (_factores_de_feriado(tenant, daily_forecasts, closed_dows)
+                        if fm.algorithm == "ingredient_derived" else None)
+            # Lo mismo con el dia incierto (28/10/26): al derivado no se lo
+            # pondera abajo porque sus bebidas ya vienen ponderadas, pero el
+            # NIVEL es su propia demanda, que no viene de las bebidas. Sin esto
+            # la Leche entera publicaba el sabado 7-nov en 911 ml, como un dia
+            # normal, y el sabado 24 cerrado en 365 contra 188 del brazo sin
+            # mezcla.
+            if fm.algorithm == "ingredient_derived" and not os.environ.get("FORECAST_DIA_INCIERTO_OFF"):
+                fracciones = fraccion_que_abre(tenant.id, warehouse_id, closed_dows=closed_dows)
+                if fracciones:
+                    factores = dict(factores or {})
+                    for f in daily_forecasts:
+                        p = fracciones.get(f["date"].weekday())
+                        if p is not None:
+                            factores[f["date"]] = Decimal(str(factores.get(f["date"], 1))) * Decimal(str(p))
+            mezclar_con_nivel(daily_forecasts, nivel_diario, closed_dows,
+                              factores_nivel=factores)
+            mezcla = {"peso_modelo": float(PESO_MODELO_MEZCLA),
+                      "nivel": round(float(nivel_diario), 3)}
+    _guardar_param(fm, "mezcla_prom28", mezcla)
 
     # Apply holiday multipliers before saving (business_type-aware)
     #
@@ -1527,7 +1780,6 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # nucleo publicaron con 73% de error semanal contra 35% de la suma cruda de
     # sus bebidas. Es el mismo criterio que la correccion de sesgo de abajo,
     # que ya dejaba fuera al derivado por la misma razon.
-    closed_dows = get_business_closed_weekdays(tenant.id, warehouse_id)
     if fm.algorithm != "ingredient_derived":
         holidays = _load_holidays_for_horizon(tenant, daily_forecasts)
         if holidays:
@@ -1559,7 +1811,15 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
     # camino no pasa por el regen). Corregir dos veces seria doble descuento,
     # y el backtest que respalda esta regla midio el motor organico.
     # Interruptor de emergencia: FORECAST_SESGO_OFF=1.
-    if (fm.algorithm != "ingredient_derived"
+    #
+    # Tampoco sobre lo mezclado con el nivel (06/10/26). El 75% del punto ya es
+    # el promedio de la demanda REAL, que no tiene el sesgo del modelo; y el
+    # factor se aprende de lo publicado antes, que no estaba mezclado. Con tope
+    # en x2 y piso en x0,5, aplicarlo inflaria o hundiria un nivel que ya esta
+    # centrado, hasta que las mediciones nuevas lo alcanzaran.
+    if mezcla is not None:
+        _guardar_param(fm, "sesgo", None)
+    elif (fm.algorithm != "ingredient_derived"
             and not os.environ.get("FORECAST_SESGO_OFF")):
         sesgo = factor_de_sesgo(
             _mediciones_recientes(tenant, product, warehouse_id)
@@ -1594,6 +1854,27 @@ def save_forecasts(tenant, product, warehouse_id, fm, daily_forecasts,
                 params["calibracion"] = factores
                 fm.model_params = params
                 fm.save(update_fields=["model_params"])
+
+    # Días que a veces abre y a veces no (19/10/26): el sábado de Marbrava. Ver
+    # `fraccion_que_abre`. Va DESPUÉS de la calibración para que el techo quede
+    # como el de un día abierto, y ANTES de demanda detenida y del quiebre.
+    #
+    # Salvo a los derivados de receta, por lo mismo que el feriado: lo arman
+    # con lo publicado por sus bebidas, que ya viene ponderado.
+    # Interruptor de emergencia: FORECAST_DIA_INCIERTO_OFF=1.
+    if (fm.algorithm != "ingredient_derived"
+            and not os.environ.get("FORECAST_DIA_INCIERTO_OFF")):
+        fracciones = fraccion_que_abre(tenant.id, warehouse_id, closed_dows=closed_dows)
+        _ponderar_dias_inciertos(daily_forecasts, fracciones)
+        params = dict(fm.model_params or {})
+        guardar = {str(k): round(v, 3) for k, v in sorted(fracciones.items())}
+        if params.get("dia_incierto", {}) != guardar:
+            if guardar:
+                params["dia_incierto"] = guardar
+            else:
+                params.pop("dia_incierto", None)
+            fm.model_params = params
+            fm.save(update_fields=["model_params"])
 
     # Apply confidence decay for stale models
     confidence_base = compute_confidence_decay(fm.trained_at, confidence_base)

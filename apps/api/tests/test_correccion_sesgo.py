@@ -106,6 +106,14 @@ def _filas(product):
 
 @pytest.mark.django_db
 class TestEnElEmbudo:
+    @pytest.fixture(autouse=True)
+    def _sin_mezcla(self, monkeypatch):
+        """Estos tests miden la correccion de sesgo SOLA. La historia que arman es smooth de 60
+        dias, asi que la mezcla con el nivel de 28 dias (06/10/26) tambien se
+        aplicaria y apagaria la correccion sobre lo mezclado. El mecanismo sigue vigente para los modelos que no
+        son smooth (180 de 199 en Marbrava); el cruce con la mezcla se prueba
+        en test_mezcla_prom28."""
+        monkeypatch.setenv("FORECAST_MEZCLA_OFF", "1")
     def _modelo(self, tenant, product, warehouse):
         _historia(tenant, product, warehouse)
         call_command("train_forecast_models", tenant=tenant.id, horizon=14, verbosity=0)
